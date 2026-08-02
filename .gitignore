@@ -23,6 +23,10 @@ android/local.properties
 android/app/libs/*.aar
 android/app/src/main/jniLibs/
 
+# Ключ подписи релиза и пароли к нему — никогда в git.
+android/*.jks
+android/keystore.properties
+
 # ── Прочее ──────────────────────────────────────────────────────────
 .idea/
 .vscode/

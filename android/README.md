@@ -32,6 +32,33 @@ build_apk.bat
 Скрипт берёт JDK от Android Studio (JBR 21) и Gradle с `D:\gradle`. Если у тебя
 пути другие — поправь их в `build_apk.bat` или собери из Android Studio.
 
+### Релизная сборка
+
+`assembleRelease` подписывает APK ключом, описанным в `keystore.properties`
+(в git не попадает — там пароли):
+
+```properties
+storeFile=scvpn-release.jks
+storePassword=...
+keyAlias=scvpn
+keyPassword=...
+```
+
+Файл должен быть **без BOM**, иначе первый ключ прочитается как `\ufeffstoreFile`
+и сборка упадёт с `path may not be null`. Свой ключ создаётся так:
+
+```powershell
+keytool -genkeypair -v -keystore scvpn-release.jks -alias scvpn `
+  -keyalg RSA -keysize 4096 -validity 10950
+```
+
+Без `keystore.properties` release соберётся неподписанным — установить такой APK
+нельзя, но сборка не сломается.
+
+Отличие от debug по существу одно: в release нет `android:debuggable`, то есть к
+работающему VPN нельзя подцепиться отладчиком. Обфускация выключена намеренно —
+смысл проекта в том, что код видно.
+
 ## Структура
 
 | Файл | За что отвечает |
