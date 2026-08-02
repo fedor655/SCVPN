@@ -17,6 +17,7 @@ import requests
 
 from .hwid import device_headers
 from .models import Server
+from .subinfo import SubscriptionInfo
 
 # Многие панели (3x-ui, Marzban, Remnawave) отдают список ссылок в base64,
 # ориентируясь на User-Agent известного клиента. Используем распространённый,
@@ -30,7 +31,15 @@ class SubscriptionError(Exception):
 
 
 def fetch_subscription(url: str, user_agent: str = DEFAULT_USER_AGENT, timeout: int = 30) -> list["Server"]:
-    """Скачать подписку по URL и вернуть список серверов.
+    """Скачать подписку по URL и вернуть список серверов."""
+    servers, _info = fetch_subscription_full(url, user_agent, timeout)
+    return servers
+
+
+def fetch_subscription_full(
+    url: str, user_agent: str = DEFAULT_USER_AGENT, timeout: int = 30
+) -> tuple[list["Server"], SubscriptionInfo]:
+    """Серверы + служебные сведения подписки (срок, трафик, автообновление).
 
     Кроме User-Agent шлём идентификатор устройства: панели с привязкой к
     устройствам без него отдают заглушку вместо серверов (см. hwid.py).
@@ -43,7 +52,7 @@ def fetch_subscription(url: str, user_agent: str = DEFAULT_USER_AGENT, timeout: 
 
     servers = parse_subscription_text(r.text)
     _raise_if_panel_stub(servers, r.headers)
-    return servers
+    return servers, SubscriptionInfo.from_headers(r.headers)
 
 
 def _raise_if_panel_stub(servers: list["Server"], headers) -> None:

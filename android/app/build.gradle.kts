@@ -20,8 +20,8 @@ android {
         applicationId = "com.scvpn"
         minSdk = 24
         targetSdk = 33
-        versionCode = 4
-        versionName = "0.2.2"
+        versionCode = 5
+        versionName = "0.3.0"
         ndk {
             // те ABI, под которые у нас есть hev .so + ядро
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
@@ -63,4 +63,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
+    // Только генерация QR-кода ссылки подписки — сканер и камера не нужны.
+    implementation("com.google.zxing:core:3.5.3")
 }

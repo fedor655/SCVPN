@@ -18,6 +18,22 @@
     <string name="delete_subscription">Удалить подписку</string>
     <string name="delete">Удалить</string>
 
+    <string name="split_title">Раздельное туннелирование</string>
+    <string name="split_hint">Какие приложения пускать через VPN. Применяется при следующем подключении.</string>
+    <string name="split_off">Все приложения через VPN</string>
+    <string name="split_exclude">Все через VPN, кроме выбранных</string>
+    <string name="split_include">Только выбранные через VPN</string>
+    <string name="split_search">Поиск приложения…</string>
+    <string name="split_applies_next">Настройка применится при следующем подключении</string>
+
+    <string name="menu_split">Раздельное туннелирование</string>
+    <string name="menu_subscription">Подписка</string>
+    <string name="copy_link">Копировать ссылку</string>
+    <string name="share">Поделиться</string>
+    <string name="close">Закрыть</string>
+    <string name="sub_qr_hint">Наведи камерой другого устройства, чтобы перенести подписку</string>
+    <string name="no_subscription">Подписка не добавлена</string>
+
     <string name="dlg_add_title">Добавить сервер</string>
     <string name="dlg_add_hint">vless:// … или URL подписки</string>
     <string name="dlg_add_link">Как ссылку</string>

@@ -83,8 +83,114 @@ def resolve_ips(host: str) -> list[str]:
 # ----------------------------------------------------------------------
 # Конфиг sing-box: только TUN -> SOCKS Xray (никакой крипты тут нет)
 # ----------------------------------------------------------------------
-def build_singbox_config(socks_port: int, exclude_ips: list[str], *, log_level: str = "warn") -> dict:
+# Режимы раздельного туннелирования (split tunneling).
+SPLIT_OFF = "off"           # все приложения через VPN
+SPLIT_EXCLUDE = "exclude"   # все через VPN, кроме выбранных
+SPLIT_INCLUDE = "include"   # только выбранные через VPN
+
+# Файл с PID запущенного нами sing-box — см. cleanup_stray().
+PID_FILE_NAME = "singbox.pid"
+
+
+def _pid_file():
+    return paths.DATA_DIR / PID_FILE_NAME
+
+
+def _is_singbox(pid: int) -> bool:
+    """Жив ли процесс с таким PID и это действительно sing-box.
+
+    Проверяем имя образа, потому что PID переиспользуются: без этого мы могли
+    бы прибить чужой процесс, случайно получивший тот же номер.
+    """
+    try:
+        out = subprocess.run(
+            ["tasklist", "/fi", f"PID eq {pid}", "/fo", "csv", "/nh"],
+            capture_output=True, text=True, encoding="cp866", errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout
+    except Exception:  # noqa: BLE001
+        return False
+    return "sing-box" in out.lower()
+
+
+def cleanup_stray(log: Optional[Callable[[str], None]] = None) -> bool:
+    """Прибить sing-box, переживший прошлый запуск приложения.
+
+    Зачем. sing-box поднимается с правами администратора и живёт отдельным
+    процессом. Если приложение закрылось аварийно (или его сняли из диспетчера),
+    sing-box остаётся — а с ним и TUN-адаптер, который забирает весь трафик
+    системы и отдаёт его в SOCKS уже мёртвого Xray. Снаружи это выглядит как
+    «интернет пропал»: соединения просто висят до таймаута.
+
+    Возвращает True, если что-то прибрали.
+    """
+    say = log or (lambda s: None)
+    f = _pid_file()
+    if not f.exists():
+        return False
+
+    try:
+        pid = int(f.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        f.unlink(missing_ok=True)
+        return False
+
+    if not _is_singbox(pid):
+        f.unlink(missing_ok=True)   # процесс уже завершился штатно
+        return False
+
+    say(f"[tun] с прошлого запуска остался sing-box (PID {pid}) — он держит TUN, убираю.")
+    try:
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True, text=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception as e:  # noqa: BLE001
+        say(f"[tun] не удалось: {e}")
+
+    if _is_singbox(pid):
+        say("[!] Не хватило прав снять зависший sing-box. Запусти SCVPN от имени "
+            "администратора — или перезагрузись, если интернет не работает.")
+        return False
+
+    f.unlink(missing_ok=True)
+    say("[tun] зависший TUN убран, маршруты вернулись.")
+    return True
+
+
+def build_singbox_config(
+    socks_port: int,
+    exclude_ips: list[str],
+    *,
+    log_level: str = "warn",
+    split_mode: str = SPLIT_OFF,
+    split_apps: list[str] | None = None,
+) -> dict:
+    """Конфиг sing-box: TUN -> SOCKS Xray, плюс правила раздельного туннеля.
+
+    Раздельное туннелирование делает сам sing-box: он умеет сопоставлять
+    соединение с процессом-владельцем (`process_name`) и отправлять его либо
+    в туннель, либо напрямую. Поэтому это работает только в TUN-режиме —
+    системный прокси про приложения ничего не знает.
+    """
     excludes = [f"{ip}/32" for ip in exclude_ips]
+    apps = [a.strip() for a in (split_apps or []) if a.strip()]
+
+    rules: list[dict] = []
+    if apps and split_mode == SPLIT_EXCLUDE:
+        # Выбранные — мимо VPN, всё остальное (final) — в туннель.
+        rules.append({"process_name": apps, "outbound": "direct"})
+    elif apps and split_mode == SPLIT_INCLUDE:
+        # Выбранные — в туннель, всё остальное — напрямую (см. final ниже).
+        rules.append({"process_name": apps, "outbound": "to-xray"})
+
+    final = "direct" if (apps and split_mode == SPLIT_INCLUDE) else "to-xray"
+
+    route: dict = {"auto_detect_interface": True, "final": final}
+    if rules:
+        route["rules"] = rules
+
     return {
         "log": {"level": log_level},
         "inbounds": [
@@ -110,10 +216,7 @@ def build_singbox_config(socks_port: int, exclude_ips: list[str], *, log_level: 
             },
             {"type": "direct", "tag": "direct"},
         ],
-        "route": {
-            "auto_detect_interface": True,
-            "final": "to-xray",
-        },
+        "route": route,
     }
 
 
@@ -135,7 +238,13 @@ class SingBoxTun:
     def running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
-    def start(self, server: Server, socks_port: int) -> None:
+    def start(
+        self,
+        server: Server,
+        socks_port: int,
+        split_mode: str = SPLIT_OFF,
+        split_apps: list[str] | None = None,
+    ) -> None:
         if not is_admin():
             raise PermissionError("TUN-режим требует прав администратора.")
         exe = paths.singbox_exe()
@@ -150,7 +259,14 @@ class SingBoxTun:
         else:
             self.on_log(f"[tun] обход для IP сервера: {', '.join(ips)}")
 
-        cfg = build_singbox_config(socks_port, ips)
+        apps = split_apps or []
+        if split_mode != SPLIT_OFF and apps:
+            what = "мимо VPN" if split_mode == SPLIT_EXCLUDE else "через VPN"
+            self.on_log(f"[tun] раздельный туннель: {what} — {', '.join(apps)}")
+
+        cfg = build_singbox_config(
+            socks_port, ips, split_mode=split_mode, split_apps=apps
+        )
         cfg_path = paths.DATA_DIR / "singbox_running.json"
         import json
         cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -168,6 +284,13 @@ class SingBoxTun:
             bufsize=1,
             creationflags=creationflags,
         )
+        # PID на диск — чтобы следующий запуск приложения смог прибрать за собой,
+        # если этот процесс переживёт нас (см. cleanup_stray).
+        try:
+            _pid_file().write_text(str(self._proc.pid), encoding="utf-8")
+        except OSError:
+            pass
+
         self.on_log("[tun] sing-box запущен (поднимаю TUN-адаптер)…")
         self.on_state(True)
         self._reader = threading.Thread(target=self._read_output, daemon=True)
@@ -197,4 +320,5 @@ class SingBoxTun:
             except Exception as e:  # noqa: BLE001
                 self.on_log(f"[tun] ошибка остановки: {e}")
         self._proc = None
+        _pid_file().unlink(missing_ok=True)
         self.on_state(False)

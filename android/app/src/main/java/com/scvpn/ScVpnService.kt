@@ -72,11 +72,17 @@ class ScVpnService : VpnService() {
                 .addRoute("0.0.0.0", 0)
                 .addDnsServer("1.1.1.1")
                 .addDnsServer("8.8.8.8")
-            try {
-                builder.addDisallowedApplication(packageName)
-            } catch (e: Exception) {
-                Log.w(TAG, "addDisallowedApplication failed", e)
-            }
+
+            // Раздельное туннелирование + исключение самого приложения:
+            // и то и другое трогает один и тот же список, поэтому делается
+            // в одном месте (см. SplitTunnel.apply).
+            val split = SplitTunnel.apply(
+                builder, packageManager,
+                Prefs.splitMode(applicationContext),
+                Prefs.splitApps(applicationContext),
+                packageName,
+            )
+            Log.i(TAG, "туннель охватывает: $split")
             val pfd = builder.establish() ?: throw IllegalStateException("establish() вернул null")
             tun = pfd
 

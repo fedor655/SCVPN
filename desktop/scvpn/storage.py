@@ -12,6 +12,7 @@ from typing import Any
 
 from . import paths
 from .models import Server
+from .subinfo import SubscriptionInfo
 
 
 # ----------------------------------------------------------------------
@@ -22,13 +23,20 @@ class Subscription:
     name: str = ""
     url: str = ""
     updated: str = ""
+    added: str = ""              # когда подписку добавили в приложение
     servers: list[Server] = field(default_factory=list)
+    # Сведения от панели: срок, трафик, автообновление. Хранятся, чтобы экран
+    # подписки открывался мгновенно и работал без сети — цифры от последнего
+    # успешного обновления, дата этого обновления лежит в info.fetched.
+    info: SubscriptionInfo = field(default_factory=SubscriptionInfo)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "url": self.url,
             "updated": self.updated,
+            "added": self.added,
+            "info": self.info.to_dict(),
             "servers": [s.to_dict() for s in self.servers],
         }
 
@@ -38,6 +46,8 @@ class Subscription:
             name=d.get("name", ""),
             url=d.get("url", ""),
             updated=d.get("updated", ""),
+            added=d.get("added", ""),
+            info=SubscriptionInfo.from_dict(d.get("info", {})),
             servers=[Server.from_dict(x) for x in d.get("servers", [])],
         )
 
@@ -99,6 +109,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "selected_key": "",        # Server.key() выбранного сервера
     "tls_fingerprint": "auto",  # auto = автоподбор; либо chrome/firefox/safari/...
     "vpn_mode": "proxy",       # proxy = системный прокси; tun = весь трафик (нужен админ)
+    "split_mode": "off",       # off | exclude | include — раздельное туннелирование (только TUN)
+    "split_apps": [],          # имена .exe, к которым применяется split_mode
 }
 
 

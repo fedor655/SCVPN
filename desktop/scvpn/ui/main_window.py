@@ -42,11 +42,13 @@ from ..storage import (
     save_profiles,
     save_settings,
 )
-from ..subscription import SubscriptionError, fetch_subscription, parse_link
-from ..tun import SingBoxTun, is_admin, relaunch_as_admin
+from ..subscription import SubscriptionError, fetch_subscription_full, parse_link
+from ..tun import SPLIT_OFF, SingBoxTun, cleanup_stray, is_admin, relaunch_as_admin
 from ..xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
 from . import theme
 from .brandmark import mark_pixmap
+from .split_dialog import SplitTunnelDialog
+from .subscription_dialog import SubscriptionDialog
 from .widgets import ROLE_PING, ROLE_SERVER, ROLE_SUBTITLE, PowerButton, ServerDelegate, pulse_icon
 from .workers import PingWorker, Worker
 
@@ -106,6 +108,10 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._refresh_list()
         self._render_state("idle")
+
+        # Если прошлый запуск завершился аварийно, TUN мог остаться поднятым и
+        # сейчас забирать весь трафик в никуда — разбираем это до всего прочего.
+        cleanup_stray(self._append_log)
 
         if not core_present():
             self._append_log("[!] Ядро Xray-core не найдено. Меню «⋯» → «Скачать ядро Xray».")
@@ -260,6 +266,7 @@ class MainWindow(QMainWindow):
         self._check_item(menu, "Блокировать рекламу", "block_ads", False)
 
         menu.addSeparator()
+        menu.addAction("Раздельное туннелирование…", self._edit_split_tunnel)
         menu.addAction("Подписки…", self._manage_subscriptions)
         menu.addAction("Измерить пинг", self._ping_all)
         menu.addAction("Скачать ядро Xray", self._download_core)
@@ -482,7 +489,11 @@ class MainWindow(QMainWindow):
 
         if mode == "tun":
             try:
-                self.tun.start(srv, self._active_socks_port)
+                self.tun.start(
+                    srv, self._active_socks_port,
+                    split_mode=self.settings.get("split_mode", SPLIT_OFF),
+                    split_apps=list(self.settings.get("split_apps", [])),
+                )
             except Exception as e:  # noqa: BLE001
                 self._append_log(f"[!] Не удалось включить TUN: {e}")
                 QMessageBox.critical(self, "Ошибка TUN", str(e))
@@ -589,7 +600,7 @@ class MainWindow(QMainWindow):
         )
         if not ok:
             return
-        sub = Subscription(name=name.strip() or "Подписка", url=text)
+        sub = Subscription(name=name.strip() or "Подписка", url=text, added=now_iso())
         self.profiles.subscriptions.append(sub)
         save_profiles(self.profiles)
         self._fetch_one_subscription(sub)
@@ -601,66 +612,60 @@ class MainWindow(QMainWindow):
         for sub in self.profiles.subscriptions:
             self._fetch_one_subscription(sub)
 
-    def _manage_subscriptions(self) -> None:
-        """Список подписок с удалением. Удалить сервер поштучно можно правой
-        кнопкой по строке, а всю подписку целиком — только отсюда: иначе её
-        серверы вернулись бы при следующем «Обновить»."""
-        from PySide6.QtWidgets import QDialog, QListWidget, QPushButton
+    def _edit_split_tunnel(self) -> None:
+        dlg = SplitTunnelDialog(
+            self.settings.get("split_mode", SPLIT_OFF),
+            list(self.settings.get("split_apps", [])),
+            self,
+        )
+        if dlg.exec() != SplitTunnelDialog.Accepted:
+            return
+        self._set_setting("split_mode", dlg.mode)
+        self._set_setting("split_apps", dlg.apps)
 
-        if not self.profiles.subscriptions:
+        if dlg.mode == SPLIT_OFF or not dlg.apps:
+            self._append_log("[*] Раздельный туннель выключен — всё идёт через VPN.")
+        else:
+            what = "мимо VPN" if dlg.mode == "exclude" else "через VPN"
+            self._append_log(f"[*] Раздельный туннель: {what} — {', '.join(dlg.apps)}")
+        if self.settings.get("vpn_mode") != "tun":
+            QMessageBox.information(
+                self, "Нужен TUN-режим",
+                "Раздельное туннелирование работает только в режиме\n"
+                "«TUN — весь трафик». Переключи способ подключения в этом же меню.",
+            )
+        elif self.runner.running:
+            self._append_log("[i] Изменения применятся при следующем подключении.")
+
+    def _manage_subscriptions(self) -> None:
+        """Экран подписки: статистика, ссылка, QR, удаление.
+
+        Удалить сервер поштучно можно правой кнопкой по строке, а всю подписку
+        целиком — только отсюда: иначе её серверы вернулись бы при «Обновить».
+        """
+        subs = self.profiles.subscriptions
+        if not subs:
             QMessageBox.information(self, "Подписки", "Подписок нет.\nДобавь кнопкой + вверху.")
             return
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Подписки")
-        dlg.resize(380, 320)
-        lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel("Подписки. Удаление убирает и все её серверы из списка."))
-
-        listw = QListWidget()
-
-        def fill() -> None:
-            listw.clear()
-            for sub in self.profiles.subscriptions:
-                extra = f", обновлена {sub.updated}" if sub.updated else ""
-                listw.addItem(f"{sub.name} — серверов: {len(sub.servers)}{extra}")
-            if self.profiles.subscriptions:
-                listw.setCurrentRow(0)
-
-        fill()
-        lay.addWidget(listw, 1)
-
-        row = QHBoxLayout()
-        del_btn = QPushButton("Удалить подписку")
-        close_btn = QPushButton("Закрыть")
-        close_btn.setDefault(True)
-        row.addWidget(del_btn)
-        row.addStretch(1)
-        row.addWidget(close_btn)
-        lay.addLayout(row)
-
-        def do_delete() -> None:
-            i = listw.currentRow()
-            if not 0 <= i < len(self.profiles.subscriptions):
+        sub = subs[0]
+        if len(subs) > 1:
+            names = [f"{s.name} — серверов: {len(s.servers)}" for s in subs]
+            choice, ok = QInputDialog.getItem(self, "Подписки", "Выбери подписку:", names, 0, False)
+            if not ok:
                 return
-            sub = self.profiles.subscriptions[i]
-            if QMessageBox.question(
-                dlg, "Удалить подписку",
-                f"Удалить «{sub.name}» и её {len(sub.servers)} серверов?",
-            ) != QMessageBox.Yes:
-                return
-            del self.profiles.subscriptions[i]
+            sub = subs[names.index(choice)]
+
+        dlg = SubscriptionDialog(sub, self)
+        dlg.exec()
+
+        if dlg.deleted:
+            self.profiles.subscriptions.remove(sub)
             save_profiles(self.profiles)
             self._refresh_list()
             self._append_log(f"[-] Удалена подписка: {sub.name}")
-            if not self.profiles.subscriptions:
-                dlg.accept()
-            else:
-                fill()
-
-        del_btn.clicked.connect(do_delete)
-        close_btn.clicked.connect(dlg.accept)
-        dlg.exec()
+        elif dlg.refresh_requested:
+            self._fetch_one_subscription(sub)
 
     def _fetch_one_subscription(self, sub: Subscription) -> None:
         ua = self.settings.get("user_agent", "")
@@ -668,8 +673,8 @@ class MainWindow(QMainWindow):
 
         def task(log):
             if ua:
-                return fetch_subscription(sub.url, user_agent=ua)
-            return fetch_subscription(sub.url)
+                return fetch_subscription_full(sub.url, user_agent=ua)
+            return fetch_subscription_full(sub.url)
 
         w = Worker(task)
         w.log.connect(self._append_log)
@@ -682,9 +687,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, f"Подписка «{sub.name}»", str(w.error))
             self._workers.remove(w)
 
-        def on_done(servers):
+        def on_done(result):
+            servers, info = result
             sub.servers = servers
+            sub.info = info
             sub.updated = now_iso()
+            # Название от панели точнее того, что пользователь ввёл руками.
+            if info.title and sub.name in ("", "Подписка", "Моя подписка"):
+                sub.name = info.title
             save_profiles(self.profiles)
             self._refresh_list()
             self._append_log(f"[+] Подписка «{sub.name}»: {len(servers)} серверов")

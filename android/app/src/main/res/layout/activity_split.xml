@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="16dp"
+        android:text="@string/split_title"
+        android:textColor="@color/text"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="10dp"
+        android:text="@string/split_hint"
+        android:textColor="@color/text_dim"
+        android:textSize="12sp" />
+
+    <RadioGroup
+        android:id="@+id/modes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:orientation="vertical">
+
+        <RadioButton
+            android:id="@+id/mode_off"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/split_off"
+            android:textColor="@color/text"
+            android:paddingStart="8dp" />
+
+        <RadioButton
+            android:id="@+id/mode_exclude"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/split_exclude"
+            android:textColor="@color/text"
+            android:paddingStart="8dp" />
+
+        <RadioButton
+            android:id="@+id/mode_include"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/split_include"
+            android:textColor="@color/text"
+            android:paddingStart="8dp" />
+    </RadioGroup>
+
+    <EditText
+        android:id="@+id/search"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginTop="10dp"
+        android:hint="@string/split_search"
+        android:inputType="text"
+        android:maxLines="1"
+        android:textColor="@color/text"
+        android:textColorHint="@color/text_dim"
+        android:textSize="14sp"
+        android:autofillHints="" />
+
+    <ListView
+        android:id="@+id/apps"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="12dp"
+        android:clipToPadding="false"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbars="none" />
+
+    <ProgressBar
+        android:id="@+id/loading"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="16dp" />
+</LinearLayout>

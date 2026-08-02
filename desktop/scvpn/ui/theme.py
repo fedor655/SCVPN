@@ -26,6 +26,10 @@ QMainWindow, QWidget {{
     font-size: 13px;
 }}
 
+/* Подписи не красят фон: иначе на диалогах (они светлее окна) под каждой
+   строкой проступала бы полоса цвета основного фона. */
+QLabel {{ background: transparent; }}
+
 QLabel#wordmark {{
     font-size: 14px;
     font-weight: 700;
@@ -59,6 +63,32 @@ QListWidget {{
     border: none;
     outline: none;
 }}
+
+/* Переключатели: системная отрисовка на тёмном фоне даёт тёмное на тёмном,
+   поэтому индикаторы рисуем сами. */
+QRadioButton, QCheckBox {{ background: transparent; spacing: 9px; padding: 3px 0; }}
+QRadioButton::indicator, QCheckBox::indicator,
+QListWidget::indicator {{
+    width: 15px; height: 15px;
+    border: 1px solid {DIM};
+    background: {BG};
+}}
+QRadioButton::indicator {{ width: 16px; height: 16px; border-radius: 9px; }}
+QRadioButton::indicator:checked {{
+    /* Точку рисуем градиентом, а не толстой рамкой: Qt не скругляет широкую
+       рамку и вместо кружка получается квадрат со скруглениями. */
+    border: 1px solid {TEAL};
+    border-radius: 9px;
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                stop:0 {TEAL}, stop:0.45 {TEAL}, stop:0.5 {BG}, stop:1 {BG});
+}}
+QCheckBox::indicator, QListWidget::indicator {{ border-radius: 4px; }}
+QCheckBox::indicator:checked, QListWidget::indicator:checked {{
+    background: {TEAL};
+    border-color: {TEAL};
+}}
+QRadioButton::indicator:hover, QCheckBox::indicator:hover,
+QListWidget::indicator:hover {{ border-color: {TEAL}; }}
 
 QMenu {{
     background: {SURFACE};

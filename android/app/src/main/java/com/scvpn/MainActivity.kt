@@ -3,6 +3,8 @@ package com.scvpn
 import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -285,13 +287,84 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------
     private fun showOverflow(anchor: View) {
         PopupMenu(this, anchor).apply {
-            menu.add(0, 1, 0, getString(R.string.delete_subscription))
+            menu.add(0, 1, 0, getString(R.string.menu_subscription))
+            menu.add(0, 2, 1, getString(R.string.menu_split))
+            menu.add(0, 3, 2, getString(R.string.delete_subscription))
             setOnMenuItemClickListener {
-                if (it.itemId == 1) confirmDeleteSubscription()
+                when (it.itemId) {
+                    1 -> showSubscriptionInfo()
+                    2 -> startActivity(Intent(this@MainActivity, SplitActivity::class.java))
+                    3 -> confirmDeleteSubscription()
+                }
                 true
             }
             show()
         }
+    }
+
+    /** Экран подписки: сколько потрачено, до какого числа, ссылка и QR. */
+    private fun showSubscriptionInfo() {
+        val url = Prefs.subUrl(this)
+        if (url.isBlank()) { toast(getString(R.string.no_subscription)); return }
+
+        val info = Prefs.subInfo(this)
+        val view = layoutInflater.inflate(R.layout.dialog_subscription, null)
+
+        view.findViewById<TextView>(R.id.sub_account).text = info.account
+        view.findViewById<TextView>(R.id.sub_url).text = url
+
+        view.findViewById<TextView>(R.id.sub_announce).apply {
+            if (info.announce.isBlank()) visibility = View.GONE
+            else { text = info.announce; visibility = View.VISIBLE }
+        }
+
+        val left = info.daysLeft
+        val expires = if (info.expire <= 0) "бессрочно"
+        else info.expiresText + when {
+            left == null -> ""
+            left < 0 -> "  ·  истекла"
+            else -> "  ·  осталось $left дн."
+        }
+        val traffic = if (info.unlimited)
+            "${SubInfo.humanBytes(info.used)}  (безлимит)"
+        else
+            "${SubInfo.humanBytes(info.used)} из ${SubInfo.humanBytes(info.total)}"
+
+        view.findViewById<TextView>(R.id.sub_stats).text = buildString {
+            appendLine("Потрачено:  $traffic")
+            appendLine("Отдано / принято:  ${SubInfo.humanBytes(info.upload)} / ${SubInfo.humanBytes(info.download)}")
+            appendLine("Действует до:  $expires")
+            appendLine("Автообновление:  ${SubInfo.humanInterval(info.updateInterval)}")
+            appendLine("Серверов:  ${servers.size}")
+            if (Prefs.subAdded(this@MainActivity).isNotBlank()) {
+                appendLine("Добавлена:  ${Prefs.subAdded(this@MainActivity)}")
+            }
+            if (info.fetched.isNotBlank()) append("Данные обновлены:  ${info.fetched}")
+        }
+
+        view.findViewById<ImageView>(R.id.sub_qr).apply {
+            val bmp = Qr.encode(url, 220 * resources.displayMetrics.density.toInt().coerceAtLeast(1))
+            if (bmp != null) setImageBitmap(bmp) else visibility = View.GONE
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(info.title.ifBlank { getString(R.string.menu_subscription) })
+            .setView(view)
+            .setPositiveButton(R.string.close, null)
+            .setNeutralButton(R.string.copy_link) { _, _ ->
+                val cb = getSystemService(ClipboardManager::class.java)
+                cb.setPrimaryClip(ClipData.newPlainText("SCVPN", url))
+                toast("Ссылка скопирована")
+            }
+            .setNegativeButton(R.string.share) { _, _ ->
+                startActivity(Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, url)
+                    }, getString(R.string.share)
+                ))
+            }
+            .show()
     }
 
     private fun confirmDeleteSubscription() {
@@ -301,6 +374,8 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Удалить подписку и все её серверы?")
             .setPositiveButton(R.string.delete) { _, _ ->
                 Prefs.setSubUrl(this, "")
+                Prefs.setSubInfo(this, SubInfo())   // и статистику прошлой подписки тоже
+                Prefs.setSubAdded(this, "")
                 servers = mutableListOf()
                 Prefs.saveServers(this, servers)
                 pings.clear()
@@ -335,12 +410,18 @@ class MainActivity : AppCompatActivity() {
     private fun fetchSub(url: String) {
         toast("Обновляю подписку…")
         Thread {
-            val result = runCatching { SubscriptionParser.fetchSubscription(applicationContext, url) }
+            val result = runCatching {
+                SubscriptionParser.fetchSubscriptionFull(applicationContext, url)
+            }
             ui.post {
-                result.onSuccess { fetched ->
+                result.onSuccess { (fetched, info) ->
                     if (fetched.isEmpty()) { toast("В подписке не нашлось серверов"); return@post }
                     servers = fetched.toMutableList()
                     Prefs.saveServers(this, servers)
+                    Prefs.setSubInfo(this, info)
+                    if (Prefs.subAdded(this).isBlank()) {
+                        Prefs.setSubAdded(this, SubInfo.nowStamp())
+                    }
                     Prefs.setSelectedIndex(this, 0)
                     reloadServers()
                     toast("Подписка: ${fetched.size} серверов")

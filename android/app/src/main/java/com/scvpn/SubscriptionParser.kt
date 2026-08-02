@@ -20,7 +20,11 @@ object SubscriptionParser {
 
     private const val USER_AGENT = "v2rayNG/1.9.5"
 
-    fun fetchSubscription(ctx: Context, url: String): List<Server> {
+    fun fetchSubscription(ctx: Context, url: String): List<Server> =
+        fetchSubscriptionFull(ctx, url).first
+
+    /** Серверы + сведения подписки (срок, трафик, автообновление). */
+    fun fetchSubscriptionFull(ctx: Context, url: String): Pair<List<Server>, SubInfo> {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             setRequestProperty("User-Agent", USER_AGENT)
@@ -34,7 +38,7 @@ object SubscriptionParser {
             val text = ins.readBytes().toString(Charsets.UTF_8)
             val servers = parseSubscriptionText(text)
             raiseIfPanelStub(servers, conn)
-            return servers
+            return servers to SubInfo.fromHeaders(conn)
         }
     }
 
