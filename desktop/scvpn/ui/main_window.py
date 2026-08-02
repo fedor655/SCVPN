@@ -47,7 +47,7 @@ from ..tun import SingBoxTun, is_admin, relaunch_as_admin
 from ..xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
 from . import theme
 from .brandmark import mark_pixmap
-from .widgets import ROLE_PING, ROLE_SERVER, ROLE_SUBTITLE, PowerButton, ServerDelegate
+from .widgets import ROLE_PING, ROLE_SERVER, ROLE_SUBTITLE, PowerButton, ServerDelegate, pulse_icon
 from .workers import PingWorker, Worker
 
 STATE_COLORS = {
@@ -183,10 +183,20 @@ class MainWindow(QMainWindow):
             header.addWidget(b)
             return b
 
+        # Пинг — отдельной кнопкой в шапке, а не только в меню: его ищут глазами.
+        ping_btn = QToolButton()
+        ping_btn.setIcon(pulse_icon(theme.DIM))
+        ping_btn.setIconSize(QSize(20, 20))
+        ping_btn.setToolTip("Измерить пинг серверов")
+        ping_btn.setFixedSize(QSize(34, 34))
+        ping_btn.setCursor(Qt.PointingHandCursor)
+        ping_btn.clicked.connect(self._ping_all)
+        header.addWidget(ping_btn)
+
         tool("+", "Добавить сервер или подписку", self._add_something)
         tool("↻", "Обновить подписки", self._update_subscriptions)
 
-        self.menu_btn = tool("⋯", "Настройки", lambda: None)
+        self.menu_btn = tool("⋯", "Настройки и подписки", lambda: None)
         self.menu_btn.setPopupMode(QToolButton.InstantPopup)
         self.menu_btn.setMenu(self._build_menu())
 
@@ -250,6 +260,7 @@ class MainWindow(QMainWindow):
         self._check_item(menu, "Блокировать рекламу", "block_ads", False)
 
         menu.addSeparator()
+        menu.addAction("Подписки…", self._manage_subscriptions)
         menu.addAction("Измерить пинг", self._ping_all)
         menu.addAction("Скачать ядро Xray", self._download_core)
         menu.addAction("Скачать компоненты TUN", self._download_tun)
@@ -589,6 +600,67 @@ class MainWindow(QMainWindow):
             return
         for sub in self.profiles.subscriptions:
             self._fetch_one_subscription(sub)
+
+    def _manage_subscriptions(self) -> None:
+        """Список подписок с удалением. Удалить сервер поштучно можно правой
+        кнопкой по строке, а всю подписку целиком — только отсюда: иначе её
+        серверы вернулись бы при следующем «Обновить»."""
+        from PySide6.QtWidgets import QDialog, QListWidget, QPushButton
+
+        if not self.profiles.subscriptions:
+            QMessageBox.information(self, "Подписки", "Подписок нет.\nДобавь кнопкой + вверху.")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Подписки")
+        dlg.resize(380, 320)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("Подписки. Удаление убирает и все её серверы из списка."))
+
+        listw = QListWidget()
+
+        def fill() -> None:
+            listw.clear()
+            for sub in self.profiles.subscriptions:
+                extra = f", обновлена {sub.updated}" if sub.updated else ""
+                listw.addItem(f"{sub.name} — серверов: {len(sub.servers)}{extra}")
+            if self.profiles.subscriptions:
+                listw.setCurrentRow(0)
+
+        fill()
+        lay.addWidget(listw, 1)
+
+        row = QHBoxLayout()
+        del_btn = QPushButton("Удалить подписку")
+        close_btn = QPushButton("Закрыть")
+        close_btn.setDefault(True)
+        row.addWidget(del_btn)
+        row.addStretch(1)
+        row.addWidget(close_btn)
+        lay.addLayout(row)
+
+        def do_delete() -> None:
+            i = listw.currentRow()
+            if not 0 <= i < len(self.profiles.subscriptions):
+                return
+            sub = self.profiles.subscriptions[i]
+            if QMessageBox.question(
+                dlg, "Удалить подписку",
+                f"Удалить «{sub.name}» и её {len(sub.servers)} серверов?",
+            ) != QMessageBox.Yes:
+                return
+            del self.profiles.subscriptions[i]
+            save_profiles(self.profiles)
+            self._refresh_list()
+            self._append_log(f"[-] Удалена подписка: {sub.name}")
+            if not self.profiles.subscriptions:
+                dlg.accept()
+            else:
+                fill()
+
+        del_btn.clicked.connect(do_delete)
+        close_btn.clicked.connect(dlg.accept)
+        dlg.exec()
 
     def _fetch_one_subscription(self, sub: Subscription) -> None:
         ua = self.settings.get("user_agent", "")

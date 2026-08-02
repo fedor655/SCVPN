@@ -12,6 +12,11 @@
     <string name="action_add">Добавить</string>
     <string name="action_refresh">Обновить подписку</string>
     <string name="action_ping">Пинг</string>
+    <string name="action_more">Ещё</string>
+
+    <string name="delete_server">Удалить сервер</string>
+    <string name="delete_subscription">Удалить подписку</string>
+    <string name="delete">Удалить</string>
 
     <string name="dlg_add_title">Добавить сервер</string>
     <string name="dlg_add_hint">vless:// … или URL подписки</string>

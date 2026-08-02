@@ -10,11 +10,32 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QAbstractButton, QStyle, QStyledItemDelegate
 
 from . import theme
 from .brandmark import paint_mark
+
+
+def pulse_icon(color: str, size: int = 20) -> QIcon:
+    """Значок «пульс» для кнопки пинга — та же кардиограмма, что на Android."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing, True)
+    pen = QPen(QColor(color), max(1.4, size * 0.10))
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    p.setPen(pen)
+    s = size / 24.0
+    pts = [(3, 12), (8, 12), (10.5, 6.5), (14, 17.5), (16, 12), (21, 12)]
+    path = QPainterPath()
+    path.moveTo(pts[0][0] * s, pts[0][1] * s)
+    for x, y in pts[1:]:
+        path.lineTo(x * s, y * s)
+    p.drawPath(path)
+    p.end()
+    return QIcon(pm)
 
 # Роли данных для строк списка.
 ROLE_SERVER = Qt.UserRole + 1

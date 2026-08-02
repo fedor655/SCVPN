@@ -22,6 +22,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.ListView
+import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -94,10 +95,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btn_add).setOnClickListener { showAddDialog() }
         findViewById<ImageButton>(R.id.btn_refresh).setOnClickListener { updateSubscription() }
         findViewById<ImageButton>(R.id.btn_ping).setOnClickListener { pingAll() }
+        findViewById<ImageButton>(R.id.btn_more).setOnClickListener { showOverflow(it) }
 
         adapter = ServerAdapter()
         list.adapter = adapter
         list.setOnItemClickListener { _, _, pos, _ -> selectServer(pos) }
+        // Долгое нажатие по серверу — удалить его.
+        list.setOnItemLongClickListener { _, _, pos, _ -> showServerActions(pos); true }
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -274,6 +278,58 @@ class MainActivity : AppCompatActivity() {
         val url = Prefs.subUrl(this)
         if (url.isEmpty()) { toast("Сначала добавь подписку"); return }
         fetchSub(url)
+    }
+
+    // ------------------------------------------------------------------
+    // Удаление
+    // ------------------------------------------------------------------
+    private fun showOverflow(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add(0, 1, 0, getString(R.string.delete_subscription))
+            setOnMenuItemClickListener {
+                if (it.itemId == 1) confirmDeleteSubscription()
+                true
+            }
+            show()
+        }
+    }
+
+    private fun confirmDeleteSubscription() {
+        if (Prefs.subUrl(this).isBlank() && servers.isEmpty()) { toast("Подписки нет"); return }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.delete_subscription)
+            .setMessage("Удалить подписку и все её серверы?")
+            .setPositiveButton(R.string.delete) { _, _ ->
+                Prefs.setSubUrl(this, "")
+                servers = mutableListOf()
+                Prefs.saveServers(this, servers)
+                pings.clear()
+                Prefs.savePings(this, pings)
+                Prefs.setSelectedIndex(this, 0)
+                reloadServers()
+                toast("Подписка удалена")
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun showServerActions(pos: Int) {
+        val s = servers.getOrNull(pos) ?: return
+        AlertDialog.Builder(this)
+            .setTitle(s.title)
+            .setItems(arrayOf(getString(R.string.delete_server))) { _, _ -> deleteServer(pos) }
+            .show()
+    }
+
+    private fun deleteServer(pos: Int) {
+        val removed = servers.getOrNull(pos) ?: return
+        servers.removeAt(pos)
+        Prefs.saveServers(this, servers)
+        if (Prefs.selectedIndex(this) >= servers.size) {
+            Prefs.setSelectedIndex(this, (servers.size - 1).coerceAtLeast(0))
+        }
+        reloadServers()
+        toast("Удалён: ${removed.title}")
     }
 
     private fun fetchSub(url: String) {

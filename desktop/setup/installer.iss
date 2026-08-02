@@ -3,7 +3,7 @@
 ; Пути относительны папки setup\ (где лежит этот файл).
 
 #define MyName "SCVPN"
-#define MyVersion "0.2.1"
+#define MyVersion "0.2.2"
 #define MyPublisher "SCVPN (open source)"
 #define MyExe "SCVPN.exe"
 
