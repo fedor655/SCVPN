@@ -37,6 +37,14 @@
         android:orientation="vertical">
 
         <RadioButton
+            android:id="@+id/mode_auto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/split_auto"
+            android:textColor="@color/text"
+            android:paddingStart="8dp" />
+
+        <RadioButton
             android:id="@+id/mode_off"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

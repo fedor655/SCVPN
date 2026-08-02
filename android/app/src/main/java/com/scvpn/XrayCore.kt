@@ -18,7 +18,9 @@ object XrayCore {
     val isRunning: Boolean get() = controller?.isRunning == true
 
     private fun ensureEnv(ctx: Context) {
-        // envPath — папка, где ядро ищет ассеты/сертификаты (geo не используем).
+        // envPath — папка, где ядро ищет гео-базы. Их туда кладёт GeoAssets:
+        // без них режим «Авто» не разберёт российские домены.
+        GeoAssets.ensure(ctx)
         Libv2ray.initCoreEnv(ctx.filesDir.absolutePath, "")
     }
 

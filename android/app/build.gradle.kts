@@ -20,8 +20,10 @@ android {
         applicationId = "com.scvpn"
         minSdk = 24
         targetSdk = 33
-        versionCode = 5
-        versionName = "0.3.0"
+        // versionName — то, что видит человек; versionCode Android требует
+        // только возрастающим, иначе установка поверх старой сборки не пройдёт.
+        versionCode = 6
+        versionName = "0.0.0"
         ndk {
             // те ABI, под которые у нас есть hev .so + ядро
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")

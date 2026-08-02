@@ -39,6 +39,7 @@ class SplitActivity : AppCompatActivity() {
     private var shown: List<SplitTunnel.AppEntry> = emptyList()
     private val chosen = mutableSetOf<String>()
     private var mode = SplitTunnel.OFF
+    private var routeMode = XrayConfig.ROUTE_GLOBAL
 
     private val ui = Handler(Looper.getMainLooper())
 
@@ -52,19 +53,26 @@ class SplitActivity : AppCompatActivity() {
         search = findViewById(R.id.search)
 
         mode = Prefs.splitMode(this)
+        routeMode = Prefs.routeMode(this)
         chosen.addAll(Prefs.splitApps(this))
 
+        val auto = findViewById<RadioButton>(R.id.mode_auto)
         val off = findViewById<RadioButton>(R.id.mode_off)
         val exclude = findViewById<RadioButton>(R.id.mode_exclude)
         val include = findViewById<RadioButton>(R.id.mode_include)
-        when (mode) {
-            SplitTunnel.EXCLUDE -> exclude.isChecked = true
-            SplitTunnel.INCLUDE -> include.isChecked = true
+
+        // «Авто» задаётся режимом маршрутизации, остальные три — разбором по
+        // приложениям; вместе это один взаимоисключающий выбор.
+        when {
+            routeMode == XrayConfig.ROUTE_BYPASS_RU && mode == SplitTunnel.OFF -> auto.isChecked = true
+            mode == SplitTunnel.EXCLUDE -> exclude.isChecked = true
+            mode == SplitTunnel.INCLUDE -> include.isChecked = true
             else -> off.isChecked = true
         }
-        off.setOnClickListener { setMode(SplitTunnel.OFF) }
-        exclude.setOnClickListener { setMode(SplitTunnel.EXCLUDE) }
-        include.setOnClickListener { setMode(SplitTunnel.INCLUDE) }
+        auto.setOnClickListener { choose(XrayConfig.ROUTE_BYPASS_RU, SplitTunnel.OFF) }
+        off.setOnClickListener { choose(XrayConfig.ROUTE_GLOBAL, SplitTunnel.OFF) }
+        exclude.setOnClickListener { choose(XrayConfig.ROUTE_GLOBAL, SplitTunnel.EXCLUDE) }
+        include.setOnClickListener { choose(XrayConfig.ROUTE_GLOBAL, SplitTunnel.INCLUDE) }
 
         adapter = AppsAdapter()
         listView.adapter = adapter
@@ -76,7 +84,7 @@ class SplitActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
 
-        setMode(mode)
+        choose(routeMode, mode)
         loadApps()
     }
 
@@ -99,10 +107,14 @@ class SplitActivity : AppCompatActivity() {
         adapter.notifyDataSetChanged()
     }
 
-    private fun setMode(value: String) {
-        mode = value
-        Prefs.setSplitMode(this, value)
-        val enabled = value != SplitTunnel.OFF
+    private fun choose(route: String, split: String) {
+        routeMode = route
+        mode = split
+        Prefs.setRouteMode(this, route)
+        Prefs.setSplitMode(this, split)
+
+        // Список приложений нужен только двум вариантам из четырёх.
+        val enabled = split != SplitTunnel.OFF
         search.isEnabled = enabled
         listView.isEnabled = enabled
         listView.alpha = if (enabled) 1f else 0.4f

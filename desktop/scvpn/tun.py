@@ -178,6 +178,13 @@ def build_singbox_config(
     apps = [a.strip() for a in (split_apps or []) if a.strip()]
 
     rules: list[dict] = []
+
+    # Первым делом выводим из туннеля сам Xray. Без этого режим «Авто» в TUN
+    # зацикливался: Xray решает пустить российский сайт напрямую, его прямое
+    # соединение снова попадает в TUN, оттуда обратно в Xray — и так по кругу.
+    # Раньше это обходили запретом «Авто» в TUN-режиме, теперь запрет не нужен.
+    rules.append({"process_path": [str(paths.xray_exe())], "outbound": "direct"})
+
     if apps and split_mode == SPLIT_EXCLUDE:
         # Выбранные — мимо VPN, всё остальное (final) — в туннель.
         rules.append({"process_name": apps, "outbound": "direct"})
@@ -187,9 +194,7 @@ def build_singbox_config(
 
     final = "direct" if (apps and split_mode == SPLIT_INCLUDE) else "to-xray"
 
-    route: dict = {"auto_detect_interface": True, "final": final}
-    if rules:
-        route["rules"] = rules
+    route: dict = {"auto_detect_interface": True, "final": final, "rules": rules}
 
     return {
         "log": {"level": log_level},

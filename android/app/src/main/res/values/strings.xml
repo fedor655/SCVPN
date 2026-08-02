@@ -20,9 +20,10 @@
 
     <string name="split_title">Раздельное туннелирование</string>
     <string name="split_hint">Какие приложения пускать через VPN. Применяется при следующем подключении.</string>
-    <string name="split_off">Все приложения через VPN</string>
-    <string name="split_exclude">Все через VPN, кроме выбранных</string>
-    <string name="split_include">Только выбранные через VPN</string>
+    <string name="split_auto">Авто — российские сайты напрямую, остальное через VPN</string>
+    <string name="split_off">Всё через VPN</string>
+    <string name="split_exclude">Всё через VPN, кроме выбранных приложений</string>
+    <string name="split_include">Только выбранные приложения через VPN</string>
     <string name="split_search">Поиск приложения…</string>
     <string name="split_applies_next">Настройка применится при следующем подключении</string>
 

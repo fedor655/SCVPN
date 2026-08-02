@@ -13,6 +13,7 @@ object Prefs {
     private const val KEY_HWID = "hwid"
     private const val KEY_SPLIT_MODE = "split_mode"
     private const val KEY_SPLIT_APPS = "split_apps"
+    private const val KEY_ROUTE_MODE = "route_mode"
 
     private fun sp(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -57,6 +58,13 @@ object Prefs {
         sp(ctx).edit().putString(KEY_SUB_ADDED, value).apply()
 
     // --- раздельное туннелирование ---
+
+    /** «Авто» (обход РФ) или всё через VPN. Разбирается ядром по гео-базам. */
+    fun routeMode(ctx: Context): String =
+        sp(ctx).getString(KEY_ROUTE_MODE, XrayConfig.ROUTE_GLOBAL) ?: XrayConfig.ROUTE_GLOBAL
+
+    fun setRouteMode(ctx: Context, mode: String) =
+        sp(ctx).edit().putString(KEY_ROUTE_MODE, mode).apply()
 
     fun splitMode(ctx: Context): String =
         sp(ctx).getString(KEY_SPLIT_MODE, SplitTunnel.OFF) ?: SplitTunnel.OFF

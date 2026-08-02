@@ -12,12 +12,26 @@ object XrayConfig {
 
     const val SOCKS_PORT = 10808
 
+    // Режимы маршрутизации — те же, что на десктопе.
+    const val ROUTE_GLOBAL = "global"
+    const val ROUTE_BYPASS_RU = "bypass_ru"
+
     private val PRIVATE_CIDRS = listOf(
         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
         "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"
     )
 
-    fun build(server: Server, socksPort: Int = SOCKS_PORT, logLevel: String = "warning"): String {
+    // Что в режиме «Авто» идёт мимо VPN. Список повторяет десктопный.
+    private val RU_DOMAINS = listOf(
+        "geosite:category-ru", "geosite:yandex", "geosite:vk", "geosite:mailru"
+    )
+
+    fun build(
+        server: Server,
+        socksPort: Int = SOCKS_PORT,
+        logLevel: String = "warning",
+        routeMode: String = ROUTE_GLOBAL,
+    ): String {
         val cfg = JSONObject()
         cfg.put("log", JSONObject().put("loglevel", logLevel))
 
@@ -44,11 +58,30 @@ object XrayConfig {
         // --- routing: приватные сети напрямую, остальное в proxy ---
         val rules = JSONArray()
         rules.put(JSONObject().put("type", "field").put("outboundTag", "direct").put("ip", JSONArray(PRIVATE_CIDRS)))
+
+        if (routeMode == ROUTE_BYPASS_RU) {
+            // Российские домены и IP — мимо VPN. Работает по гео-базам,
+            // которые GeoAssets кладёт рядом с ядром.
+            rules.put(JSONObject().put("type", "field").put("outboundTag", "direct")
+                .put("domain", JSONArray(RU_DOMAINS)))
+            rules.put(JSONObject().put("type", "field").put("outboundTag", "direct")
+                .put("ip", JSONArray(listOf("geoip:ru"))))
+        }
+
         rules.put(JSONObject().put("type", "field").put("outboundTag", "proxy").put("network", "tcp,udp"))
         cfg.put("routing", JSONObject().put("domainStrategy", "IPIfNonMatch").put("rules", rules))
 
         // --- dns ---
-        cfg.put("dns", JSONObject().put("servers", JSONArray(listOf("https://1.1.1.1/dns-query", "8.8.8.8"))))
+        val dnsServers = JSONArray()
+        if (routeMode == ROUTE_BYPASS_RU) {
+            // Российские домены резолвим российским DNS и напрямую, иначе
+            // ответы приходили бы с зарубежных адресов и правило по IP не срабатывало.
+            dnsServers.put(JSONObject().put("address", "77.88.8.8")
+                .put("domains", JSONArray(RU_DOMAINS)))
+        }
+        dnsServers.put("https://1.1.1.1/dns-query")
+        dnsServers.put("8.8.8.8")
+        cfg.put("dns", JSONObject().put("servers", dnsServers).put("queryStrategy", "UseIP"))
 
         return cfg.toString()
     }

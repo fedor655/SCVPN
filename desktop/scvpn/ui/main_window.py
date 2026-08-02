@@ -238,12 +238,8 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> QMenu:
         menu = QMenu(self)
 
-        self._radio_group(
-            menu.addMenu("Маршрутизация"),
-            [("Глобально — всё через VPN", ROUTE_GLOBAL),
-             ("Обход РФ — рос. сайты напрямую", ROUTE_BYPASS_RU)],
-            "route_mode", ROUTE_GLOBAL,
-        )
+        # Маршрутизация целиком живёт в «Раздельном туннелировании» — это один
+        # и тот же вопрос «что идёт в туннель», и двумя меню он только путал.
         self._radio_group(
             menu.addMenu("Способ подключения"),
             [("Системный прокси", "proxy"),
@@ -460,9 +456,6 @@ class MainWindow(QMainWindow):
 
         mode = self.settings.get("vpn_mode", "proxy")
         route_mode = self.settings.get("route_mode", ROUTE_GLOBAL)
-        if mode == "tun" and route_mode != ROUTE_GLOBAL:
-            self._append_log("[!] В TUN-режиме пока поддержан только «Глобально» — использую его.")
-            route_mode = ROUTE_GLOBAL
 
         # Свободные порты, чтобы не конфликтовать с другими клиентами (Happ и т.п.).
         socks_port = find_free_port(int(self.settings.get("socks_port", 10808)))
@@ -614,25 +607,26 @@ class MainWindow(QMainWindow):
 
     def _edit_split_tunnel(self) -> None:
         dlg = SplitTunnelDialog(
+            self.settings.get("route_mode", ROUTE_GLOBAL),
             self.settings.get("split_mode", SPLIT_OFF),
             list(self.settings.get("split_apps", [])),
             self,
         )
         if dlg.exec() != SplitTunnelDialog.Accepted:
             return
+        self._set_setting("route_mode", dlg.route_mode)
         self._set_setting("split_mode", dlg.mode)
         self._set_setting("split_apps", dlg.apps)
+        self._append_log(f"[*] Маршрутизация: {dlg.summary}")
 
-        if dlg.mode == SPLIT_OFF or not dlg.apps:
-            self._append_log("[*] Раздельный туннель выключен — всё идёт через VPN.")
-        else:
-            what = "мимо VPN" if dlg.mode == "exclude" else "через VPN"
-            self._append_log(f"[*] Раздельный туннель: {what} — {', '.join(dlg.apps)}")
-        if self.settings.get("vpn_mode") != "tun":
+        # Разбор по приложениям делает sing-box, а он поднимается только в TUN.
+        needs_tun = dlg.mode != SPLIT_OFF and dlg.apps
+        if needs_tun and self.settings.get("vpn_mode") != "tun":
             QMessageBox.information(
                 self, "Нужен TUN-режим",
-                "Раздельное туннелирование работает только в режиме\n"
-                "«TUN — весь трафик». Переключи способ подключения в этом же меню.",
+                "Разбор по приложениям работает только в режиме\n"
+                "«TUN — весь трафик». Переключи способ подключения в этом же меню.\n\n"
+                "Режимы «Авто» и «Всё через VPN» работают в обоих способах.",
             )
         elif self.runner.running:
             self._append_log("[i] Изменения применятся при следующем подключении.")

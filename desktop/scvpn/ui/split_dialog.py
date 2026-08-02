@@ -1,9 +1,17 @@
-"""Раздельное туннелирование: какие приложения пускать мимо VPN.
+"""Раздельное туннелирование: что и как пускать через VPN.
 
-Работает только в TUN-режиме, и это не наше ограничение: системный прокси —
-это строчка в настройках Windows, приложения ходят в него сами, и различить
-их там нечем. В TUN-режиме трафик идёт через sing-box, а он умеет определять
-процесс-владельца соединения и разводить его по разным маршрутам.
+Единственное место, где выбирается маршрутизация — раньше выбор был размазан
+на два меню («Маршрутизация» отдельно, приложения отдельно), хотя это один и
+тот же вопрос: что идёт в туннель.
+
+Четыре взаимоисключающих варианта:
+  * «Авто» — российские сайты напрямую, остальное через VPN. Разбор по доменам
+    и IP делает ядро Xray по гео-базам, приложения тут ни при чём.
+  * «Всё через VPN» — без исключений.
+  * два варианта по приложениям — их различает уже sing-box по процессу-владельцу
+    соединения, поэтому они работают только в TUN-режиме: системный прокси — это
+    строчка в настройках Windows, приложения ходят в неё сами, и различить их
+    там нечем.
 
 Список приложений набираем из запущенных процессов — так не нужно ходить по
 диску за .exe и гадать, как называется нужный файл.
@@ -26,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..tun import SPLIT_EXCLUDE, SPLIT_INCLUDE, SPLIT_OFF
+from ..xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL
 from . import theme
 
 # Системные процессы, которые в списке только мешают.
@@ -61,39 +70,50 @@ def running_apps() -> list[str]:
 
 
 class SplitTunnelDialog(QDialog):
-    """Режим раздельного туннелирования и список приложений."""
+    """Маршрутизация: авто, всё через VPN или разбор по приложениям."""
 
-    def __init__(self, mode: str, apps: list[str], parent=None) -> None:
+    def __init__(self, route_mode: str, mode: str, apps: list[str], parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Раздельное туннелирование")
-        self.resize(430, 520)
+        self.resize(430, 560)
 
+        self.route_mode = route_mode or ROUTE_GLOBAL
         self.mode = mode or SPLIT_OFF
         self._apps = list(apps)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(12)
+        root.setSpacing(10)
 
-        note = QLabel(
-            "Работает в режиме «TUN — весь трафик».\n"
-            "В режиме системного прокси Windows не различает приложения."
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet(f"color: {theme.DIM}; font-size: 12px;")
-        root.addWidget(note)
+        self.rb_auto = QRadioButton("Авто — российские сайты напрямую, остальное через VPN")
+        self.rb_off = QRadioButton("Всё через VPN")
+        self.rb_exclude = QRadioButton("Всё через VPN, кроме выбранных приложений")
+        self.rb_include = QRadioButton("Только выбранные приложения через VPN")
+        for rb in (self.rb_auto, self.rb_off, self.rb_exclude, self.rb_include):
+            rb.setStyleSheet("padding: 2px 0;")
 
-        self.rb_off = QRadioButton("Все приложения через VPN")
-        self.rb_exclude = QRadioButton("Все через VPN, кроме выбранных")
-        self.rb_include = QRadioButton("Только выбранные через VPN")
-        for rb, value in (
-            (self.rb_off, SPLIT_OFF),
-            (self.rb_exclude, SPLIT_EXCLUDE),
-            (self.rb_include, SPLIT_INCLUDE),
-        ):
-            rb.setChecked(self.mode == value)
+        # Текущий выбор: «авто» задаётся режимом маршрутизации, остальные три —
+        # режимом разбора по приложениям.
+        if self.route_mode == ROUTE_BYPASS_RU and self.mode == SPLIT_OFF:
+            self.rb_auto.setChecked(True)
+        elif self.mode == SPLIT_EXCLUDE:
+            self.rb_exclude.setChecked(True)
+        elif self.mode == SPLIT_INCLUDE:
+            self.rb_include.setChecked(True)
+        else:
+            self.rb_off.setChecked(True)
+
+        for rb in (self.rb_auto, self.rb_off, self.rb_exclude, self.rb_include):
             rb.toggled.connect(self._on_mode_changed)
             root.addWidget(rb)
+
+        note = QLabel(
+            "Разбор по приложениям работает в режиме «TUN — весь трафик»:\n"
+            "системный прокси Windows приложения не различает."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {theme.DIM}; font-size: 11px; padding: 4px 0 2px 0;")
+        root.addWidget(note)
 
         root.addWidget(QLabel("Приложения:"))
 
@@ -158,9 +178,11 @@ class SplitTunnelDialog(QDialog):
         ]
 
     def _on_mode_changed(self) -> None:
-        enabled = not self.rb_off.isChecked()
+        # Список приложений нужен только двум вариантам из четырёх.
+        enabled = self.rb_exclude.isChecked() or self.rb_include.isChecked()
         self.list.setEnabled(enabled)
         self.search.setEnabled(enabled)
+        self.list.setStyleSheet("" if enabled else "color: #4A5563;")
 
     def _add_manual(self) -> None:
         name, ok = QInputDialog.getText(
@@ -177,14 +199,26 @@ class SplitTunnelDialog(QDialog):
         self._fill()
 
     def _save(self) -> None:
-        if self.rb_off.isChecked():
-            self.mode = SPLIT_OFF
+        if self.rb_auto.isChecked():
+            self.route_mode, self.mode = ROUTE_BYPASS_RU, SPLIT_OFF
+        elif self.rb_off.isChecked():
+            self.route_mode, self.mode = ROUTE_GLOBAL, SPLIT_OFF
         elif self.rb_exclude.isChecked():
-            self.mode = SPLIT_EXCLUDE
+            self.route_mode, self.mode = ROUTE_GLOBAL, SPLIT_EXCLUDE
         else:
-            self.mode = SPLIT_INCLUDE
+            self.route_mode, self.mode = ROUTE_GLOBAL, SPLIT_INCLUDE
         self._apps = self._collect()
         self.accept()
+
+    @property
+    def summary(self) -> str:
+        """Короткое описание выбора — для лога."""
+        if self.route_mode == ROUTE_BYPASS_RU:
+            return "авто (российские сайты напрямую)"
+        if self.mode == SPLIT_OFF or not self._apps:
+            return "всё через VPN"
+        what = "кроме" if self.mode == SPLIT_EXCLUDE else "только"
+        return f"{what}: {', '.join(self._apps)}"
 
     @property
     def apps(self) -> list[str]:

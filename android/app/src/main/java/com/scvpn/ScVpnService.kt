@@ -87,7 +87,9 @@ class ScVpnService : VpnService() {
             tun = pfd
 
             // 2) запустить Xray (socks на 127.0.0.1:10808)
-            val config = XrayConfig.build(server)
+            val config = XrayConfig.build(
+                server, routeMode = Prefs.routeMode(applicationContext)
+            )
             if (!XrayCore.start(applicationContext, config)) {
                 throw IllegalStateException("Xray не запустился")
             }
