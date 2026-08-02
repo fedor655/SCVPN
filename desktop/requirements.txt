@@ -1,0 +1,4 @@
+PySide6>=6.6
+requests>=2.31
+# Pillow нужен только для генерации иконок (setup/make_icon.py), не в рантайме.
+Pillow>=10.0

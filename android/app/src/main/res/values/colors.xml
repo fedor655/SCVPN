@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Палитра SCVPN — та же, что у десктопной версии и у иконки. -->
+<resources>
+    <color name="bg">#0A0E13</color>
+    <color name="surface">#131A24</color>
+    <color name="surface_hi">#1B2430</color>
+    <color name="stroke">#22303F</color>
+
+    <color name="text">#E6EDF3</color>
+    <color name="text_dim">#7D8B9C</color>
+
+    <color name="teal">#2DD4BF</color>
+    <color name="blue">#3B82F6</color>
+    <color name="red">#F87171</color>
+
+    <color name="ic_launcher_background">#0A0E13</color>
+</resources>

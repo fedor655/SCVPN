@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      Тема всегда тёмная: приложение — одно экран-состояние, и светлый вариант
+      только добавил бы вариантов, за которыми надо следить. Один фон, один
+      акцент, никаких системных полосок другого цвета.
+    -->
+    <style name="Theme.SCVPN" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/text_dim</item>
+        <item name="colorPrimary">@color/teal</item>
+        <item name="colorAccent">@color/teal</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+    </style>
+</resources>

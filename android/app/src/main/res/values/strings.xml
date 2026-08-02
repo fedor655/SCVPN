@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SCVPN</string>
+
+    <string name="state_idle">Отключено</string>
+    <string name="state_connecting">Подключение…</string>
+    <string name="state_connected">Подключено</string>
+
+    <string name="servers">Серверы</string>
+    <string name="no_servers">Серверов пока нет.\nДобавь ссылку или подписку кнопкой +</string>
+
+    <string name="action_add">Добавить</string>
+    <string name="action_refresh">Обновить подписку</string>
+    <string name="action_ping">Пинг</string>
+
+    <string name="dlg_add_title">Добавить сервер</string>
+    <string name="dlg_add_hint">vless:// … или URL подписки</string>
+    <string name="dlg_add_link">Как ссылку</string>
+    <string name="dlg_add_sub">Как подписку</string>
+    <string name="cancel">Отмена</string>
+</resources>

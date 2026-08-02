@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Передний план адаптивной иконки. Знак вписан в безопасную зону 66 % от
+  канвы 108x108 — при любой маске (круг, squircle, квадрат) ничего не режется.
+  Градиент бирюзовый -> синий, как на десктопной иконке.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M66.22,38.08 A12.65,12.65 0 1 0 54,54 A12.65,12.65 0 1 1 41.78,69.92"
+        android:strokeWidth="7.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:strokeColor">
+            <gradient
+                android:startX="54" android:startY="36"
+                android:endX="54" android:endY="72"
+                android:type="linear">
+                <item android:offset="0" android:color="#2DD4BF" />
+                <item android:offset="1" android:color="#3B82F6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

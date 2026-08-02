@@ -1,0 +1,34 @@
+# ── Python / десктоп ────────────────────────────────────────────────
+__pycache__/
+*.pyc
+desktop/.venv/
+desktop/build/
+desktop/dist/
+desktop/dist_installer/
+
+# Профили, настройки и логи: там реальные подписки и ключи серверов.
+desktop/data/
+
+# Ядро и гео-базы — приложение качает их само при первом запуске.
+desktop/bin/
+
+# ── Android ─────────────────────────────────────────────────────────
+android/.gradle/
+android/build/
+android/app/build/
+# путь к SDK у каждого свой
+android/local.properties
+
+# Готовые бинарники сторонних проектов (см. android/README.md).
+android/app/libs/*.aar
+android/app/src/main/jniLibs/
+
+# ── Прочее ──────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+desktop.ini
+
+# личные заметки
+desktop/промпт.txt

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Фирменный знак «S»: одна траектория из двух дуг, обведённая штрихом с
+  круглыми окончаниями. Ровно та же геометрия, что в setup/brand.py у
+  десктопной версии (радиус осевой 0.155 канвы, штрих 0.09, раскрытие 255°).
+  Цвет ставится тинтом — знак используется и белым, и акцентным.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:pathData="M15.48,7.47 A3.6,3.6 0 1 0 12,12 A3.6,3.6 0 1 1 8.52,16.53"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
