@@ -22,12 +22,16 @@ class Worker(QThread):
     def __init__(self, fn: Callable[[Callable[[str], None]], object]) -> None:
         super().__init__()
         self._fn = fn
+        # Само исключение, а не только его текст: по нему вызывающий код
+        # отличает понятную пользователю ошибку от неожиданной поломки.
+        self.error: Exception | None = None
 
     def run(self) -> None:  # выполняется в отдельном потоке
         try:
             result = self._fn(self.log.emit)
             self.done.emit(result)
         except Exception as e:  # noqa: BLE001
+            self.error = e
             self.failed.emit(f"{e}\n{traceback.format_exc()}")
 
 

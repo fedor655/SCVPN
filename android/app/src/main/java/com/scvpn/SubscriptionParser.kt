@@ -1,11 +1,15 @@
 package com.scvpn
 
+import android.content.Context
 import android.util.Base64
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
+
+/** Подписка ответила, но серверов не отдала — и объяснила почему. */
+class SubscriptionException(message: String) : Exception(message)
 
 /**
  * Парсер ссылок (vless/vmess/trojan/ss) и подписок.
@@ -16,17 +20,56 @@ object SubscriptionParser {
 
     private const val USER_AGENT = "v2rayNG/1.9.5"
 
-    fun fetchSubscription(url: String): List<Server> {
+    fun fetchSubscription(ctx: Context, url: String): List<Server> {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             setRequestProperty("User-Agent", USER_AGENT)
+            // Идентификатор устройства: без него панели с привязкой к
+            // устройствам отдают заглушку вместо серверов (см. Hwid.kt).
+            Hwid.headers(ctx).forEach { (k, v) -> setRequestProperty(k, v) }
             connectTimeout = 20000
             readTimeout = 20000
         }
         conn.inputStream.use { ins ->
             val text = ins.readBytes().toString(Charsets.UTF_8)
-            return parseSubscriptionText(text)
+            val servers = parseSubscriptionText(text)
+            raiseIfPanelStub(servers, conn)
+            return servers
         }
+    }
+
+    /**
+     * Отличить заглушку панели от настоящего списка серверов.
+     *
+     * Панель не возвращает ошибку HTTP: она отдаёт один фиктивный
+     * `vless://0000...@0.0.0.0:1`, у которого в имени написана причина. Без этой
+     * проверки такая строка молча попадала бы в список серверов — ровно это и
+     * выглядело как «сервер App not supported», к которому нельзя подключиться.
+     */
+    private fun raiseIfPanelStub(servers: List<Server>, conn: HttpURLConnection) {
+        if (servers.isEmpty()) return
+        val allStubs = servers.all { it.address in listOf("0.0.0.0", "127.0.0.1", "") || it.port <= 1 }
+        if (!allStubs) return
+
+        val reason = servers.first().name.trim()
+        fun header(name: String) = conn.getHeaderField(name)?.lowercase()
+
+        throw SubscriptionException(
+            when {
+                header("x-hwid-max-devices-reached") == "true" ->
+                    "Достигнут лимит устройств на аккаунте" +
+                        (if (reason.isNotBlank()) " ($reason)" else "") + ".\n\n" +
+                        "Освободи слот у провайдера подписки и обнови ещё раз."
+
+                header("x-hwid-not-supported") == "true" ->
+                    "Панель не приняла идентификатор устройства. " +
+                        "Похоже, клиент представился неверно — это чинится в SCVPN."
+
+                else ->
+                    "Подписка вернула не список серверов, а сообщение: " +
+                        "«${reason.ifBlank { "без пояснения" }}»."
+            }
+        )
     }
 
     fun parseSubscriptionText(text: String): List<Server> {

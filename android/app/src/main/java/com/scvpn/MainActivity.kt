@@ -279,17 +279,28 @@ class MainActivity : AppCompatActivity() {
     private fun fetchSub(url: String) {
         toast("Обновляю подписку…")
         Thread {
-            val result = runCatching { SubscriptionParser.fetchSubscription(url) }
+            val result = runCatching { SubscriptionParser.fetchSubscription(applicationContext, url) }
             ui.post {
                 result.onSuccess { fetched ->
                     if (fetched.isEmpty()) { toast("В подписке не нашлось серверов"); return@post }
-                    // Пинги переносим по ключу — сервер тот же, мерить заново незачем.
                     servers = fetched.toMutableList()
                     Prefs.saveServers(this, servers)
                     Prefs.setSelectedIndex(this, 0)
                     reloadServers()
                     toast("Подписка: ${fetched.size} серверов")
-                }.onFailure { toast("Ошибка подписки: ${it.message}") }
+                }.onFailure { e ->
+                    // Отказ панели (лимит устройств и т.п.) — это не сбой сети,
+                    // а то, что нужно прочитать и исправить у провайдера.
+                    if (e is SubscriptionException) {
+                        AlertDialog.Builder(this)
+                            .setTitle("Подписка")
+                            .setMessage(e.message)
+                            .setPositiveButton("Понятно", null)
+                            .show()
+                    } else {
+                        toast("Ошибка подписки: ${e.message}")
+                    }
+                }
             }
         }.start()
     }

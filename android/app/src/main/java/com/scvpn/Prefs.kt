@@ -10,6 +10,7 @@ object Prefs {
     private const val KEY_SELECTED = "selected"
     private const val KEY_SUB_URL = "sub_url"
     private const val KEY_PINGS = "pings"
+    private const val KEY_HWID = "hwid"
 
     private fun sp(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -30,6 +31,10 @@ object Prefs {
 
     fun subUrl(ctx: Context): String = sp(ctx).getString(KEY_SUB_URL, "") ?: ""
     fun setSubUrl(ctx: Context, url: String) = sp(ctx).edit().putString(KEY_SUB_URL, url).apply()
+
+    /** HWID считается один раз (см. Hwid.kt) и дальше не меняется. */
+    fun hwid(ctx: Context): String = sp(ctx).getString(KEY_HWID, "") ?: ""
+    fun setHwid(ctx: Context, value: String) = sp(ctx).edit().putString(KEY_HWID, value).apply()
 
     fun selectedServer(ctx: Context): Server? {
         val servers = loadServers(ctx)

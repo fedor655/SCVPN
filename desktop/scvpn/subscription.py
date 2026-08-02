@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 
+from .hwid import device_headers
 from .models import Server
 
 # Многие панели (3x-ui, Marzban, Remnawave) отдают список ссылок в base64,
@@ -24,11 +25,57 @@ from .models import Server
 DEFAULT_USER_AGENT = "v2rayNG/1.9.5"
 
 
+class SubscriptionError(Exception):
+    """Подписка ответила, но серверов не отдала — и объяснила почему."""
+
+
 def fetch_subscription(url: str, user_agent: str = DEFAULT_USER_AGENT, timeout: int = 30) -> list["Server"]:
-    """Скачать подписку по URL и вернуть список серверов."""
-    r = requests.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
+    """Скачать подписку по URL и вернуть список серверов.
+
+    Кроме User-Agent шлём идентификатор устройства: панели с привязкой к
+    устройствам без него отдают заглушку вместо серверов (см. hwid.py).
+    """
+    headers = {"User-Agent": user_agent}
+    headers.update(device_headers())
+
+    r = requests.get(url, headers=headers, timeout=timeout)
     r.raise_for_status()
-    return parse_subscription_text(r.text)
+
+    servers = parse_subscription_text(r.text)
+    _raise_if_panel_stub(servers, r.headers)
+    return servers
+
+
+def _raise_if_panel_stub(servers: list["Server"], headers) -> None:
+    """Отличить заглушку панели от настоящего списка серверов.
+
+    Панель не возвращает ошибку HTTP: она отдаёт один фиктивный
+    `vless://0000...@0.0.0.0:1`, у которого в имени написана причина. Без этой
+    проверки такая строка молча попадала бы в список серверов — ровно это и
+    выглядело как «сервер App not supported», к которому нельзя подключиться.
+    """
+    stub = [s for s in servers if s.address in ("0.0.0.0", "127.0.0.1", "") or s.port <= 1]
+    if not servers or len(stub) != len(servers):
+        return
+
+    reason = stub[0].name.strip() if stub[0].name else ""
+    lower = {k.lower(): str(v).lower() for k, v in headers.items()}
+
+    if lower.get("x-hwid-max-devices-reached") == "true":
+        raise SubscriptionError(
+            f"Достигнут лимит устройств на аккаунте ({reason or 'limit of devices reached'}).\n\n"
+            "Освободи слот в личном кабинете подписки или у поддержки провайдера, "
+            "затем нажми «Обновить» ещё раз."
+        )
+    if lower.get("x-hwid-not-supported") == "true":
+        raise SubscriptionError(
+            "Панель не приняла идентификатор устройства.\n\n"
+            "Похоже, у провайдера включена привязка к устройствам, а клиент "
+            "представился неверно. Сообщи об этом — это чинится в SCVPN."
+        )
+    raise SubscriptionError(
+        f"Подписка вернула не список серверов, а сообщение: «{reason or 'без пояснения'}»."
+    )
 
 
 # ----------------------------------------------------------------------

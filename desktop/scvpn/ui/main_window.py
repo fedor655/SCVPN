@@ -42,7 +42,7 @@ from ..storage import (
     save_profiles,
     save_settings,
 )
-from ..subscription import fetch_subscription, parse_link
+from ..subscription import SubscriptionError, fetch_subscription, parse_link
 from ..tun import SingBoxTun, is_admin, relaunch_as_admin
 from ..xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
 from . import theme
@@ -604,6 +604,10 @@ class MainWindow(QMainWindow):
 
         def on_fail(err):
             self._append_log(f"[!] Ошибка подписки «{sub.name}»: {err.splitlines()[0]}")
+            # Отказ панели (лимит устройств и т.п.) — это не поломка, а то, что
+            # пользователю нужно прочитать и исправить у провайдера.
+            if isinstance(w.error, SubscriptionError):
+                QMessageBox.warning(self, f"Подписка «{sub.name}»", str(w.error))
             self._workers.remove(w)
 
         def on_done(servers):
