@@ -47,7 +47,21 @@ def fetch_subscription_full(
     headers = {"User-Agent": user_agent}
     headers.update(device_headers())
 
-    r = requests.get(url, headers=headers, timeout=timeout)
+    try:
+        r = requests.get(url, headers=headers, timeout=timeout)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        # Частый случай: домен провайдера подписки заблокирован, а сами его
+        # VPN-серверы доступны. Получается замкнутый круг — подписку не
+        # обновить без VPN, а VPN не включить без серверов. Обычная ошибка
+        # сети об этом не говорит, поэтому объясняем прямо.
+        raise SubscriptionError(
+            f"Не удалось связаться с сайтом подписки ({urlparse(url).hostname}).\n\n"
+            "Чаще всего это значит, что домен провайдера заблокирован, — сами "
+            "VPN-серверы при этом обычно работают.\n\n"
+            "Что делать: подключись к любому уже добавленному серверу и нажми "
+            "«Обновить» ещё раз. Если серверов нет ни одного — добавь один "
+            "ссылкой vless:// или отсканируй QR."
+        ) from e
     r.raise_for_status()
 
     servers = parse_subscription_text(r.text)

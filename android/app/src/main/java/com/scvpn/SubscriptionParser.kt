@@ -34,11 +34,25 @@ object SubscriptionParser {
             connectTimeout = 20000
             readTimeout = 20000
         }
-        conn.inputStream.use { ins ->
-            val text = ins.readBytes().toString(Charsets.UTF_8)
-            val servers = parseSubscriptionText(text)
-            raiseIfPanelStub(servers, conn)
-            return servers to SubInfo.fromHeaders(conn)
+        try {
+            conn.inputStream.use { ins ->
+                val text = ins.readBytes().toString(Charsets.UTF_8)
+                val servers = parseSubscriptionText(text)
+                raiseIfPanelStub(servers, conn)
+                return servers to SubInfo.fromHeaders(conn)
+            }
+        } catch (e: java.io.IOException) {
+            // Частый случай: домен провайдера подписки заблокирован, а его же
+            // VPN-серверы доступны. Получается замкнутый круг — подписку не
+            // обновить без VPN, а VPN не включить без серверов. Обычная ошибка
+            // сети об этом не говорит, поэтому объясняем прямо.
+            throw SubscriptionException(
+                "Не удалось связаться с сайтом подписки (${URL(url).host}).\n\n" +
+                    "Чаще всего это значит, что домен провайдера заблокирован, — " +
+                    "сами VPN-серверы при этом обычно работают.\n\n" +
+                    "Подключись к любому уже добавленному серверу и обнови ещё раз. " +
+                    "Если серверов нет — добавь один ссылкой vless:// или отсканируй QR."
+            )
         }
     }
 
