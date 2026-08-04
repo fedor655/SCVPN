@@ -87,6 +87,14 @@ class XrayRunner:
             creationflags=creationflags,
             startupinfo=startupinfo,
         )
+        # PID на диск — если приложение закроется аварийно, ядро останется
+        # работать само по себе, и следующий запуск должен его найти и снять
+        # (см. tun.cleanup_stray).
+        try:
+            (paths.DATA_DIR / "xray.pid").write_text(str(self._proc.pid), encoding="utf-8")
+        except OSError:
+            pass
+
         self.on_log(f"[core] запуск: {exe.name} run -c {cfg_path.name}")
         self.on_state(True)
 
@@ -118,4 +126,5 @@ class XrayRunner:
             except Exception as e:  # noqa: BLE001
                 self.on_log(f"[core] ошибка остановки: {e}")
         self._proc = None
+        (paths.DATA_DIR / "xray.pid").unlink(missing_ok=True)
         self.on_state(False)

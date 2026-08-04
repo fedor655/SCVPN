@@ -30,6 +30,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 
 /**
  * Единственный экран приложения.
@@ -55,6 +57,18 @@ class MainActivity : AppCompatActivity() {
     private var pinging = false
 
     private val ui = Handler(Looper.getMainLooper())
+
+    /**
+     * Сканер QR. Регистрируется здесь, а не по нажатию кнопки: Android требует
+     * регистрировать получателей результата до того, как активность станет
+     * видимой. Разрешение на камеру спрашивает сам экран сканирования.
+     * Результат не добавляем молча — возвращаем в поле ввода, чтобы было
+     * видно, что именно распозналось.
+     */
+    private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val text = result.contents
+        if (!text.isNullOrBlank()) showAddDialog(text.trim())
+    }
 
     /** Тикает раз в секунду, пока подключены, — обновляет время сессии. */
     private val ticker = object : Runnable {
@@ -174,15 +188,20 @@ class MainActivity : AppCompatActivity() {
     private fun renderState(state: VpnState, message: String) {
         val selected = servers.getOrNull(Prefs.selectedIndex(this))
 
-        val accent = when (state) {
-            VpnState.CONNECTED -> R.color.teal
-            VpnState.CONNECTING -> R.color.blue
-            VpnState.ERROR -> R.color.red
-            VpnState.IDLE -> R.color.text_dim
+        // Цветом состояния в чёрно-белой теме не различить, поэтому кольцо
+        // меняет ещё и вид: подключено — толстое сплошное, ошибка — пунктир.
+        val colorRes = when (state) {
+            VpnState.CONNECTED -> R.color.accent
+            VpnState.CONNECTING, VpnState.ERROR -> R.color.text
+            VpnState.IDLE -> R.color.muted
         }
-        val color = ContextCompat.getColor(this, accent)
+        val color = ContextCompat.getColor(this, colorRes)
+        val width = if (state == VpnState.CONNECTED) dp(5) else dp(3)
 
-        (power.background.mutate() as? GradientDrawable)?.setStroke(dp(3), color)
+        (power.background.mutate() as? GradientDrawable)?.apply {
+            if (state == VpnState.ERROR) setStroke(width, color, dp(6).toFloat(), dp(5).toFloat())
+            else setStroke(width, color)
+        }
         powerIcon.setColorFilter(color)
         statusText.setTextColor(color)
 
@@ -239,12 +258,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showAddDialog() {
+    /**
+     * Одно поле на оба случая: ссылку сервера узнаёт парсер, всё остальное с
+     * http(s) считается подпиской. Спрашивать «это ссылка или подписка?»
+     * значило бы перекладывать на человека то, что видно из самой строки.
+     */
+    private fun showAddDialog(prefill: String = "") {
         val pad = dp(20)
         val input = EditText(this).apply {
             hint = getString(R.string.dlg_add_hint)
             setSingleLine(false)
             maxLines = 4
+            setText(prefill)
+            setSelection(prefill.length)
         }
         val box = FrameLayout(this).apply {
             setPadding(pad, dp(8), pad, 0)
@@ -254,10 +280,31 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.dlg_add_title)
             .setView(box)
-            .setPositiveButton(R.string.dlg_add_link) { _, _ -> addLink(input.text.toString()) }
-            .setNeutralButton(R.string.dlg_add_sub) { _, _ -> addSubscription(input.text.toString()) }
+            .setPositiveButton(R.string.action_add) { _, _ -> addSomething(input.text.toString()) }
+            .setNeutralButton(R.string.dlg_add_scan) { _, _ -> launchScanner() }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    private fun addSomething(raw: String) {
+        val text = raw.trim()
+        if (text.isEmpty()) return
+        when {
+            SubscriptionParser.parseLink(text) != null -> addLink(text)
+            text.startsWith("http://") || text.startsWith("https://") -> addSubscription(text)
+            else -> toast("Это не похоже ни на ссылку сервера, ни на URL подписки")
+        }
+    }
+
+    private fun launchScanner() {
+        scanLauncher.launch(
+            ScanOptions().apply {
+                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                setPrompt(getString(R.string.scan_prompt))
+                setBeepEnabled(false)
+                setOrientationLocked(false)
+            }
+        )
     }
 
     private fun addLink(text: String) {
@@ -418,6 +465,10 @@ class MainActivity : AppCompatActivity() {
                     if (fetched.isEmpty()) { toast("В подписке не нашлось серверов"); return@post }
                     servers = fetched.toMutableList()
                     Prefs.saveServers(this, servers)
+                    // Пинги сбрасываем: за тем же именем может стоять уже
+                    // другой сервер, и старое число врало бы.
+                    pings.clear()
+                    Prefs.savePings(this, pings)
                     Prefs.setSubInfo(this, info)
                     if (Prefs.subAdded(this).isBlank()) {
                         Prefs.setSubAdded(this, SubInfo.nowStamp())
@@ -493,15 +544,16 @@ class MainActivity : AppCompatActivity() {
             when (val ms = pings[s.key()]) {
                 null -> { pingView.text = ""; }
                 -1L -> {
-                    pingView.text = "нет"
-                    pingView.setTextColor(ContextCompat.getColor(context, R.color.red))
+                    // «Плохо» в монохроме показываем словом, а не цветом.
+                    pingView.text = "нет ответа"
+                    pingView.setTextColor(ContextCompat.getColor(context, R.color.muted))
                 }
                 else -> {
                     pingView.text = "$ms мс"
                     val c = when {
-                        ms < 200 -> R.color.teal
-                        ms < 500 -> R.color.text
-                        else -> R.color.red
+                        ms < 200 -> R.color.text      // чем медленнее, тем тусклее
+                        ms < 500 -> R.color.text_dim
+                        else -> R.color.muted
                     }
                     pingView.setTextColor(ContextCompat.getColor(context, c))
                 }

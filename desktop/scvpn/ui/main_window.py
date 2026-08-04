@@ -46,6 +46,7 @@ from ..subscription import SubscriptionError, fetch_subscription_full, parse_lin
 from ..tun import SPLIT_OFF, SingBoxTun, cleanup_stray, is_admin, relaunch_as_admin
 from ..xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
 from . import theme
+from .add_dialog import AddDialog
 from .brandmark import mark_pixmap
 from .split_dialog import SplitTunnelDialog
 from .subscription_dialog import SubscriptionDialog
@@ -54,9 +55,9 @@ from .workers import PingWorker, Worker
 
 STATE_COLORS = {
     "idle": theme.DIM,
-    "connecting": theme.BLUE,
-    "connected": theme.TEAL,
-    "error": theme.RED,
+    "connecting": theme.TEXT,
+    "connected": theme.ACCENT,
+    "error": theme.TEXT,
 }
 STATE_TEXTS = {
     "idle": "Отключено",
@@ -171,7 +172,7 @@ class MainWindow(QMainWindow):
         header.setSpacing(2)
 
         badge = QLabel()
-        badge.setPixmap(mark_pixmap(20, QColor(theme.TEAL)))
+        badge.setPixmap(mark_pixmap(20, QColor(theme.TEXT)))
         header.addWidget(badge)
 
         title = QLabel("SCVPN")
@@ -312,12 +313,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Список серверов
     # ------------------------------------------------------------------
-    def _refresh_list(self) -> None:
-        # Пинги переживают перечитывание списка: сервер тот же, мерить незачем.
+    def _refresh_list(self, keep_pings: bool = True) -> None:
+        # Пинги переживают обычное перечитывание списка: сервер тот же, мерить
+        # незачем. А вот после обновления подписки их надо сбросить: за тем же
+        # именем может стоять уже другой сервер, и старое число врало бы.
         previous_pings = {
             self.list.item(i).data(ROLE_SERVER).key(): self.list.item(i).data(ROLE_PING)
             for i in range(self.list.count())
-        }
+        } if keep_pings else {}
 
         servers = self.profiles.all_servers()
         self.row_servers = servers
@@ -565,12 +568,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _add_something(self) -> None:
         """Одно поле на оба случая: ссылка распознаётся сама, иначе это подписка."""
-        text, ok = QInputDialog.getText(
-            self, "Добавить",
-            "Вставь ссылку (vless:// / vmess:// / trojan:// / ss://)\nили URL подписки:",
-        )
-        text = text.strip()
-        if not ok or not text:
+        dlg = AddDialog(self)
+        if dlg.exec() != AddDialog.Accepted:
+            return
+        text = dlg.value
+        if not text:
             return
 
         s = parse_link(text)
@@ -690,8 +692,8 @@ class MainWindow(QMainWindow):
             if info.title and sub.name in ("", "Подписка", "Моя подписка"):
                 sub.name = info.title
             save_profiles(self.profiles)
-            self._refresh_list()
-            self._append_log(f"[+] Подписка «{sub.name}»: {len(servers)} серверов")
+            self._refresh_list(keep_pings=False)
+            self._append_log(f"[+] Подписка «{sub.name}»: {len(servers)} серверов, пинги сброшены")
             self._workers.remove(w)
 
         w.done.connect(on_done)

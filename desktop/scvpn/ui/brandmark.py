@@ -14,9 +14,10 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 
-# Палитра — общая с иконкой и с Android.
-TEAL = "#2DD4BF"
-BLUE = "#3B82F6"
+# Палитра — общая с иконкой и с Android. Знак белый; лёгкий переход к светло-
+# серому нужен только чтобы крупная фигура не выглядела плоской заливкой.
+MARK_TOP = "#FFFFFF"
+MARK_BOTTOM = "#C4C4C4"
 
 _R = 0.155      # радиус осевой в долях канвы
 _W = 0.090      # толщина штриха в долях канвы
@@ -56,8 +57,8 @@ def paint_mark(
 
     if color is None:
         grad = QLinearGradient(QPointF(0, side * 0.2), QPointF(0, side * 0.8))
-        grad.setColorAt(0.0, QColor(TEAL))
-        grad.setColorAt(1.0, QColor(BLUE))
+        grad.setColorAt(0.0, QColor(MARK_TOP))
+        grad.setColorAt(1.0, QColor(MARK_BOTTOM))
         brush = QBrush(grad)
     else:
         brush = QBrush(color)

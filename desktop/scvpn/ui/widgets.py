@@ -46,11 +46,14 @@ ROLE_PING = Qt.UserRole + 3      # int (мс) | None (не мерили) | False
 class PowerButton(QAbstractButton):
     """Круглая кнопка подключения. `state`: idle | connecting | connected | error."""
 
-    _COLORS = {
-        "idle": theme.DIM,
-        "connecting": theme.BLUE,
-        "connected": theme.TEAL,
-        "error": theme.RED,
+    # Цветом состояния в чёрно-белой теме не различить, поэтому кольцо меняет
+    # ещё и вид: подключено — толстое сплошное, ошибка — пунктир, простой —
+    # тонкое приглушённое.
+    _RING = {
+        "idle": (theme.MUTED, 3.0, Qt.SolidLine),
+        "connecting": (theme.TEXT, 3.0, Qt.SolidLine),
+        "connected": (theme.ACCENT, 5.0, Qt.SolidLine),
+        "error": (theme.TEXT, 3.0, Qt.DashLine),
     }
 
     def __init__(self, size: int = 132, parent=None) -> None:
@@ -83,9 +86,10 @@ class PowerButton(QAbstractButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
 
-        color = QColor(self._COLORS[self._state])
-        ring_w = 3.0
-        box = QRectF(self.rect()).adjusted(ring_w, ring_w, -ring_w, -ring_w)
+        name, ring_w, style = self._RING[self._state]
+        color = QColor(name)
+        inset = ring_w
+        box = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
 
         # заливка (чуть светлее при наведении — единственная реакция на мышь)
         p.setPen(Qt.NoPen)
@@ -96,14 +100,17 @@ class PowerButton(QAbstractButton):
         p.setBrush(Qt.NoBrush)
         if self._state == "connecting":
             dim = QColor(color)
-            dim.setAlpha(60)
+            dim.setAlpha(55)
             p.setPen(QPen(dim, ring_w))
             p.drawEllipse(box)
             p.setPen(QPen(color, ring_w, Qt.SolidLine, Qt.RoundCap))
             # Qt считает углы в 1/16 градуса и против часовой стрелки.
             p.drawArc(box, int((90 - self._spin) * 16), -100 * 16)
         else:
-            p.setPen(QPen(color, ring_w))
+            pen = QPen(color, ring_w, style)
+            if style == Qt.DashLine:
+                pen.setDashPattern([3, 3])   # в долях толщины линии
+            p.setPen(pen)
             p.drawEllipse(box)
 
         mark = QRectF(self.rect()).adjusted(
@@ -131,7 +138,7 @@ class ServerDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.State_Selected)
         hovered = bool(option.state & QStyle.State_MouseOver)
 
-        painter.setPen(QPen(QColor(theme.TEAL if selected else theme.STROKE), 1))
+        painter.setPen(QPen(QColor(theme.ACCENT if selected else theme.STROKE), 1))
         painter.setBrush(QColor(
             theme.SURFACE_HI if (selected or hovered) else theme.SURFACE
         ))
@@ -174,14 +181,19 @@ class ServerDelegate(QStyledItemDelegate):
 
 
 def _ping_label(ping) -> tuple[str, str]:
-    """(текст, цвет) для значения пинга."""
+    """(текст, цвет) для значения пинга.
+
+    В чёрно-белой теме «хорошо/плохо» показывается яркостью: чем медленнее,
+    тем тусклее. Отсутствие ответа подписано словами — одной яркости для
+    такого важного случая мало.
+    """
     if ping is None:
         return "", theme.DIM
     if ping is False:
-        return "нет ответа", theme.RED
+        return "нет ответа", theme.MUTED
     ms = int(ping)
     if ms < 200:
-        return f"{ms} мс", theme.TEAL
-    if ms < 500:
         return f"{ms} мс", theme.TEXT
-    return f"{ms} мс", theme.RED
+    if ms < 500:
+        return f"{ms} мс", theme.DIM
+    return f"{ms} мс", theme.MUTED

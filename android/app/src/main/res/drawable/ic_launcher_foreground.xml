@@ -2,7 +2,8 @@
 <!--
   Передний план адаптивной иконки. Знак вписан в безопасную зону 66 % от
   канвы 108x108 — при любой маске (круг, squircle, квадрат) ничего не режется.
-  Градиент бирюзовый -> синий, как на десктопной иконке.
+  Знак белый, как и весь интерфейс; лёгкий переход к светло-серому нужен
+  только чтобы крупная фигура не выглядела плоской заливкой.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -19,8 +20,8 @@
                 android:startX="54" android:startY="36"
                 android:endX="54" android:endY="72"
                 android:type="linear">
-                <item android:offset="0" android:color="#2DD4BF" />
-                <item android:offset="1" android:color="#3B82F6" />
+                <item android:offset="0" android:color="#FFFFFF" />
+                <item android:offset="1" android:color="#C4C4C4" />
             </gradient>
         </aapt:attr>
     </path>

@@ -1,22 +1,26 @@
 """Палитра и таблица стилей SCVPN — одно место на всё приложение.
 
-Тема одна, тёмная. Светлого варианта нет намеренно: у приложения ровно один
-экран, и второй набор цветов пришлось бы поддерживать без всякой пользы.
-Цвета те же, что у иконки и у Android-версии.
+Тема одна: чёрно-белая. Цвета нет вообще, только градации серого — поэтому
+состояния приходится различать не оттенком, а формой: кольцо кнопки при ошибке
+рисуется пунктиром, при подключении — толще, а «плохой» пинг вдобавок к
+приглушённому серому подписан словами. Если бы состояния отличались только
+яркостью, «подключено» и «ошибка» читались бы одинаково.
+
+Те же значения продублированы в android/app/src/main/res/values/colors.xml.
 """
 from __future__ import annotations
 
-BG = "#0A0E13"
-SURFACE = "#131A24"
-SURFACE_HI = "#1B2430"
-STROKE = "#22303F"
+BG = "#000000"
+SURFACE = "#0D0D0D"
+SURFACE_HI = "#1C1C1C"
+STROKE = "#333333"
 
-TEXT = "#E6EDF3"
-DIM = "#7D8B9C"
+TEXT = "#FFFFFF"
+DIM = "#8C8C8C"
+MUTED = "#5A5A5A"
 
-TEAL = "#2DD4BF"
-BLUE = "#3B82F6"
-RED = "#F87171"
+# Акцент — тоже белый: выделение показывается яркостью и рамкой, не цветом.
+ACCENT = "#FFFFFF"
 
 QSS = f"""
 QMainWindow, QWidget {{
@@ -77,18 +81,18 @@ QRadioButton::indicator {{ width: 16px; height: 16px; border-radius: 9px; }}
 QRadioButton::indicator:checked {{
     /* Точку рисуем градиентом, а не толстой рамкой: Qt не скругляет широкую
        рамку и вместо кружка получается квадрат со скруглениями. */
-    border: 1px solid {TEAL};
+    border: 1px solid {ACCENT};
     border-radius: 9px;
     background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-                stop:0 {TEAL}, stop:0.45 {TEAL}, stop:0.5 {BG}, stop:1 {BG});
+                stop:0 {ACCENT}, stop:0.45 {ACCENT}, stop:0.5 {BG}, stop:1 {BG});
 }}
 QCheckBox::indicator, QListWidget::indicator {{ border-radius: 4px; }}
 QCheckBox::indicator:checked, QListWidget::indicator:checked {{
-    background: {TEAL};
-    border-color: {TEAL};
+    background: {ACCENT};
+    border-color: {ACCENT};
 }}
 QRadioButton::indicator:hover, QCheckBox::indicator:hover,
-QListWidget::indicator:hover {{ border-color: {TEAL}; }}
+QListWidget::indicator:hover {{ border-color: {ACCENT}; }}
 
 QMenu {{
     background: {SURFACE};
@@ -128,9 +132,10 @@ QLineEdit {{
     border-radius: 8px;
     padding: 7px 10px;
     color: {TEXT};
-    selection-background-color: {BLUE};
+    selection-background-color: {STROKE};
+    selection-color: {TEXT};
 }}
-QLineEdit:focus {{ border-color: {TEAL}; }}
+QLineEdit:focus {{ border-color: {ACCENT}; }}
 QPushButton {{
     background: {SURFACE_HI};
     border: 1px solid {STROKE};
@@ -139,5 +144,5 @@ QPushButton {{
     color: {TEXT};
 }}
 QPushButton:hover  {{ border-color: {DIM}; }}
-QPushButton:default {{ border-color: {TEAL}; }}
+QPushButton:default {{ border-color: {ACCENT}; }}
 """

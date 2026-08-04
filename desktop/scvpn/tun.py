@@ -88,19 +88,23 @@ SPLIT_OFF = "off"           # все приложения через VPN
 SPLIT_EXCLUDE = "exclude"   # все через VPN, кроме выбранных
 SPLIT_INCLUDE = "include"   # только выбранные через VPN
 
-# Файл с PID запущенного нами sing-box — см. cleanup_stray().
-PID_FILE_NAME = "singbox.pid"
+# Ядра, которые мы запускаем, и файлы с их PID — см. cleanup_stray().
+# Оба живут отдельными процессами и переживают аварийное закрытие приложения.
+CORES = {
+    "singbox.pid": ("sing-box", "TUN-адаптер"),
+    "xray.pid": ("xray", "соединение с сервером"),
+}
 
 
-def _pid_file():
-    return paths.DATA_DIR / PID_FILE_NAME
+def pid_file(name: str):
+    return paths.DATA_DIR / name
 
 
-def _is_singbox(pid: int) -> bool:
-    """Жив ли процесс с таким PID и это действительно sing-box.
+def _process_matches(pid: int, image: str) -> bool:
+    """Жив ли процесс с таким PID и это действительно нужный нам образ.
 
-    Проверяем имя образа, потому что PID переиспользуются: без этого мы могли
-    бы прибить чужой процесс, случайно получивший тот же номер.
+    Имя образа проверяем обязательно: номера процессов переиспользуются, и без
+    этой сверки мы могли бы прибить чужой процесс, случайно получивший тот же.
     """
     try:
         out = subprocess.run(
@@ -110,53 +114,61 @@ def _is_singbox(pid: int) -> bool:
         ).stdout
     except Exception:  # noqa: BLE001
         return False
-    return "sing-box" in out.lower()
+    return image in out.lower()
 
 
 def cleanup_stray(log: Optional[Callable[[str], None]] = None) -> bool:
-    """Прибить sing-box, переживший прошлый запуск приложения.
+    """Прибить ядра, пережившие прошлый запуск приложения.
 
-    Зачем. sing-box поднимается с правами администратора и живёт отдельным
-    процессом. Если приложение закрылось аварийно (или его сняли из диспетчера),
-    sing-box остаётся — а с ним и TUN-адаптер, который забирает весь трафик
-    системы и отдаёт его в SOCKS уже мёртвого Xray. Снаружи это выглядит как
-    «интернет пропал»: соединения просто висят до таймаута.
+    Зачем. И Xray, и sing-box — отдельные процессы, а в TUN-режиме ещё и с
+    правами администратора. Если приложение закрылось аварийно или его сняли
+    из диспетчера, ядра остаются работать сами по себе: туннель поднят, но
+    управлять им уже нечем — не отключить и не переключить сервер. А если
+    Xray при этом успел умереть, а sing-box нет, TUN отдаёт весь трафик
+    системы в никуда, и снаружи это выглядит как «интернет пропал».
 
     Возвращает True, если что-то прибрали.
     """
     say = log or (lambda s: None)
-    f = _pid_file()
-    if not f.exists():
-        return False
+    cleaned = False
+    failed = False
 
-    try:
-        pid = int(f.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        f.unlink(missing_ok=True)
-        return False
+    for name, (image, what) in CORES.items():
+        f = pid_file(name)
+        if not f.exists():
+            continue
+        try:
+            pid = int(f.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            f.unlink(missing_ok=True)
+            continue
 
-    if not _is_singbox(pid):
-        f.unlink(missing_ok=True)   # процесс уже завершился штатно
-        return False
+        if not _process_matches(pid, image):
+            f.unlink(missing_ok=True)   # процесс уже завершился штатно
+            continue
 
-    say(f"[tun] с прошлого запуска остался sing-box (PID {pid}) — он держит TUN, убираю.")
-    try:
-        subprocess.run(
-            ["taskkill", "/PID", str(pid), "/T", "/F"],
-            capture_output=True, text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception as e:  # noqa: BLE001
-        say(f"[tun] не удалось: {e}")
+        say(f"[*] С прошлого запуска остался {image} (PID {pid}) — держит {what}, убираю.")
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True, text=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except Exception as e:  # noqa: BLE001
+            say(f"[!] Не удалось: {e}")
 
-    if _is_singbox(pid):
-        say("[!] Не хватило прав снять зависший sing-box. Запусти SCVPN от имени "
+        if _process_matches(pid, image):
+            failed = True
+        else:
+            f.unlink(missing_ok=True)
+            cleaned = True
+
+    if failed:
+        say("[!] Не хватило прав снять зависшее ядро. Запусти SCVPN от имени "
             "администратора — или перезагрузись, если интернет не работает.")
-        return False
-
-    f.unlink(missing_ok=True)
-    say("[tun] зависший TUN убран, маршруты вернулись.")
-    return True
+    elif cleaned:
+        say("[*] Зависшие ядра убраны, маршруты вернулись.")
+    return cleaned
 
 
 def build_singbox_config(
@@ -292,7 +304,7 @@ class SingBoxTun:
         # PID на диск — чтобы следующий запуск приложения смог прибрать за собой,
         # если этот процесс переживёт нас (см. cleanup_stray).
         try:
-            _pid_file().write_text(str(self._proc.pid), encoding="utf-8")
+            pid_file("singbox.pid").write_text(str(self._proc.pid), encoding="utf-8")
         except OSError:
             pass
 
@@ -325,5 +337,5 @@ class SingBoxTun:
             except Exception as e:  # noqa: BLE001
                 self.on_log(f"[tun] ошибка остановки: {e}")
         self._proc = None
-        _pid_file().unlink(missing_ok=True)
+        pid_file("singbox.pid").unlink(missing_ok=True)
         self.on_state(False)

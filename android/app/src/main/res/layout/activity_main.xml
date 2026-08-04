@@ -27,7 +27,7 @@
             android:layout_height="22dp"
             android:src="@drawable/ic_scvpn_mark"
             android:contentDescription="@string/app_name"
-            android:tint="@color/teal" />
+            android:tint="@color/text" />
 
         <TextView
             android:layout_width="0dp"

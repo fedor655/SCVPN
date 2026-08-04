@@ -37,7 +37,7 @@
 
     <string name="dlg_add_title">Добавить сервер</string>
     <string name="dlg_add_hint">vless:// … или URL подписки</string>
-    <string name="dlg_add_link">Как ссылку</string>
-    <string name="dlg_add_sub">Как подписку</string>
+    <string name="dlg_add_scan">Сканировать QR</string>
+    <string name="scan_prompt">Наведи на QR-код подписки</string>
     <string name="cancel">Отмена</string>
 </resources>

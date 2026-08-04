@@ -126,7 +126,7 @@ class SubscriptionDialog(QDialog):
         # --- трафик ---
         if info.unlimited:
             lay.addLayout(self._row("Потрачено", human_bytes(info.used)))
-            lay.addLayout(self._row("Лимит трафика", "безлимит", theme.TEAL))
+            lay.addLayout(self._row("Лимит трафика", "безлимит"))
         else:
             lay.addLayout(self._row(
                 "Потрачено", f"{human_bytes(info.used)} из {human_bytes(info.total)}"
@@ -142,20 +142,19 @@ class SubscriptionDialog(QDialog):
         # --- срок ---
         expires = info.expires_at
         if expires:
+            # Цветом тревожность не показать — пишем словами.
             left = info.days_left
-            color = theme.TEXT
-            if left is not None and left < 0:
-                color = theme.RED
-            elif left is not None and left <= 5:
-                color = theme.RED
-            elif left is not None and left <= 14:
-                color = theme.BLUE
             tail = ""
             if left is not None:
-                tail = f"  ·  осталось {left} дн." if left >= 0 else "  ·  истекла"
-            lay.addLayout(self._row("Действует до", f"{expires:%d.%m.%Y}{tail}", color))
+                if left < 0:
+                    tail = "  ·  истекла"
+                elif left <= 5:
+                    tail = f"  ·  осталось {left} дн. — скоро истечёт"
+                else:
+                    tail = f"  ·  осталось {left} дн."
+            lay.addLayout(self._row("Действует до", f"{expires:%d.%m.%Y}{tail}"))
         else:
-            lay.addLayout(self._row("Действует до", "бессрочно", theme.TEAL))
+            lay.addLayout(self._row("Действует до", "бессрочно"))
 
         lay.addLayout(self._row("Автообновление", human_interval(info.update_interval)))
         lay.addLayout(self._row("Серверов", str(len(self.sub.servers))))
@@ -168,7 +167,7 @@ class SubscriptionDialog(QDialog):
         # --- устройства ---
         if info.hwid:
             if info.device_limit_reached:
-                lay.addLayout(self._row("Устройства", "лимит исчерпан", theme.RED))
+                lay.addLayout(self._row("Устройства", "лимит исчерпан"))
             elif info.hwid.get("x-hwid-limit") == "true":
                 lay.addLayout(self._row("Устройства", "есть ограничение", theme.DIM))
         return box
@@ -177,7 +176,7 @@ class SubscriptionDialog(QDialog):
         bar = QWidget()
         bar.setFixedHeight(6)
         bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        color = theme.TEAL if ratio < 0.75 else (theme.BLUE if ratio < 0.9 else theme.RED)
+        color = theme.ACCENT if ratio < 0.9 else theme.DIM
 
         def paint(event, w=bar, r=ratio, c=color):  # noqa: ARG001
             p = QPainter(w)
@@ -254,7 +253,7 @@ class SubscriptionDialog(QDialog):
         refresh = QPushButton("Обновить")
         refresh.clicked.connect(self._refresh)
         delete = QPushButton("Удалить подписку")
-        delete.setStyleSheet(f"color: {theme.RED};")
+        delete.setStyleSheet(f"color: {theme.DIM};")
         delete.clicked.connect(self._delete)
         close = QPushButton("Закрыть")
         close.setDefault(True)
