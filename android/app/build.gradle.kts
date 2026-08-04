@@ -22,7 +22,7 @@ android {
         targetSdk = 33
         // versionName — то, что видит человек; versionCode Android требует
         // только возрастающим, иначе установка поверх старой сборки не пройдёт.
-        versionCode = 6
+        versionCode = 7
         versionName = "0.0.0"
         ndk {
             // те ABI, под которые у нас есть hev .so + ядро

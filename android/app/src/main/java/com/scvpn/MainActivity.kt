@@ -302,6 +302,9 @@ class MainActivity : AppCompatActivity() {
                 setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                 setPrompt(getString(R.string.scan_prompt))
                 setBeepEnabled(false)
+                setCaptureActivity(PortraitCaptureActivity::class.java)
+                // Ориентацию задаёт манифест нашего экрана; библиотеке своё
+                // мнение навязывать не даём, иначе она зафиксирует текущую.
                 setOrientationLocked(false)
             }
         )
