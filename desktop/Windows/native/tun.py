@@ -21,8 +21,9 @@ import sys
 import threading
 from typing import Callable, Optional
 
+from shared.models import Server
+
 from . import paths
-from .models import Server
 
 
 # ----------------------------------------------------------------------
@@ -240,7 +241,7 @@ def build_singbox_config(
 # ----------------------------------------------------------------------
 # Запуск/остановка sing-box
 # ----------------------------------------------------------------------
-class SingBoxTun:
+class Tun:
     def __init__(
         self,
         on_log: Optional[Callable[[str], None]] = None,
@@ -339,3 +340,23 @@ class SingBoxTun:
         self._proc = None
         pid_file("singbox.pid").unlink(missing_ok=True)
         self.on_state(False)
+
+
+# ----------------------------------------------------------------------
+# Обёртки контракта native: см. MacOS/native/tun.py — то же имя, другая
+# реализация привилегий (там это не UAC, а установка демона через launchd).
+# ----------------------------------------------------------------------
+PRIVILEGE_QUESTION = (
+    "TUN-режим (весь трафик) требует прав администратора.\n"
+    "Перезапустить приложение от имени администратора?"
+)
+
+
+def privileged() -> bool:
+    """Можно ли прямо сейчас поднять TUN. На Windows это права администратора."""
+    return is_admin()
+
+
+def acquire_privilege() -> str:
+    """Запросить права. "restart" — процесс надо закрыть, поднимется новый."""
+    return "restart" if relaunch_as_admin() else "failed"

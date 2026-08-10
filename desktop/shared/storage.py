@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from . import paths
+from native import paths
 from .models import Server
 from .subinfo import SubscriptionInfo
 

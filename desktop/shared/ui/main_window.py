@@ -28,12 +28,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import __version__, sysproxy
-from ..connect import find_working_fingerprint
-from ..core_runner import XrayRunner, find_free_port
-from ..downloader import core_present, download_core, download_singbox, tun_present
-from ..models import Server
-from ..storage import (
+from shared import __version__
+from shared.connect import find_working_fingerprint
+from shared.core_runner import XrayRunner, find_free_port
+from shared.models import Server
+from shared.storage import (
     Profiles,
     Subscription,
     load_profiles,
@@ -42,9 +41,18 @@ from ..storage import (
     save_profiles,
     save_settings,
 )
-from ..subscription import SubscriptionError, fetch_subscription_full, parse_link
-from ..tun import SPLIT_OFF, SingBoxTun, cleanup_stray, is_admin, relaunch_as_admin
-from ..xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
+from shared.subscription import SubscriptionError, fetch_subscription_full, parse_link
+from shared.xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
+from native import sysproxy
+from native.downloader import core_present, download_core, download_tun, tun_present
+from native.tun import (
+    PRIVILEGE_QUESTION,
+    SPLIT_OFF,
+    Tun,
+    acquire_privilege,
+    cleanup_stray,
+    privileged,
+)
 from . import theme
 from .add_dialog import AddDialog
 from .brandmark import mark_pixmap
@@ -93,7 +101,7 @@ class MainWindow(QMainWindow):
             on_log=self.log_signal.emit,
             on_state=self.state_signal.emit,
         )
-        self.tun = SingBoxTun(
+        self.tun = Tun(
             on_log=self.log_signal.emit,
             on_state=self.tun_state_signal.emit,
         )
@@ -398,14 +406,13 @@ class MainWindow(QMainWindow):
                     "Меню «⋯» → «Скачать компоненты TUN» (sing-box + wintun).",
                 )
                 return
-            if not is_admin():
+            if not privileged():
                 r = QMessageBox.question(
                     self, "Нужны права администратора",
-                    "TUN-режим (весь трафик) требует прав администратора.\n"
-                    "Перезапустить приложение от имени администратора?",
+                    PRIVILEGE_QUESTION,
                 )
                 if r == QMessageBox.Yes:
-                    if relaunch_as_admin():
+                    if acquire_privilege() == "restart":
                         QApplication.quit()
                     else:
                         QMessageBox.warning(self, "Не вышло", "Не удалось перезапустить с правами администратора.")
@@ -749,7 +756,7 @@ class MainWindow(QMainWindow):
 
     def _download_tun(self) -> None:
         self._append_log("[*] Скачиваю sing-box + wintun (для TUN-режима)…")
-        self._run_download(download_singbox, "TUN-компоненты установлены (sing-box {tag}).", "TUN")
+        self._run_download(download_tun, "TUN-компоненты установлены (sing-box {tag}).", "TUN")
 
     def _run_download(self, fn, success_text: str, what: str) -> None:
         w = Worker(lambda log: fn(progress=log))
@@ -772,7 +779,7 @@ class MainWindow(QMainWindow):
         mode = self.settings.get("vpn_mode", "proxy")
         # системный прокси имеет смысл только в режиме proxy
         self.sysproxy_action.setEnabled(mode == "proxy")
-        if mode == "tun" and not is_admin():
+        if mode == "tun" and not privileged():
             self._append_log("[i] TUN потребует прав администратора при подключении.")
         self._update_substatus()
 

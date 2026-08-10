@@ -1,8 +1,13 @@
-"""Точка входа SCVPN.
+"""Точка входа SCVPN для Windows.
 
 Запуск:  .venv\\Scripts\\python.exe run.py
 """
 import sys
+from pathlib import Path
+
+# Общий код лежит на уровень выше, в desktop/shared. Каталог самого скрипта
+# (desktop/Windows) Python добавляет в sys.path сам — оттуда берётся native.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Консоль Windows бывает в cp1251 — переключаем потоки на UTF-8, чтобы русский
 # текст и любые символы в логах не роняли программу. В режиме без консоли
@@ -13,8 +18,8 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-from scvpn import paths
-from scvpn.ui.main_window import run_app
+from native import paths  # noqa: E402
+from shared.ui.main_window import run_app  # noqa: E402
 
 
 def main() -> int:

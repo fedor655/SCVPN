@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..storage import Subscription
-from ..subinfo import human_bytes, human_interval
+from shared.storage import Subscription
+from shared.subinfo import human_bytes, human_interval
 from . import theme
 
 

@@ -148,3 +148,7 @@ def _download_wintun(log: Callable[[str], None]) -> None:
 
 def tun_present() -> bool:
     return paths.singbox_exe().exists() and paths.wintun_dll().exists()
+
+
+# Имена контракта native: на Windows компоненты TUN — это sing-box плюс wintun.
+download_tun = download_singbox

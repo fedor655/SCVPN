@@ -3,7 +3,7 @@
 
 a = Analysis(
     ['run.py'],
-    pathex=[],
+    pathex=['..'],
     binaries=[],
     datas=[('setup\\scvpn.ico', '.')],
     hiddenimports=[],
