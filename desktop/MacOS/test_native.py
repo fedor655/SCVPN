@@ -82,6 +82,38 @@ def test_device_headers_report_macos():
     assert h["x-device-model"], h
 
 
+@check
+def test_hardware_services_skips_vpn_configs():
+    """Нас интересуют сервисы за реальным устройством: Wi-Fi, Ethernet.
+
+    Записей VPN-конфигов в системе бывают десятки, у них нет Hardware Port,
+    и прокси им настраивать нечего.
+    """
+    from native.sysproxy import hardware_services
+
+    services = hardware_services()
+    assert services, "не нашлось ни одного сетевого сервиса с устройством"
+    assert all(s.strip() == s for s in services), services
+    assert not any(s.startswith("*") for s in services), services
+
+
+@check
+def test_snapshot_round_trip_restores_state():
+    """enable -> disable обязан вернуть ровно то, что было. Иначе — без интернета."""
+    from native import sysproxy
+
+    services = sysproxy.hardware_services()
+    before = {s: sysproxy._read_state(s) for s in services}
+    sysproxy.enable("127.0.0.1", 10809)
+    try:
+        assert sysproxy.is_enabled(), "прокси не включился"
+    finally:
+        sysproxy.disable()
+    after = {s: sysproxy._read_state(s) for s in services}
+    assert before == after, f"состояние не восстановилось:\n{before}\n{after}"
+    assert not sysproxy.is_enabled()
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
