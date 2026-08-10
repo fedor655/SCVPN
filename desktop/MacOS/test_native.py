@@ -126,6 +126,23 @@ def test_snapshot_round_trip_restores_state():
         sysproxy._run(["-setproxybypassdomains", probe, "Empty"])
 
 
+@check
+def test_xray_asset_is_arm64():
+    from native.downloader import ASSET_NAME
+
+    assert ASSET_NAME == "Xray-macos-arm64-v8a.zip", ASSET_NAME
+
+
+@check
+def test_latest_asset_url_resolves():
+    """Живой запрос к GitHub: имя ассета в релизе не должно молча уехать."""
+    from native.downloader import latest_asset_url
+
+    tag, url = latest_asset_url()
+    assert tag and tag != "?", tag
+    assert url.endswith("Xray-macos-arm64-v8a.zip"), url
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
