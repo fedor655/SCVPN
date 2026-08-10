@@ -50,6 +50,38 @@ def test_singbox_lives_in_root_owned_dir():
     assert str(paths.HELPER_BIN_DIR).startswith("/Library/"), paths.HELPER_BIN_DIR
 
 
+@check
+def test_hwid_reads_platform_uuid():
+    from native.hwid import _machine_source
+
+    src = _machine_source()
+    # На настоящем Маке ioreg отдаёт UUID вида 1E1F5E06-F88C-5595-A6C0-54BB55683BE4.
+    # Если ioreg не ответил, модуль откатывается к MAC-адресу — это тоже валидно,
+    # но тогда проверка должна об этом сказать вслух, а не молча пройти.
+    assert src, "источник идентификатора пуст"
+    assert not src.startswith("mac-"), f"ioreg не отдал IOPlatformUUID, откат на {src}"
+    assert len(src.split("-")) == 5, src
+
+
+@check
+def test_hwid_is_stable_and_uuid_shaped():
+    from native.hwid import device_id
+
+    first = device_id()
+    assert len(first.split("-")) == 5, first
+    assert device_id() == first, "идентификатор должен считаться один раз"
+
+
+@check
+def test_device_headers_report_macos():
+    from native.hwid import device_headers
+
+    h = device_headers()
+    assert h["x-device-os"] == "Darwin", h
+    assert h["x-hwid"], h
+    assert h["x-device-model"], h
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
