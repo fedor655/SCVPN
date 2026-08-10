@@ -78,9 +78,21 @@ def hardware_services() -> list[str]:
     return services
 
 
-def _read_state(service: str) -> dict[str, dict[str, str]]:
+def _read_bypass(service: str) -> list[str]:
+    """Список обхода прокси сервиса — по домену на строку."""
+    out = _run(["-getproxybypassdomains", service])
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    # Пустой список networksetup описывает не пустым выводом, а человеческой
+    # фразой вида "There aren't any bypass domains set on Wi-Fi." — сравнивать
+    # с ней целиком нельзя, она содержит имя сервиса и может отличаться между
+    # версиями macOS. Домены пробелов не содержат, а фраза — предложение с
+    # пробелами, этим и отличаем.
+    return [line for line in lines if " " not in line]
+
+
+def _read_state(service: str) -> dict[str, dict[str, str] | list[str]]:
     """Текущие настройки прокси одного сервиса — в том виде, в каком их вернуть."""
-    state: dict[str, dict[str, str]] = {}
+    state: dict[str, dict[str, str] | list[str]] = {}
     for kind, get, _set, _setstate in _KINDS:
         fields: dict[str, str] = {}
         for line in _run([get, service]).splitlines():
@@ -88,6 +100,7 @@ def _read_state(service: str) -> dict[str, dict[str, str]]:
             if m:
                 fields[m.group("key")] = m.group("value").strip()
         state[kind] = fields
+    state["bypass"] = _read_bypass(service)
     return state
 
 
@@ -128,10 +141,10 @@ def disable() -> None:
             # выключено, Server/Port от нашего enable() тихо остаются висеть.
             _run([set_cmd, service, fields.get("Server", ""), fields.get("Port", "0"), "off"])
             _run([setstate_cmd, service, "on" if fields.get("Enabled") == "Yes" else "off"])
-        # ponytail: список обхода возвращаем к пустому, а не к прежнему —
-        # networksetup не отдаёт его в машиночитаемом виде. Если понадобится
-        # точный откат, читать -getproxybypassdomains и хранить в снимке.
-        _run(["-setproxybypassdomains", service, "Empty"])
+        # Список обхода возвращаем к тому, что было — если был пуст, "Empty"
+        # это то же самое, что и понимает networksetup.
+        bypass = was.get("bypass") or []
+        _run(["-setproxybypassdomains", service, *(bypass if bypass else ["Empty"])])
 
     _SNAPSHOT.unlink(missing_ok=True)
 

@@ -99,19 +99,31 @@ def test_hardware_services_skips_vpn_configs():
 
 @check
 def test_snapshot_round_trip_restores_state():
-    """enable -> disable обязан вернуть ровно то, что было. Иначе — без интернета."""
+    """enable -> disable обязан вернуть ровно то, что было. Иначе — без интернета.
+
+    Отдельно проверяем список обхода прокси: на одном сервисе заранее ставим
+    пользовательский домен. Если раунд-трип его стирает (а не восстанавливает),
+    before != after поймает это — раньше не ловил, т.к. baseline был и так пуст.
+    """
     from native import sysproxy
 
     services = sysproxy.hardware_services()
-    before = {s: sysproxy._read_state(s) for s in services}
-    sysproxy.enable("127.0.0.1", 10809)
+    assert services
+    probe = services[0]
+    sysproxy._run(["-setproxybypassdomains", probe, "example.com", "*.internal"])
     try:
-        assert sysproxy.is_enabled(), "прокси не включился"
+        before = {s: sysproxy._read_state(s) for s in services}
+        assert before[probe]["bypass"] == ["example.com", "*.internal"], before[probe]
+        sysproxy.enable("127.0.0.1", 10809)
+        try:
+            assert sysproxy.is_enabled(), "прокси не включился"
+        finally:
+            sysproxy.disable()
+        after = {s: sysproxy._read_state(s) for s in services}
+        assert before == after, f"состояние не восстановилось:\n{before}\n{after}"
+        assert not sysproxy.is_enabled()
     finally:
-        sysproxy.disable()
-    after = {s: sysproxy._read_state(s) for s in services}
-    assert before == after, f"состояние не восстановилось:\n{before}\n{after}"
-    assert not sysproxy.is_enabled()
+        sysproxy._run(["-setproxybypassdomains", probe, "Empty"])
 
 
 def main() -> int:
