@@ -143,6 +143,91 @@ def test_latest_asset_url_resolves():
     assert url.endswith("Xray-macos-arm64-v8a.zip"), url
 
 
+@check
+def test_config_has_no_windows_only_fields():
+    from helper.config import build, validate
+
+    cfg = build(validate({"socks_port": 10808}), "/Users/x/bin/xray")
+    tun_in = cfg["inbounds"][0]
+    assert "strict_route" not in tun_in, "strict_route — только Linux и Windows"
+    assert "interface_name" not in tun_in, "имя utun-устройства задаёт ядро"
+    assert tun_in["auto_route"] is True
+    assert cfg["route"]["auto_detect_interface"] is True
+
+
+@check
+def test_xray_process_rule_comes_first():
+    """Без этого правила прямое соединение xray к серверу возвращается в TUN."""
+    from helper.config import build, validate
+
+    cfg = build(validate({"socks_port": 10808}), "/Users/x/bin/xray")
+    first = cfg["route"]["rules"][0]
+    assert first == {"process_path": ["/Users/x/bin/xray"], "outbound": "direct"}, first
+
+
+@check
+def test_split_include_sends_only_listed_apps_to_tunnel():
+    from helper.config import build, validate
+
+    cfg = build(validate({
+        "socks_port": 10808, "split_mode": "include", "split_apps": ["Telegram"],
+    }), "/x/xray")
+    assert cfg["route"]["final"] == "direct", cfg["route"]["final"]
+    assert {"process_name": ["Telegram"], "outbound": "to-xray"} in cfg["route"]["rules"]
+
+
+@check
+def test_split_exclude_keeps_listed_apps_out_of_tunnel():
+    from helper.config import build, validate
+
+    cfg = build(validate({
+        "socks_port": 10808, "split_mode": "exclude", "split_apps": ["Telegram"],
+    }), "/x/xray")
+    assert cfg["route"]["final"] == "to-xray", cfg["route"]["final"]
+    assert {"process_name": ["Telegram"], "outbound": "direct"} in cfg["route"]["rules"]
+
+
+@check
+def test_validate_rejects_junk():
+    """Демон работает от root — сюда приходит недоверенный ввод."""
+    from helper.config import ValidationError, validate
+
+    bad = [
+        {"socks_port": 0},
+        {"socks_port": 70000},
+        {"socks_port": "10808; rm -rf /"},
+        {"socks_port": 10808, "split_mode": "всё через дядю"},
+        {"socks_port": 10808, "split_apps": ["../../../bin/sh"]},
+        {"socks_port": 10808, "split_apps": ["a/b"]},
+        {"socks_port": 10808, "split_apps": ["x" * 65]},
+        {"socks_port": 10808, "stack": "магия"},
+    ]
+    for params in bad:
+        try:
+            validate(params)
+        except ValidationError:
+            continue
+        raise AssertionError(f"пропустил мусор: {params}")
+
+
+@check
+def test_validate_drops_bad_ips_but_keeps_good():
+    from helper.config import validate
+
+    clean = validate({"socks_port": 10808, "exclude_ips": ["1.2.3.4", "не ip", "2001:db8::1"]})
+    assert clean["exclude_ips"] == ["1.2.3.4", "2001:db8::1"], clean["exclude_ips"]
+
+
+@check
+def test_exclude_ips_become_host_routes():
+    from helper.config import build, validate
+
+    cfg = build(validate({"socks_port": 10808, "exclude_ips": ["1.2.3.4", "2001:db8::1"]}), "/x/xray")
+    excludes = cfg["inbounds"][0]["route_exclude_address"]
+    assert "1.2.3.4/32" in excludes, excludes
+    assert "2001:db8::1/128" in excludes, excludes
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
