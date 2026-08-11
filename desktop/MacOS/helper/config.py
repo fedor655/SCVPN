@@ -52,6 +52,13 @@ def _app_name(value: object) -> str:
         raise ValidationError(f"слишком длинное имя приложения: {name[:20]}…")
     if "/" in name or "\\" in name or name in (".", ".."):
         raise ValidationError(f"имя приложения не может быть путём: {name!r}")
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:
+        # Одиночный суррогат (например, обрезанная суррогатная пара) json.loads
+        # пропускает молча, а вот json.dumps(...).encode("utf-8") на записи
+        # конфига на диск падает уже внутри демона. Отбиваем на входе.
+        raise ValidationError(f"имя приложения содержит недопустимые символы: {name!r}")
     return name
 
 
@@ -63,6 +70,13 @@ def validate(params: dict) -> dict:
     испорченный порт или режим — уже ошибка: молча подставлять умолчание
     значит поднять туннель не тем, чем просили.
     """
+    if not isinstance(params, dict):
+        # Кадр из сокета — это json.loads() от клиента, а JSON-документ
+        # законно может оказаться списком, строкой или числом, не только
+        # объектом. Без этой проверки ниже прилетит AttributeError вместо
+        # ValidationError, а его демон в отдельную ветку не ловит.
+        raise ValidationError(f"параметры должны быть объектом, пришло {params!r}")
+
     clean: dict = {"socks_port": _port(params.get("socks_port"))}
 
     mode = params.get("split_mode", SPLIT_OFF)
@@ -80,11 +94,21 @@ def validate(params: dict) -> dict:
         raise ValidationError(f"неизвестный сетевой стек: {stack!r}")
     clean["stack"] = stack
 
+    raw_ips = params.get("exclude_ips") or []
+    if not isinstance(raw_ips, list):
+        raise ValidationError("exclude_ips должен быть списком")
     ips: list[str] = []
-    for raw in params.get("exclude_ips") or []:
+    for raw in raw_ips:
+        # Не строка — не адрес, тихо отбрасываем, как и любой другой мусор
+        # в этом списке (см. docstring выше). Важно проверить тип явно: сама
+        # ipaddress.ip_address() принимает int и bool («истинность» числа
+        # молча превращается в правдоподобный IPv4-адрес), а это уже не тот
+        # запасной пояс, каким его задумали.
+        if not isinstance(raw, str):
+            continue
         try:
             ips.append(str(ipaddress.ip_address(raw)))
-        except (ValueError, TypeError):
+        except ValueError:
             continue
     clean["exclude_ips"] = ips
 

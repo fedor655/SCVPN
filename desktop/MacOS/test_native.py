@@ -201,6 +201,21 @@ def test_validate_rejects_junk():
         {"socks_port": 10808, "split_apps": ["a/b"]},
         {"socks_port": 10808, "split_apps": ["x" * 65]},
         {"socks_port": 10808, "stack": "магия"},
+        # params — не объект: json.loads() из сокета законно отдаёт список,
+        # строку, число — validate() не должен упасть с AttributeError.
+        [],
+        "10808",
+        # split_apps — не список.
+        {"socks_port": 10808, "split_apps": "Telegram"},
+        # имя приложения — не строка.
+        {"socks_port": 10808, "split_apps": [123]},
+        # имя приложения — пустое после strip.
+        {"socks_port": 10808, "split_apps": ["   "]},
+        # exclude_ips — не список.
+        {"socks_port": 10808, "exclude_ips": 5},
+        # одиночный суррогат: json.loads пропускает, а json.dumps(...).encode("utf-8")
+        # в демоне падает — отбить нужно на входе.
+        {"socks_port": 10808, "split_apps": ["\ud800X"]},
     ]
     for params in bad:
         try:
@@ -214,8 +229,32 @@ def test_validate_rejects_junk():
 def test_validate_drops_bad_ips_but_keeps_good():
     from helper.config import validate
 
-    clean = validate({"socks_port": 10808, "exclude_ips": ["1.2.3.4", "не ip", "2001:db8::1"]})
+    clean = validate({
+        "socks_port": 10808,
+        # "не ip" — мусорная строка; 16909060 и True — типы, для которых
+        # ipaddress.ip_address() молча построил бы правдоподобный IPv4-адрес
+        # (16909060 -> 1.2.3.4, True -> 0.0.0.1), если не проверять тип элемента.
+        "exclude_ips": ["1.2.3.4", "не ip", "2001:db8::1", 16909060, True],
+    })
     assert clean["exclude_ips"] == ["1.2.3.4", "2001:db8::1"], clean["exclude_ips"]
+
+
+@check
+def test_build_places_validated_values_not_hardcoded_ones():
+    """Мутационный прогон: захардкоженные server_port/stack/log_level 17/17 не ловили.
+
+    Значения нарочно не совпадают ни с одним умолчанием (socks_port != 1080,
+    stack != "gvisor", log_level != "warn"), чтобы мутация на дефолт тоже
+    была поймана, а не только мутация на произвольную константу.
+    """
+    from helper.config import build, validate
+
+    cfg = build(validate({
+        "socks_port": 12345, "stack": "system", "log_level": "debug",
+    }), "/x/xray")
+    assert cfg["outbounds"][0]["server_port"] == 12345, cfg["outbounds"][0]
+    assert cfg["inbounds"][0]["stack"] == "system", cfg["inbounds"][0]
+    assert cfg["log"]["level"] == "debug", cfg["log"]
 
 
 @check
