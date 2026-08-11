@@ -490,16 +490,32 @@ class Outbox:
     нет, — пока весь трафик системы идёт в туннель. Это та же ложь про
     состояние, ради ухода от которой написан весь модуль. Поэтому для ответа
     место освобождается за счёт самого старого лога, а не за счёт ответа.
+
+    Но у «не выбрасываем» обязан быть предел. Если клиент не читает, а логов,
+    за счёт которых можно освободить место, в очереди нет, — расти дальше
+    некуда: это память root-процесса. На `_hard_limit` кадрах разговор
+    заканчивается: такой клиент завис, соединение закрывается, а dead-man's
+    switch снимет туннель, следить за которым уже некому. Молча расти нельзя.
     """
 
     def __init__(self, conn: socket.socket, maxsize: int = _OUTBOX_LIMIT) -> None:
         self._conn = conn
         self._maxsize = maxsize
+        # Запас сверх обычного потолка на случай, когда выбрасывать нечего.
+        self._hard_limit = maxsize * 4
         self._items: deque[dict] = deque()
+        # Сколько в очереди логов. Без счётчика поиск «самого старого лога»
+        # обходил всю очередь впустую на каждом кадре, когда логов в ней нет.
+        self._logs = 0
         self._cv = threading.Condition()
         self._closed = False
+        self._overflowed = False
         self.dropped = 0
         self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def pending(self) -> int:
+        with self._cv:
+            return len(self._items)
 
     def start(self) -> Outbox:
         self._thread.start()
@@ -521,20 +537,42 @@ class Outbox:
                 if droppable:
                     self._note_drop()
                     return
-                # Ответу место освобождаем за счёт самого старого лога. Если
-                # логов в очереди нет вовсе — значит она забита ответами, чего
-                # не бывает (клиент шлёт команды по одной), и тогда лучше
-                # вырасти на кадр, чем потерять ответ.
-                if self._drop_oldest_log():
+                # Ответу место освобождаем за счёт самого старого лога.
+                if self._logs:
+                    self._drop_oldest_log()
                     self._note_drop()
+                elif len(self._items) >= self._hard_limit:
+                    self._overflow()
+                    return
             self._items.append(obj)
+            if "log" in obj:
+                self._logs += 1
             self._cv.notify()
 
+    def _overflow(self) -> None:
+        """Клиент не читает ответы, а выбрасывать нечего. Заканчиваем разговор."""
+        if self._overflowed:
+            return
+        self._overflowed = True
+        self._closed = True
+        log(f"очередь ответов переполнена ({len(self._items)} кадров) — "
+            f"клиент не читает, закрываю соединение")
+        # shutdown, а не close: readline у обслуживающего потока получит EOF,
+        # тот уйдёт в finally, а finally у нас и есть dead-man's switch.
+        try:
+            self._conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self._cv.notify()
+
     def _drop_oldest_log(self) -> bool:
+        """Убрать самый старый лог. Вызывать только когда счётчик не нулевой."""
         for i, item in enumerate(self._items):
             if "log" in item:
                 del self._items[i]
+                self._logs -= 1
                 return True
+        self._logs = 0
         return False
 
     def _note_drop(self) -> None:
@@ -558,6 +596,8 @@ class Outbox:
                 if not self._items:
                     return
                 obj = self._items.popleft()
+                if "log" in obj:
+                    self._logs -= 1
             try:
                 # errors="replace": в тексте ошибки лежит то, что прислал
                 # клиент, вплоть до одиночного суррогата, а строгий encode на

@@ -820,6 +820,39 @@ def test_daemon_never_drops_the_reply():
 
 
 @check
+def test_daemon_outbox_has_a_ceiling_even_for_replies():
+    """Ответы не выбрасываем — но и расти без границы очередь не должна.
+
+    Прежняя очередь при переполнении просто выбрасывала и не росла никогда.
+    Разведя ответы и логи, мы дали ответам право занимать место — а место в
+    очереди это память root-процесса. Если клиент не читает, а логов, за счёт
+    которых освобождают место, в очереди нет, каждый следующий кадр ещё и
+    обходил всю очередь под локом: время на кадр росло линейно, а очередь —
+    вместе с потоком запросов.
+    """
+    from helper.daemon import Outbox
+
+    left, right = socket.socketpair()
+    try:
+        outbox = Outbox(left, maxsize=8)     # писателя не запускаем: никто не разбирает
+        started = time.monotonic()
+        for i in range(8000):
+            outbox.send({"ok": True, "n": i})
+        spent = time.monotonic() - started
+
+        assert outbox.pending() <= 8 * 4, f"очередь выросла до {outbox.pending()} кадров"
+        assert spent < 1.0, f"8000 ответов заняли {spent:.2f} с — очередь деградирует"
+
+        # Клиенту, который не читает ответы, разговор закрывают: он завис, и
+        # снятие туннеля по обрыву для него — правильный исход.
+        right.settimeout(5)
+        assert right.recv(64) == b"", "соединение с зависшим клиентом не закрыто"
+    finally:
+        left.close()
+        right.close()
+
+
+@check
 def test_daemon_stop_reply_tells_the_truth():
     """Ответ на stop не смеет говорить «выключено», пока маршруты держатся.
 
