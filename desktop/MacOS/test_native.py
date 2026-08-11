@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -265,6 +266,93 @@ def test_exclude_ips_become_host_routes():
     excludes = cfg["inbounds"][0]["route_exclude_address"]
     assert "1.2.3.4/32" in excludes, excludes
     assert "2001:db8::1/128" in excludes, excludes
+
+
+@check
+def test_daemon_refuses_binary_outside_its_dir():
+    """Иначе любой процесс пользователя подменит sing-box и получит root."""
+    from pathlib import Path
+
+    from helper.daemon import check_binary
+
+    for bad in (Path("/tmp/sing-box"), Path.home() / "sing-box", Path("/usr/local/bin/sing-box")):
+        try:
+            check_binary(bad)
+        except PermissionError:
+            continue
+        raise AssertionError(f"пропустил бинарник вне своей папки: {bad}")
+
+
+@check
+def test_daemon_refuses_user_writable_binary():
+    """Файл в своей папке, но с правом записи для всех — тоже отказ."""
+    import os
+    import tempfile
+    from pathlib import Path
+    from unittest import mock
+
+    from helper import daemon
+
+    with tempfile.TemporaryDirectory() as d:
+        fake_dir = Path(d)
+        fake = fake_dir / "sing-box"
+        fake.write_bytes(b"")
+        fake.chmod(0o777)
+        with mock.patch.object(daemon, "BIN_DIR", fake_dir):
+            try:
+                daemon.check_binary(fake)
+            except PermissionError:
+                pass
+            else:
+                raise AssertionError("пропустил бинарник, доступный на запись всем")
+            fake.chmod(0o755)
+            if os.geteuid() == 0:
+                daemon.check_binary(fake)   # root:wheel 0755 — годится
+
+
+@check
+def test_daemon_singbox_asset_is_darwin_arm64():
+    from helper.daemon import pick_singbox_asset
+
+    assets = [
+        {"name": "sing-box-1.13.18-linux-amd64.tar.gz", "browser_download_url": "u1"},
+        {"name": "sing-box-1.13.18-darwin-amd64.tar.gz", "browser_download_url": "u2"},
+        {"name": "sing-box-1.13.18-darwin-arm64.tar.gz", "browser_download_url": "u3"},
+    ]
+    assert pick_singbox_asset(assets) == "u3"
+
+
+@check
+def test_daemon_rejects_bad_request_without_dying():
+    from helper.daemon import handle_line
+
+    state = {}
+    reply = handle_line('{"cmd": "start", "socks_port": 99999}', state)
+    assert reply["ok"] is False, reply
+    assert "порт" in reply["error"], reply
+
+    reply = handle_line("это не json", state)
+    assert reply["ok"] is False, reply
+
+    reply = handle_line('{"cmd": "плясать"}', state)
+    assert reply["ok"] is False, reply
+
+    # Длина каждого имени ограничена в config.validate(), а число имён — нет:
+    # список на 200 000 записей даёт конфиг в мегабайты, который root запишет
+    # на диск. Потолок стоит на стороне демона.
+    huge = json.dumps({"cmd": "start", "socks_port": 10808, "split_apps": ["a"] * 200_000})
+    reply = handle_line(huge, state)
+    assert reply["ok"] is False, reply
+    assert "split_apps" in reply["error"], reply
+
+
+@check
+def test_daemon_rejects_foreign_xray_path():
+    from helper.daemon import handle_line
+
+    for bad in (None, "relative/xray", "/bin/sh", "/tmp/не-существует/xray"):
+        reply = handle_line(json.dumps({"cmd": "start", "socks_port": 10808, "xray_path": bad}), {})
+        assert reply["ok"] is False, (bad, reply)
 
 
 def main() -> int:
