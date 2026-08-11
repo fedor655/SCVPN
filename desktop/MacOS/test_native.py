@@ -1016,6 +1016,162 @@ def test_installed_reflects_reality():
     assert installed() == Path("/Library/LaunchDaemons/com.scvpn.helper.plist").exists()
 
 
+@check
+def test_installed_detects_stale_plist_after_move():
+    """installed() сравнивает содержимое, а не факт существования файла.
+
+    ProgramArguments внутри plist — абсолютный путь к программе. После
+    переезда .app или перехода исходники<->сборка старый plist остаётся на
+    диске, но указывает в никуда: launchd с KeepAlive вечно перезапускал бы
+    несуществующий путь, а installed() молча врал бы True. Файл существует —
+    значит installed() старой версии сказал бы True и на мёртвом plist.
+    """
+    from unittest import mock
+
+    from helper import install
+    from native import paths
+
+    with tempfile.TemporaryDirectory() as td:
+        stale = Path(td) / "com.scvpn.helper.plist"
+        with mock.patch.object(paths, "HELPER_PLIST", stale):
+            # Файла ещё нет вовсе.
+            assert install.installed() is False
+
+            # Файл есть, но с чужим/устаревшим содержимым — не тот plist,
+            # который выдал бы plist_text() сейчас.
+            stale.write_text("не тот plist", encoding="utf-8")
+            assert install.installed() is False, "устаревший plist сошёл за поставленный"
+
+            # Содержимое совпадает с тем, что даёт текущая сборка — теперь
+            # действительно поставлено.
+            stale.write_text(install.plist_text(), encoding="utf-8")
+            assert install.installed() is True
+
+
+@check
+def test_program_arguments_use_bundle_exe_when_frozen():
+    """В собранном .app демон запускает сам себя, а не системный python."""
+    from unittest import mock
+
+    from helper.install import program_arguments
+    from native import paths
+
+    with mock.patch.object(paths, "FROZEN", True):
+        args = program_arguments()
+    assert args == [sys.executable, "--helper"], args
+
+
+@check
+def test_plist_exit_timeout_covers_worst_case_stop():
+    """ExitTimeOut обязан реально перекрывать худший случай снятия.
+
+    Расчёт живёт в комментарии install.py, но комментарий никто не гоняет.
+    Пересчитываем худший случай по фактическим константам daemon.py: stop()
+    уже поднятого sing-box внутри start() (STOP_GRACE_SEC+KILL_GRACE_SEC) +
+    kill_stale_singbox под тем же локом (2*SWEEP_GRACE_SEC) + ещё один stop()
+    основным потоком уже после освобождения лока (снова
+    STOP_GRACE_SEC+KILL_GRACE_SEC). Если кто-то сдвинет grace-константы в
+    daemon.py и забудет про ExitTimeOut в install.py, эта проверка упадёт.
+    """
+    import plistlib
+
+    from helper import daemon, install
+
+    worst_case = (
+        (daemon.STOP_GRACE_SEC + daemon.KILL_GRACE_SEC)
+        + 2 * daemon.SWEEP_GRACE_SEC
+        + (daemon.STOP_GRACE_SEC + daemon.KILL_GRACE_SEC)
+    )
+    data = plistlib.loads(install.plist_text().encode())
+    assert data["ExitTimeOut"] > worst_case, (data["ExitTimeOut"], worst_case)
+    assert data["ExitTimeOut"] > 20, "не перекрывает дефолт launchd (20 c)"
+
+
+@check
+def test_daemon_checks_lock_before_sweeping():
+    """Замок обязан браться раньше kill_stale_singbox, а не просто существовать.
+
+    Мутанты «убрать вызов _acquire_singleton_lock из main() целиком» и
+    «продублировать замок ПОСЛЕ kill_stale_singbox» проходили все прежние
+    проверки: свойство порядка нигде не было закреплено явно, только сам факт
+    работы замка в вакууме. Если замок не занят до подметания, второй демон
+    успевает снести РАБОЧИЙ sing-box первого раньше, чем откажется стартовать.
+    """
+    from unittest import mock
+
+    from helper import daemon
+
+    calls = []
+    with mock.patch.object(daemon.os, "geteuid", lambda: 0), \
+         mock.patch.object(daemon, "_acquire_singleton_lock",
+                            side_effect=RuntimeError("занято")), \
+         mock.patch.object(daemon, "kill_stale_singbox",
+                            lambda: calls.append("sweep") or True):
+        assert daemon.main() == 1
+    assert calls == [], "подметание чужого sing-box случилось до проверки замка"
+
+
+@check
+def test_osascript_literal_survives_non_ascii_and_special_chars():
+    """_as_literal, не json.dumps: AppleScript не понимает \\uXXXX.
+
+    json.dumps экранирует не-ASCII в `\\uXXXX` — валидный JSON, но AppleScript
+    такую escape-последовательность не компилирует вовсе. Промпт демона на
+    русском, поэтому install()/uninstall() падали на КАЖДОЙ машине, ещё не
+    дойдя до диалога пароля. Гоняем через настоящий osascript (без
+    `with administrator privileges` — только компиляция строкового литерала,
+    привилегий не требует) ровно те случаи, что реально встречаются:
+    русский промпт и путь с кириллицей, плюс акценты/CJK/эмодзи и кавычки.
+    """
+    from helper.install import _as_literal
+
+    roundtrip_cases = [
+        "SCVPN устанавливает системный компонент для TUN-режима",
+        "/Users/оператор/Library/Application Support/SCVPN/com.scvpn.helper.plist",
+        "café — 日本語 — emoji 🚀",
+        'quo"te and back\\slash',
+    ]
+    for s in roundtrip_cases:
+        r = subprocess.run(["osascript", "-e", f"return {_as_literal(s)}"],
+                            capture_output=True, text=True)
+        assert r.returncode == 0, (s, r.stderr)
+        assert r.stdout.strip("\n") == s, (s, r.stdout, r.stderr)
+
+    # Управляющие символы обязаны хотя бы скомпилироваться и выполниться;
+    # байт-в-байт со stdout их не сверяем — newline/tab/CR уходят в вывод как
+    # есть, а не как экранированная последовательность.
+    for s in ["line1\nline2", "a\tb\tc", "cr\rlf"]:
+        r = subprocess.run(["osascript", "-e", f"return {_as_literal(s)}"],
+                            capture_output=True, text=True)
+        assert r.returncode == 0, (s, r.stderr)
+
+
+@check
+def test_osascript_command_actually_uses_as_literal():
+    """_osascript обязан реально пользоваться _as_literal, не просто иметь её рядом.
+
+    Предыдущая проверка гоняет _as_literal саму по себе — этого мало: откат
+    _osascript назад на json.dumps (тот самый Critical, из-за которого
+    install()/uninstall() не работали ни на одной машине) прошёл бы её,
+    ничего не заметив, потому что вызывается не та функция. Проверяем СОБРАННУЮ
+    _do_shell_script_command, тем же кодом, которым пользуются install() и
+    uninstall(), настоящим osascript. `with administrator privileges` из
+    текста вырезаем перед прогоном: `do shell script ... with prompt ...` без
+    него компилируется и выполняется как обычный пользователь без всякого
+    диалога (проверено отдельно) — значит здесь пароль ни разу не спросится.
+    """
+    from helper.install import _do_shell_script_command
+
+    prompt = "SCVPN устанавливает системный компонент для TUN-режима"
+    cmd = _do_shell_script_command("true", prompt)
+    assert "with administrator privileges" in cmd, cmd
+    assert "\\u" not in cmd, f"похоже на json.dumps: не-ASCII ушёл в \\uXXXX: {cmd}"
+
+    probe = cmd.replace("with administrator privileges", "")
+    r = subprocess.run(["osascript", "-e", probe], capture_output=True, text=True)
+    assert r.returncode == 0, (cmd, r.stderr)
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:

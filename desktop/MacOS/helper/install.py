@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import json
 import plistlib
 import shlex
 import subprocess
@@ -61,15 +60,56 @@ def plist_text() -> str:
 
 
 def installed() -> bool:
-    return paths.HELPER_PLIST.exists()
+    """Демон стоит под ЭТУ сборку, а не просто когда-то стоял.
+
+    Сравниваем содержимое файла с тем, что даёт plist_text() прямо сейчас, а
+    не факт его существования. ProgramArguments внутри — абсолютный путь к
+    программе; после переезда .app или перехода исходники<->сборка старый
+    plist остаётся на диске, но указывает в никуда. launchd с KeepAlive вечно
+    перезапускал бы несуществующий путь, а приложение считало бы, что всё
+    поставлено и работает.
+    """
+    try:
+        return paths.HELPER_PLIST.read_text(encoding="utf-8") == plist_text()
+    except OSError:
+        return False
+
+
+def _as_literal(s: str) -> str:
+    """Экранировать строку в AppleScript double-quoted string literal.
+
+    `json.dumps` для этого не годится, хотя выглядит подходяще: JSON и
+    AppleScript совпадают только на `\\`, `\"`, `\n`, `\r`, `\t`. Не-ASCII
+    json.dumps по умолчанию уводит в `\\uXXXX` — а такую escape-
+    последовательность AppleScript не компилирует вовсе, синтаксическая
+    ошибка на пустом месте. Промпт демона — русский текст, поэтому install()
+    и uninstall() падали на любой машине, не показав пользователю даже
+    диалог пароля. Не-ASCII здесь просто не трогаем: osascript читает `-e` в
+    UTF-8.
+    """
+    s = s.replace("\\", "\\\\").replace('"', '\\"')
+    s = s.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    return '"' + s + '"'
+
+
+def _do_shell_script_command(script: str, prompt: str) -> str:
+    """Собрать AppleScript-текст `do shell script ...` одним системным диалогом.
+
+    Вынесено отдельной функцией, чтобы саму сборку строки можно было
+    проверить настоящим `osascript` без повышения прав: `with administrator
+    privileges` из проверяемого текста убирается, а `do shell script ... with
+    prompt ...` без него компилируется и выполняется как обычный пользователь
+    (проверено вручную) — значит компилируемость и содержимое литералов
+    проверяются тем же кодом, которым пользуется install()/uninstall().
+    """
+    return (f'do shell script {_as_literal(script)} with prompt {_as_literal(prompt)} '
+            f'with administrator privileges')
 
 
 def _osascript(script: str, prompt: str) -> None:
     """Выполнить shell-скрипт от администратора одним системным диалогом."""
     r = subprocess.run(
-        ["osascript", "-e",
-         f'do shell script {json.dumps(script)} with prompt {json.dumps(prompt)} '
-         f'with administrator privileges'],
+        ["osascript", "-e", _do_shell_script_command(script, prompt)],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
@@ -81,28 +121,30 @@ def _osascript(script: str, prompt: str) -> None:
 
 def install() -> None:
     """Поставить демона. Спросит пароль администратора — один раз."""
-    tmp = paths.DATA_DIR / "com.scvpn.helper.plist"
-    paths.ensure_dirs()
-    tmp.write_text(plist_text(), encoding="utf-8")
-
-    script = "; ".join([
+    script = " && ".join([
         f"mkdir -p {shlex.quote(str(paths.HELPER_DIR))}",
         f"chown root:wheel {shlex.quote(str(paths.HELPER_DIR))}",
         f"chmod 755 {shlex.quote(str(paths.HELPER_DIR))}",
-        f"cp {shlex.quote(str(tmp))} {shlex.quote(str(paths.HELPER_PLIST))}",
+        # Содержимое plist едет прямо в скрипте, а не копией файла из
+        # пользовательской папки: cp из user-writable пути — это TOCTOU, окно
+        # на подмену файла или подсунутый симлинк между записью и cp, ровно
+        # пока пользователь вводит пароль. Здесь подменять нечего — текст
+        # приходит вместе со скриптом, который целиком выполняется от root.
+        f"printf %s {shlex.quote(plist_text())} > {shlex.quote(str(paths.HELPER_PLIST))}",
         f"chown root:wheel {shlex.quote(str(paths.HELPER_PLIST))}",
         f"chmod 644 {shlex.quote(str(paths.HELPER_PLIST))}",
-        # bootout молча падает, если демона ещё нет — отсюда || true.
+        # bootout молча падает, если демона ещё нет — отсюда || true. Он же
+        # даёт этому шагу успешный код возврата независимо от исхода, поэтому
+        # цепочка && им не обрывается.
         f"launchctl bootout system/{paths.HELPER_LABEL} 2>/dev/null || true",
         f"launchctl bootstrap system {shlex.quote(str(paths.HELPER_PLIST))}",
     ])
     _osascript(script, "SCVPN устанавливает системный компонент для TUN-режима")
-    tmp.unlink(missing_ok=True)
 
 
 def uninstall() -> None:
     """Снять демона и убрать всё, что он у себя положил."""
-    script = "; ".join([
+    script = " && ".join([
         f"launchctl bootout system/{paths.HELPER_LABEL} 2>/dev/null || true",
         f"rm -f {shlex.quote(str(paths.HELPER_PLIST))}",
         f"rm -rf {shlex.quote(str(paths.HELPER_DIR))}",
