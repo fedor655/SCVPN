@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import os
-import queue
 import re
 import shutil
 import signal
@@ -44,6 +43,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
@@ -229,7 +229,6 @@ class Supervisor:
     def __init__(self) -> None:
         self.proc: subprocess.Popen | None = None
         self._reader: threading.Thread | None = None
-        self._on_log: Callable[[str], None] = lambda s: None
         # Клиентов может оказаться больше одного (соединений никто не считает),
         # а sing-box один на всех. Под замком start и stop не переплетаются, и
         # процесс не остаётся без хозяина между «создал» и «записал в self».
@@ -263,7 +262,6 @@ class Supervisor:
             )
             cfg_path.chmod(0o600)
 
-            self._on_log = on_log
             self.proc = subprocess.Popen(
                 [str(exe), "run", "-c", str(cfg_path)],
                 cwd=str(BIN_DIR),
@@ -355,9 +353,18 @@ def _proc_tool(args: list[str]) -> subprocess.CompletedProcess | None:
     return r
 
 
-def _stale_pids() -> list[str]:
+def _stale_pids() -> list[str] | None:
+    """PID-ы осиротевшего sing-box. None — посмотреть не удалось.
+
+    Разница между «никого нет» и «не смог узнать» здесь решающая: на этот
+    ответ опирается запрет поднимать туннель поверх чужого sing-box. Молчаливое
+    «никого» при сломанном pgrep пустило бы второй поверх первого, поэтому
+    неизвестность — это не пустой список, а отказ.
+    """
     r = _proc_tool(["/usr/bin/pgrep", "-f", _stale_pattern()])
-    return r.stdout.split() if r is not None and r.returncode == 0 else []
+    if r is None or r.returncode not in (0, 1):
+        return None
+    return r.stdout.split()
 
 
 def kill_stale_singbox() -> bool:
@@ -376,29 +383,34 @@ def kill_stale_singbox() -> bool:
     рядом с ним. Двое дерутся за default route — та же мёртвая сеть, ради
     которой всё затевалось. Поэтому: SIGTERM, ожидание, при неудаче SIGKILL,
     и только по факту исчезновения — запись об успехе.
+
+    Не смогли посмотреть — отвечаем False, а не True. Неизвестность здесь
+    ничем не лучше живой сироты: решение по этому ответу принимается одно и
+    то же — поднимать туннель или нет.
     """
-    if not _stale_pids():
+    left = _stale_pids()
+    if left is None:
+        log("ТРЕВОГА: не смог проверить, остался ли sing-box от прошлого запуска — "
+            "считаю, что остался")
+        return False
+    if not left:
         return True
 
     pattern = _stale_pattern()
     for sig in ("-TERM", "-KILL"):
-        left = _stale_pids()
-        if not left:
-            break
         log(f"остался sing-box от прошлого запуска демона: {' '.join(left)}, шлю {sig}")
         if _proc_tool(["/usr/bin/pkill", sig, "-f", pattern]) is None:
             return False
         deadline = time.monotonic() + SWEEP_GRACE_SEC
         while time.monotonic() < deadline:
-            if not _stale_pids():
+            left = _stale_pids()
+            if left is None:
+                return False
+            if not left:
                 log("осиротевший sing-box снят")
                 return True
             time.sleep(0.2)
 
-    left = _stale_pids()
-    if not left:
-        log("осиротевший sing-box снят")
-        return True
     log(f"ТРЕВОГА: осиротевший sing-box не снялся: {' '.join(left)} — "
         f"поднимать туннель поверх него нельзя, он держит маршруты")
     return False
@@ -439,7 +451,10 @@ def handle_line(line: str, state: dict[str, Any]) -> dict:
 
         if cmd == "stop":
             SUPERVISOR.stop()
-            return {"ok": True, "running": False}
+            # Не зашитое False: stop() имеет право вернуться с живым процессом,
+            # если тот пережил SIGKILL. Ответить «выключено», пока маршруты
+            # держатся, — это ровно та ложь про состояние, от которой уходим.
+            return {"ok": not SUPERVISOR.running, "running": SUPERVISOR.running}
 
         if cmd == "status":
             return {"ok": True, "running": SUPERVISOR.running,
@@ -467,13 +482,22 @@ class Outbox:
     Если писать прямо из _pump и клиент перестанет читать, sendall встанет,
     труба stdout переполнится — и заблокируется сам sing-box. Связь получается
     такая: поведение клиентского сокета управляет ядром, поднимающим туннель.
-    Поэтому пишет отдельный поток, а очередь ограничена: переполнилась —
-    сообщение выбрасываем. Логи ценнее не бывают.
+    Поэтому пишет отдельный поток, а очередь ограничена.
+
+    Но выбрасывать при переполнении можно только логи. Ответ на команду
+    выбрасывать нельзя ни при каких обстоятельствах: клиент его ждёт, и
+    потерянный ответ на start оставляет приложение в убеждении, что туннеля
+    нет, — пока весь трафик системы идёт в туннель. Это та же ложь про
+    состояние, ради ухода от которой написан весь модуль. Поэтому для ответа
+    место освобождается за счёт самого старого лога, а не за счёт ответа.
     """
 
     def __init__(self, conn: socket.socket, maxsize: int = _OUTBOX_LIMIT) -> None:
         self._conn = conn
-        self._q: queue.Queue = queue.Queue(maxsize=maxsize)
+        self._maxsize = maxsize
+        self._items: deque[dict] = deque()
+        self._cv = threading.Condition()
+        self._closed = False
         self.dropped = 0
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -482,27 +506,58 @@ class Outbox:
         return self
 
     def send(self, obj: dict) -> None:
-        """Никогда не блокирует и никогда не бросает."""
-        try:
-            self._q.put_nowait(obj)
-        except queue.Full:
-            self.dropped += 1
-            if self.dropped == 1:
-                log("клиент не читает сокет — выбрасываю сообщения, чтобы не тормозить sing-box")
+        """Ответ клиенту. Не блокирует, не бросает и не выбрасывается."""
+        self._put(obj, droppable=False)
+
+    def send_log(self, obj: dict) -> None:
+        """Строка лога. Всё то же самое, но при тесноте её и выбрасываем."""
+        self._put(obj, droppable=True)
+
+    def _put(self, obj: dict, droppable: bool) -> None:
+        with self._cv:
+            if self._closed:
+                return
+            if len(self._items) >= self._maxsize:
+                if droppable:
+                    self._note_drop()
+                    return
+                # Ответу место освобождаем за счёт самого старого лога. Если
+                # логов в очереди нет вовсе — значит она забита ответами, чего
+                # не бывает (клиент шлёт команды по одной), и тогда лучше
+                # вырасти на кадр, чем потерять ответ.
+                if self._drop_oldest_log():
+                    self._note_drop()
+            self._items.append(obj)
+            self._cv.notify()
+
+    def _drop_oldest_log(self) -> bool:
+        for i, item in enumerate(self._items):
+            if "log" in item:
+                del self._items[i]
+                return True
+        return False
+
+    def _note_drop(self) -> None:
+        self.dropped += 1
+        if self.dropped == 1:
+            log("клиент не читает сокет — выбрасываю логи, чтобы не тормозить sing-box")
 
     def close(self, timeout: float = 2.0) -> None:
-        try:
-            self._q.put_nowait(None)
-        except queue.Full:
-            pass
+        """Дать писателю дослать очередь и уйти."""
+        with self._cv:
+            self._closed = True
+            self._cv.notify()
         if self._thread.is_alive():
             self._thread.join(timeout)
 
     def _run(self) -> None:
         while True:
-            obj = self._q.get()
-            if obj is None:
-                return
+            with self._cv:
+                while not self._items and not self._closed:
+                    self._cv.wait()
+                if not self._items:
+                    return
+                obj = self._items.popleft()
             try:
                 # errors="replace": в тексте ошибки лежит то, что прислал
                 # клиент, вплоть до одиночного суррогата, а строгий encode на
@@ -520,11 +575,14 @@ def serve_client(conn: socket.socket) -> None:
     Обрыв соединения — это и есть dead-man's switch: приложение мертво,
     значит туннель надо снять, иначе система останется без интернета.
     """
-    outbox = Outbox(conn).start()
-    send = outbox.send
-    state: dict[str, Any] = {"say": lambda s: send({"log": s})}
-
+    # Всё, что может бросить, — внутри try. Снаружи оставался запуск Outbox, а
+    # поток создать не всегда удаётся (accept-цикл плодит их без ограничения):
+    # исключение уходило мимо finally, то есть мимо самого dead-man's switch.
+    outbox: Outbox | None = None
     try:
+        outbox = Outbox(conn).start()
+        send = outbox.send
+        state: dict[str, Any] = {"say": lambda s: outbox.send_log({"log": s})}
         # errors="replace": на кривых байтах читатель не должен разваливаться,
         # пусть мусор дойдёт до handle_line и получит вежливый отказ.
         with conn.makefile("r", encoding="utf-8", errors="replace") as reader:
@@ -544,6 +602,8 @@ def serve_client(conn: socket.socket) -> None:
                 send(handle_line(line, state))
     except OSError as e:
         log(f"соединение оборвалось: {e}")
+    except Exception as e:  # noqa: BLE001
+        log(f"обслуживание клиента прервалось: {type(e).__name__}: {e}")
     finally:
         # Единственная ветка выхода: сюда приходят и обрыв, и EOF, и любая
         # неожиданная ошибка выше. Второго клиента приложение не открывает,
@@ -551,7 +611,8 @@ def serve_client(conn: socket.socket) -> None:
         if SUPERVISOR.running:
             log("клиент отключился, а туннель поднят — снимаю его")
             SUPERVISOR.stop()
-        outbox.close()
+        if outbox is not None:
+            outbox.close()
         try:
             conn.close()
         except OSError:
@@ -590,12 +651,12 @@ def serve_forever(srv: socket.socket) -> int:
     # ponytail: клиентов обслуживаем по одному в потоке, без ограничения их
     # числа. Приложение открывает ровно одно соединение; если понадобится
     # защита от заваливания, ставить семафор на число живых потоков.
+    # KeyboardInterrupt здесь не ловится: SIGINT перехвачен install_signal_handlers
+    # и приходит сюда как SystemExit — finally отрабатывает одинаково для обоих.
     try:
         while True:
             conn, _ = srv.accept()
             threading.Thread(target=serve_client, args=(conn,), daemon=True).start()
-    except KeyboardInterrupt:
-        pass
     finally:
         SUPERVISOR.stop()
         srv.close()

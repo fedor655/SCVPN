@@ -39,11 +39,15 @@ def check(fn):
 # Метка готовности здесь не для красоты. Появление PID в pgrep ещё не значит,
 # что оболочка успела выполнить `trap`: если ударить SIGTERM в этот зазор,
 # «упрямый» sing-box умрёт как миленький, и проверка позеленеет, ничего не
-# проверив. Ждём именно готовности.
-_FAKE_SINGBOX = "#!/bin/sh\n: > {ready}\nsleep 300\n"
+# проверив. Ждём именно готовности, а в метку кладём PID — так метка от
+# прошлого запуска не сойдёт за готовность нового.
+#
+# Спим не одним `sleep 300`, а короткими: убитая оболочка не должна оставлять
+# после себя пятиминутного сироту, которого чистящий pkill не ловит.
+_FAKE_SINGBOX = "#!/bin/sh\necho $$ > {ready}\nwhile :; do sleep 1; done\n"
 
 # Упрямый вариант: игнорирует SIGTERM, как повёл бы себя зависший sing-box.
-_STUBBORN_SINGBOX = "#!/bin/sh\ntrap '' TERM\n: > {ready}\nwhile :; do sleep 1; done\n"
+_STUBBORN_SINGBOX = "#!/bin/sh\ntrap '' TERM\necho $$ > {ready}\nwhile :; do sleep 1; done\n"
 
 _DAEMON_SRC = """
 import socket, sys
@@ -182,10 +186,15 @@ class _Stand:
         return False
 
     def wait_up(self, timeout: float = 10.0) -> bool:
-        """Поднялся И готов: метку пишет сам поддельный sing-box (см. выше)."""
+        """Поднялся И готов: метку с собственным PID пишет сам поддельный sing-box.
+
+        Сверяем PID из метки с живыми процессами — иначе метка, оставшаяся от
+        прошлого sing-box на этом же стенде, сойдёт за готовность нового.
+        """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if self.singbox_pids() and self.ready.exists():
+            pids = self.singbox_pids()
+            if pids and self.ready.exists() and self.ready.read_text().strip() in pids:
                 return True
             time.sleep(0.05)
         return False
@@ -674,6 +683,33 @@ def test_daemon_drops_tunnel_on_sighup():
 
 
 @check
+def test_daemon_drops_tunnel_when_serving_falls_over():
+    """Обслуживание клиента может свалиться и не на чтении сокета.
+
+    Поток для ответов создаётся не всегда (лимит потоков достижим: accept-цикл
+    плодит их без ограничения). Если такое исключение уйдёт мимо finally,
+    туннель останется поднятым, а соединение — незакрытым: путь в обход
+    самого dead-man's switch.
+    """
+    from unittest import mock
+
+    from helper import daemon
+
+    with _Stand().serve_here() as stand:
+        sock = stand.connect()
+        assert stand.ask(sock, {"cmd": "start", "socks_port": 10808,
+                                "xray_path": stand.xray})["ok"] is True
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+        with mock.patch.object(daemon.Outbox, "start", autospec=True,
+                               side_effect=RuntimeError("can't start new thread")):
+            second = stand.connect()
+            assert second.recv(1) == b"", "соединение не закрыто, peer не увидит EOF"
+
+        assert stand.wait_gone(), f"туннель пережил падение обслуживания: {stand.singbox_pids()}"
+
+
+@check
 def test_daemon_sweeps_stubborn_orphan_at_start():
     """От SIGKILL по демону защиты нет — есть подметание при следующем старте.
 
@@ -693,6 +729,12 @@ def test_daemon_sweeps_stubborn_orphan_at_start():
             clean = daemon.kill_stale_singbox()
         assert not stand.singbox_pids(), "сирота пережила подметание"
         assert clean is True, "подметание отчиталось об успехе неправдиво"
+
+        # Не смогли посмотреть — значит не знаем, значит не пускаем: гейт в
+        # Supervisor.start опирается на этот ответ, и молчаливое «чисто» при
+        # сломанном pgrep пустило бы второй sing-box поверх первого.
+        with mock.patch.object(daemon, "_proc_tool", lambda args: None):
+            assert daemon.kill_stale_singbox() is False, "сломанный pgrep трактуется как «чисто»"
 
 
 @check
@@ -729,13 +771,131 @@ def test_daemon_drops_logs_instead_of_stalling_singbox():
         outbox = Outbox(left, maxsize=2)   # поток не запускаем: очередь никто не разбирает
         started = time.monotonic()
         for i in range(200):
-            outbox.send({"log": f"строка {i}"})
+            outbox.send_log({"log": f"строка {i}"})
         spent = time.monotonic() - started
         assert spent < 1.0, f"отправка задержалась на {spent:.1f} с — значит блокирует"
         assert outbox.dropped == 198, outbox.dropped
     finally:
         left.close()
         right.close()
+
+
+@check
+def test_daemon_never_drops_the_reply():
+    """Логи выбрасывать можно, ответ на команду — нельзя.
+
+    Потерянный ответ на start оставляет приложение в убеждении, что туннеля
+    нет, пока весь трафик идёт в туннель: та же ложь про состояние, ради ухода
+    от которой написан модуль. Здесь ответ кладётся в очередь, забитую логами.
+    """
+    from helper.daemon import Outbox
+
+    left, right = socket.socketpair()
+    try:
+        outbox = Outbox(left, maxsize=8)
+        for i in range(1000):
+            outbox.send_log({"log": f"строка {i}"})
+        outbox.send({"ok": True, "running": True})
+        outbox.start()
+
+        right.settimeout(5)
+        buf = b""
+        seen = 0
+        while True:
+            try:
+                chunk = right.recv(1 << 16)
+            except OSError as e:
+                raise AssertionError(f"ответ не дошёл, вычитано кадров: {seen} ({e})") from e
+            if not chunk:
+                raise AssertionError(f"ответ не дошёл, вычитано кадров: {seen}")
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                seen += 1
+                if "ok" in json.loads(line.decode()):
+                    return
+    finally:
+        left.close()
+        right.close()
+
+
+@check
+def test_daemon_stop_reply_tells_the_truth():
+    """Ответ на stop не смеет говорить «выключено», пока маршруты держатся.
+
+    stop() имеет право вернуться с живым процессом, если тот пережил SIGKILL,
+    — значит зашитое {"running": False} в ответе врёт именно в тот момент,
+    когда правда важнее всего.
+    """
+    from unittest import mock
+
+    from helper import daemon
+
+    with _Stand() as stand:
+        proc = subprocess.Popen([str(stand.tmp / "bin" / "sing-box")])
+        try:
+            sup = daemon.Supervisor()
+            sup.proc = proc
+            with mock.patch.object(daemon, "SUPERVISOR", sup), \
+                 mock.patch.object(daemon, "STOP_GRACE_SEC", 1), \
+                 mock.patch.object(daemon, "KILL_GRACE_SEC", 1), \
+                 mock.patch.object(proc, "terminate", lambda: None), \
+                 mock.patch.object(proc, "kill", lambda: None), \
+                 mock.patch.object(proc, "wait",
+                                   side_effect=subprocess.TimeoutExpired("sing-box", 1)):
+                reply = daemon.handle_line('{"cmd": "stop"}', {})
+            assert reply["running"] is True, reply
+            assert reply["ok"] is False, reply
+        finally:
+            proc.kill()
+            proc.wait()
+
+
+@check
+def test_daemon_refuses_second_singbox_while_first_is_alive():
+    """Прежний не снялся — второй поверх него не поднимаем: подерутся за маршрут."""
+    from unittest import mock
+
+    from helper import daemon
+
+    with _Stand().serve_here() as stand:
+        sock = stand.connect()
+        start = {"cmd": "start", "socks_port": 10808, "xray_path": stand.xray}
+        assert stand.ask(sock, start)["ok"] is True          # положительный контроль
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+        proc = daemon.SUPERVISOR.proc
+        assert proc is not None
+        with mock.patch.object(proc, "terminate", lambda: None), \
+             mock.patch.object(proc, "kill", lambda: None), \
+             mock.patch.object(proc, "wait",
+                               side_effect=subprocess.TimeoutExpired("sing-box", 1)), \
+             mock.patch.object(daemon, "KILL_GRACE_SEC", 1):
+            reply = stand.ask(sock, start)
+        assert reply["ok"] is False, reply
+        assert "не снялся" in reply["error"], reply
+        assert len(stand.singbox_pids()) == 1, f"поднял второй: {stand.singbox_pids()}"
+
+
+@check
+def test_daemon_refuses_to_start_over_a_stale_singbox():
+    """Осиротевший sing-box не снялся — поднимать туннель поверх него нельзя."""
+    from unittest import mock
+
+    from helper import daemon
+
+    with _Stand().serve_here() as stand:
+        sock = stand.connect()
+        start = {"cmd": "start", "socks_port": 10808, "xray_path": stand.xray}
+
+        with mock.patch.object(daemon, "kill_stale_singbox", lambda: False):
+            reply = stand.ask(sock, start)
+        assert reply["ok"] is False, reply
+        assert "осиротевший" in reply["error"], reply
+        assert not stand.singbox_pids(), "поднял туннель поверх чужого sing-box"
+
+        # Положительный контроль: без сироты тот же самый запрос проходит.
+        assert stand.ask(sock, start)["ok"] is True
 
 
 @check
