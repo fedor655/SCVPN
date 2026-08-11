@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import shutil
 import signal
@@ -41,6 +42,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
@@ -64,6 +66,20 @@ _ADMIN_GROUP = "admin"
 _MAX_SPLIT_APPS = 256
 _MAX_EXCLUDE_IPS = 1024
 _MAX_LINE = 1 << 20   # 1 МиБ на строку запроса — с потолками выше с запасом
+
+# Сколько ждать ухода sing-box: сначала по SIGTERM (он разбирает маршруты сам),
+# потом по SIGKILL. Вынесено в константы, чтобы проверки не ждали по семь секунд.
+STOP_GRACE_SEC = 7
+KILL_GRACE_SEC = 3
+SWEEP_GRACE_SEC = 3
+
+# Сколько сообщений держим для клиента, который перестал читать сокет.
+_OUTBOX_LIMIT = 256
+
+# Сигналы, по которым демон уходит сам, сняв туннель. SIGHUP здесь не для
+# красоты: демона запускают и руками (`python run.py --helper`), и закрытое
+# окно терминала не должно оставлять root-овый sing-box с маршрутами.
+_EXIT_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT)
 
 
 def log(msg: str) -> None:
@@ -89,13 +105,17 @@ def check_binary(path: Path) -> None:
     if not resolved.is_relative_to(BIN_DIR.resolve()):
         raise PermissionError(f"бинарник вне {BIN_DIR}: {resolved}")
 
+    # Порядок проверок выбран так, чтобы каждая была причиной отказа хотя бы в
+    # одном случае: проверка на root стоит последней, иначе она срабатывала бы
+    # первой на любом пользовательском файле и накрывала бы собой остальные —
+    # в том числе в проверках, которые гоняются не от root.
     st = resolved.stat()
-    if st.st_uid != 0:
-        raise PermissionError(f"бинарник не принадлежит root: {resolved}")
     if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise PermissionError(f"бинарник доступен на запись не только root: {resolved}")
     if not st.st_mode & stat.S_IXUSR:
         raise PermissionError(f"бинарник не исполняемый: {resolved}")
+    if st.st_uid != 0:
+        raise PermissionError(f"бинарник не принадлежит root: {resolved}")
 
 
 def _checked_xray_path(raw: object) -> str:
@@ -103,16 +123,33 @@ def _checked_xray_path(raw: object) -> str:
 
     Этот путь попадает в правило process_path, которое выпускает процесс мимо
     туннеля. Подставив туда чужой бинарник, злоумышленник раздал бы себе обход
-    VPN — поэтому проверяем и имя, и что файл существует.
+    VPN — поэтому проверяем имя, существование и права.
+
+    Имя проверяем ПОСЛЕ канонизации, а не до. Раньше было наоборот, и симлинк
+    с именем xray, ведущий на /bin/sh, проходил проверку именем, а в правило
+    уезжал уже /bin/sh — ровно тот обход, который эта функция обязана закрыть.
+
+    Чего здесь нет: требования root-владельца. Ядро Xray лежит в папке самого
+    пользователя и ему же принадлежит — от владельца мы не защищаемся, он и
+    так может делать со своим файлом что угодно. Защищаемся от чужих: файл,
+    открытый на запись группе или остальным, отклоняем.
     """
     if not isinstance(raw, str) or not raw.startswith("/"):
         raise ValidationError(f"путь к ядру должен быть абсолютным, пришло {raw!r}")
-    path = Path(raw)
-    if path.name != "xray":
-        raise ValidationError(f"ожидался бинарник с именем xray, пришло {path.name!r}")
-    if not path.is_file():
-        raise ValidationError(f"нет такого файла: {path}")
-    return str(path.resolve())
+    try:
+        resolved = Path(raw).resolve(strict=True)
+    except OSError as e:
+        raise ValidationError(f"нет такого файла: {raw} ({e})") from e
+    if resolved.name != "xray":
+        raise ValidationError(
+            f"ожидался бинарник с именем xray, а путь ведёт на {resolved.name!r}"
+        )
+    if not resolved.is_file():
+        raise ValidationError(f"это не файл: {resolved}")
+    st = resolved.stat()
+    if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ValidationError(f"ядро доступно на запись группе или остальным: {resolved}")
+    return str(resolved)
 
 
 def _check_sizes(req: dict) -> None:
@@ -204,8 +241,15 @@ class Supervisor:
 
     def start(self, params: dict, xray_path: str, on_log: Callable[[str], None]) -> None:
         with self._lock:
+            # Двух sing-box рядом быть не должно: они подерутся за default
+            # route. Прежнего снимаем, осиротевшего от прошлого демона
+            # подметаем, и если хоть один остался жив — не поднимаем ничего.
             if self.running:
                 self.stop()
+            if self.running:
+                raise RuntimeError("прежний sing-box не снялся, второй поверх него не поднимаю")
+            if not kill_stale_singbox():
+                raise RuntimeError("осиротевший sing-box держит маршруты, сначала снимите его")
 
             exe = BIN_DIR / "sing-box"
             check_binary(exe)
@@ -232,43 +276,92 @@ class Supervisor:
                 bufsize=1,
             )
             log(f"sing-box запущен, PID {self.proc.pid}")
-            self._reader = threading.Thread(target=self._pump, args=(self.proc,), daemon=True)
+            # Колбэк передаём аргументом, а не читаем self._on_log из потока:
+            # после рестарта «sing-box завершился» от старого процесса ушло бы
+            # новому клиенту, как будто это про его туннель.
+            self._reader = threading.Thread(
+                target=self._pump, args=(self.proc, on_log), daemon=True
+            )
             self._reader.start()
 
-    def _pump(self, proc: subprocess.Popen) -> None:
+    def _pump(self, proc: subprocess.Popen, on_log: Callable[[str], None]) -> None:
         if proc.stdout is None:
             return
         for line in proc.stdout:
             line = line.rstrip("\n")
             if line:
-                self._on_log(line)
+                on_log(line)
         code = proc.poll()
-        self._on_log(f"sing-box завершился (код {code})")
+        on_log(f"sing-box завершился (код {code})")
         log(f"sing-box завершился (код {code})")
 
     def stop(self) -> None:
+        """Снять sing-box и отпустить ручку только после подтверждённой смерти.
+
+        Раньше self.proc обнулялся первым делом, а неудача wait() глоталась.
+        Если процесс не умер (непрерываемый сон для TUN-процесса правдоподобен),
+        демон терял ручку на живом sing-box: running врал False, оба finally его
+        пропускали, а следующий start поднимал второй рядом с первым.
+        """
         with self._lock:
             proc = self.proc
-            self.proc = None
-            if proc is None or proc.poll() is not None:
+            if proc is None:
                 return
+            if proc.poll() is not None:
+                self.proc = None
+                return
+
             log("останавливаю sing-box (маршруты вернутся сами)")
             try:
                 proc.terminate()
+                proc.wait(timeout=STOP_GRACE_SEC)
+            except subprocess.TimeoutExpired:
+                log("sing-box не ушёл по SIGTERM — добиваю")
                 try:
-                    proc.wait(timeout=7)
-                except subprocess.TimeoutExpired:
                     proc.kill()
-                    proc.wait(timeout=3)
-            except Exception as e:  # noqa: BLE001
-                log(f"ошибка остановки: {e}")
+                    proc.wait(timeout=KILL_GRACE_SEC)
+                except (subprocess.TimeoutExpired, OSError) as e:
+                    log(f"ТРЕВОГА: sing-box PID {proc.pid} пережил SIGKILL ({e}), "
+                        f"туннель остаётся поднятым — ручку не отпускаю")
+                    return
+            except OSError as e:
+                log(f"ошибка остановки sing-box PID {proc.pid}: {e}")
+                if proc.poll() is None:
+                    return
+
+            self.proc = None
 
 
 SUPERVISOR = Supervisor()
 
 
-def kill_stale_singbox() -> None:
-    """Снять sing-box, переживший прошлый запуск демона.
+def _stale_pattern() -> str:
+    """Шаблон командной строки, которую составляем только мы."""
+    return re.escape(f"{BIN_DIR / 'sing-box'} run -c {RUN_DIR / 'singbox.json'}")
+
+
+def _proc_tool(args: list[str]) -> subprocess.CompletedProcess | None:
+    """Запустить pgrep/pkill. None — инструмент не отработал, ответа нет."""
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        log(f"не смог выполнить {args[0]}: {e}")
+        return None
+    # 0 — нашлось, 1 — никого не нашлось. Всё остальное (2 — кривой шаблон,
+    # 3 — внутренняя ошибка) молчать нельзя: так защита от сироты погаснет
+    # незаметно, а узнаем мы об этом по пропавшему интернету.
+    if r.returncode not in (0, 1):
+        log(f"{args[0]} вернул {r.returncode}: {r.stderr.strip()}")
+    return r
+
+
+def _stale_pids() -> list[str]:
+    r = _proc_tool(["/usr/bin/pgrep", "-f", _stale_pattern()])
+    return r.stdout.split() if r is not None and r.returncode == 0 else []
+
+
+def kill_stale_singbox() -> bool:
+    """Снять sing-box, переживший прошлый запуск демона. True — чисто.
 
     Обрыв клиента демон видит сам, а вот собственную смерть по -9 — нет: Popen
     вместе с демоном пропадает, а sing-box остаётся держать маршруты. Это ровно
@@ -276,15 +369,39 @@ def kill_stale_singbox() -> None:
     с чистого листа. Шаблон — целая командная строка, которую составляем только
     мы: чужой процесс под неё не попадёт, а наш попадёт, даже если его успели
     завернуть в оболочку.
+
+    Ждём именно смерти, а не отправки сигнала. pkill возвращается сразу, и
+    раньше демон рапортовал об успехе, пока сирота была жива: sing-box,
+    игнорирующий SIGTERM, оставался, клиент подключался и поднимал ВТОРОЙ
+    рядом с ним. Двое дерутся за default route — та же мёртвая сеть, ради
+    которой всё затевалось. Поэтому: SIGTERM, ожидание, при неудаче SIGKILL,
+    и только по факту исчезновения — запись об успехе.
     """
-    pattern = re.escape(f"{BIN_DIR / 'sing-box'} run -c {RUN_DIR / 'singbox.json'}")
-    try:
-        r = subprocess.run(["/usr/bin/pkill", "-f", pattern], capture_output=True, timeout=10)
-    except (OSError, subprocess.SubprocessError) as e:
-        log(f"не смог поискать осиротевший sing-box: {e}")
-        return
-    if r.returncode == 0:
-        log("снял sing-box, оставшийся от прошлого запуска демона")
+    if not _stale_pids():
+        return True
+
+    pattern = _stale_pattern()
+    for sig in ("-TERM", "-KILL"):
+        left = _stale_pids()
+        if not left:
+            break
+        log(f"остался sing-box от прошлого запуска демона: {' '.join(left)}, шлю {sig}")
+        if _proc_tool(["/usr/bin/pkill", sig, "-f", pattern]) is None:
+            return False
+        deadline = time.monotonic() + SWEEP_GRACE_SEC
+        while time.monotonic() < deadline:
+            if not _stale_pids():
+                log("осиротевший sing-box снят")
+                return True
+            time.sleep(0.2)
+
+    left = _stale_pids()
+    if not left:
+        log("осиротевший sing-box снят")
+        return True
+    log(f"ТРЕВОГА: осиротевший sing-box не снялся: {' '.join(left)} — "
+        f"поднимать туннель поверх него нельзя, он держит маршруты")
+    return False
 
 
 # ----------------------------------------------------------------------
@@ -300,8 +417,11 @@ def handle_line(line: str, state: dict[str, Any]) -> dict:
         req = json.loads(line)
         if not isinstance(req, dict):
             raise ValueError("ожидался объект")
-    except ValueError as e:
-        return {"ok": False, "error": f"не разобрал запрос: {e}"}
+    except Exception as e:  # noqa: BLE001
+        # Не только ValueError: на глубоко вложенном JSON разборщик отдаёт
+        # RecursionError, и он выходил наружу, минуя все ветки, — а наружу это
+        # обрыв соединения, то есть снятие туннеля одной кривой строкой.
+        return {"ok": False, "error": f"не разобрал запрос: {type(e).__name__}: {e}"}
 
     cmd = req.get("cmd")
     say: Callable[[str], None] = state.get("say") or (lambda s: None)
@@ -340,26 +460,68 @@ def handle_line(line: str, state: dict[str, Any]) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def serve_client(conn: socket.socket) -> None:
-    """Обслужить одного клиента и прибрать за ним, когда он отвалится.
+class Outbox:
+    """Исходящие сообщения клиенту. Отправка не должна доставать до sing-box.
 
-    Обрыв соединения — это и есть dead-man's switch: приложение мертво,
-    значит туннель надо снять, иначе система останется без интернета.
+    Логи sing-box идут клиенту по этому же соединению: _pump -> say -> отправка.
+    Если писать прямо из _pump и клиент перестанет читать, sendall встанет,
+    труба stdout переполнится — и заблокируется сам sing-box. Связь получается
+    такая: поведение клиентского сокета управляет ядром, поднимающим туннель.
+    Поэтому пишет отдельный поток, а очередь ограничена: переполнилась —
+    сообщение выбрасываем. Логи ценнее не бывают.
     """
-    lock = threading.Lock()
 
-    def send(obj: dict) -> None:
-        with lock:
+    def __init__(self, conn: socket.socket, maxsize: int = _OUTBOX_LIMIT) -> None:
+        self._conn = conn
+        self._q: queue.Queue = queue.Queue(maxsize=maxsize)
+        self.dropped = 0
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> Outbox:
+        self._thread.start()
+        return self
+
+    def send(self, obj: dict) -> None:
+        """Никогда не блокирует и никогда не бросает."""
+        try:
+            self._q.put_nowait(obj)
+        except queue.Full:
+            self.dropped += 1
+            if self.dropped == 1:
+                log("клиент не читает сокет — выбрасываю сообщения, чтобы не тормозить sing-box")
+
+    def close(self, timeout: float = 2.0) -> None:
+        try:
+            self._q.put_nowait(None)
+        except queue.Full:
+            pass
+        if self._thread.is_alive():
+            self._thread.join(timeout)
+
+    def _run(self) -> None:
+        while True:
+            obj = self._q.get()
+            if obj is None:
+                return
             try:
                 # errors="replace": в тексте ошибки лежит то, что прислал
                 # клиент, вплоть до одиночного суррогата, а строгий encode на
                 # нём падает — и это уронило бы соединение, то есть сняло бы
                 # туннель из-за одного кривого имени в запросе.
                 data = json.dumps(obj, ensure_ascii=False) + "\n"
-                conn.sendall(data.encode("utf-8", "replace"))
+                self._conn.sendall(data.encode("utf-8", "replace"))
             except OSError:
-                pass
+                return
 
+
+def serve_client(conn: socket.socket) -> None:
+    """Обслужить одного клиента и прибрать за ним, когда он отвалится.
+
+    Обрыв соединения — это и есть dead-man's switch: приложение мертво,
+    значит туннель надо снять, иначе система останется без интернета.
+    """
+    outbox = Outbox(conn).start()
+    send = outbox.send
     state: dict[str, Any] = {"say": lambda s: send({"log": s})}
 
     try:
@@ -389,10 +551,55 @@ def serve_client(conn: socket.socket) -> None:
         if SUPERVISOR.running:
             log("клиент отключился, а туннель поднят — снимаю его")
             SUPERVISOR.stop()
+        outbox.close()
         try:
             conn.close()
         except OSError:
             pass
+
+
+def _on_signal(signum, _frame) -> None:  # noqa: ANN001
+    """Уйти, сняв туннель. Первым делом — заглушить повторные сигналы.
+
+    Без этого второй SIGTERM, пришедший пока stop() ждёт ухода sing-box,
+    поднимал SystemExit прямо из ожидания: снятие обрывалось на середине,
+    демон уходил с кодом 0, а sing-box оставался жив с маршрутами.
+    """
+    for sig in _EXIT_SIGNALS:
+        try:
+            signal.signal(sig, signal.SIG_IGN)
+        except (OSError, ValueError):
+            pass
+    log(f"сигнал {signum} — снимаю туннель и выхожу")
+    raise SystemExit(0)
+
+
+def install_signal_handlers() -> None:
+    """Перехватить сигналы, по которым иначе умерли бы молча, мимо finally.
+
+    Голый Python умирает от SIGTERM/SIGHUP/SIGQUIT без всякой уборки, и
+    sing-box остаётся сиротой с чужими маршрутами. От SIGKILL защиты нет —
+    её роль играет подметание при следующем старте (kill_stale_singbox).
+    """
+    for sig in _EXIT_SIGNALS:
+        signal.signal(sig, _on_signal)
+
+
+def serve_forever(srv: socket.socket) -> int:
+    """Принимать клиентов, пока не попросят уйти. На выходе — снять туннель."""
+    # ponytail: клиентов обслуживаем по одному в потоке, без ограничения их
+    # числа. Приложение открывает ровно одно соединение; если понадобится
+    # защита от заваливания, ставить семафор на число живых потоков.
+    try:
+        while True:
+            conn, _ = srv.accept()
+            threading.Thread(target=serve_client, args=(conn,), daemon=True).start()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        SUPERVISOR.stop()
+        srv.close()
+    return 0
 
 
 def main() -> int:
@@ -400,16 +607,10 @@ def main() -> int:
         log("демон обязан работать от root")
         return 1
 
-    # SIGTERM прилетает при launchctl unload и при выключении: без обработчика
-    # Python умрёт молча, минуя finally, и оставит sing-box сиротой.
-    def _on_signal(signum, _frame):  # noqa: ANN001, ANN202
-        log(f"сигнал {signum} — снимаю туннель и выхожу")
-        raise SystemExit(0)
+    install_signal_handlers()
 
-    signal.signal(signal.SIGTERM, _on_signal)
-    signal.signal(signal.SIGINT, _on_signal)
-
-    kill_stale_singbox()
+    if not kill_stale_singbox():
+        log("предыдущий sing-box снять не удалось — туннель поднимать не буду")
 
     try:
         os.unlink(SOCKET_PATH)
@@ -429,20 +630,10 @@ def main() -> int:
     srv.listen(4)
     log(f"слушаю {SOCKET_PATH}")
 
-    # ponytail: клиентов обслуживаем по одному в потоке, без ограничения их
-    # числа. Приложение открывает ровно одно соединение; если понадобится
-    # защита от заваливания, ставить семафор на число живых потоков.
     try:
-        while True:
-            conn, _ = srv.accept()
-            threading.Thread(target=serve_client, args=(conn,), daemon=True).start()
-    except KeyboardInterrupt:
-        pass
+        return serve_forever(srv)
     finally:
-        SUPERVISOR.stop()
-        srv.close()
         try:
             os.unlink(SOCKET_PATH)
         except FileNotFoundError:
             pass
-    return 0

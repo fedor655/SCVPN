@@ -5,9 +5,17 @@
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import shutil
+import socket
+import subprocess
 import sys
+import tempfile
+import threading
+import time
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -17,6 +25,199 @@ CHECKS = []
 def check(fn):
     CHECKS.append(fn)
     return fn
+
+
+# ----------------------------------------------------------------------
+# Стенд для проверок демона
+# ----------------------------------------------------------------------
+# Главное свойство демона — снимать sing-box, когда клиент умер, — нельзя
+# проверить, разглядывая чистые функции. Поэтому стенд поднимает настоящий
+# сокет, настоящие потоки и настоящий процесс, но без root: BIN_DIR и RUN_DIR
+# подменены на временную папку, check_binary заглушён (его проверяют отдельно),
+# а вместо sing-box — скрипт, который спит.
+#
+# Метка готовности здесь не для красоты. Появление PID в pgrep ещё не значит,
+# что оболочка успела выполнить `trap`: если ударить SIGTERM в этот зазор,
+# «упрямый» sing-box умрёт как миленький, и проверка позеленеет, ничего не
+# проверив. Ждём именно готовности.
+_FAKE_SINGBOX = "#!/bin/sh\n: > {ready}\nsleep 300\n"
+
+# Упрямый вариант: игнорирует SIGTERM, как повёл бы себя зависший sing-box.
+_STUBBORN_SINGBOX = "#!/bin/sh\ntrap '' TERM\n: > {ready}\nwhile :; do sleep 1; done\n"
+
+_DAEMON_SRC = """
+import socket, sys
+from pathlib import Path
+sys.path.insert(0, {root!r})
+from helper import daemon
+daemon.BIN_DIR = Path({bindir!r})
+daemon.RUN_DIR = Path({rundir!r})
+daemon.check_binary = lambda p: None
+daemon.STOP_GRACE_SEC = 1
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+srv.bind({sock!r})
+srv.listen(4)
+daemon.install_signal_handlers()
+print("READY", flush=True)
+raise SystemExit(daemon.serve_forever(srv))
+"""
+
+_CLIENT_SRC = """
+import json, socket, time
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect({sock!r})
+s.sendall(json.dumps({{"cmd": "start", "socks_port": 10808, "xray_path": {xray!r}}}).encode() + b"\\n")
+print(s.recv(65536).decode().strip(), flush=True)
+time.sleep(300)
+"""
+
+
+class _Stand:
+    """Временный «демон» со своими папками и поддельным sing-box."""
+
+    def __init__(self, script: str = _FAKE_SINGBOX) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "bin").mkdir()
+        self.ready = self.tmp / "ready"
+        exe = self.tmp / "bin" / "sing-box"
+        exe.write_text(script.format(ready=self.ready))
+        exe.chmod(0o755)
+        self.xray = str(self.tmp / "xray")
+        Path(self.xray).write_text("")
+        Path(self.xray).chmod(0o755)
+        self.sock_path = str(self.tmp / "s.sock")
+        self._stack = contextlib.ExitStack()
+        self._srv: socket.socket | None = None
+        self._procs: list[subprocess.Popen] = []
+        self._socks: list[socket.socket] = []
+
+    # -- запуск демона --------------------------------------------------
+    def serve_here(self) -> _Stand:
+        """Поднять обслуживание в этом же процессе."""
+        from helper import daemon
+
+        for name, value in (("BIN_DIR", self.tmp / "bin"), ("RUN_DIR", self.tmp / "run"),
+                            ("check_binary", lambda p: None), ("STOP_GRACE_SEC", 1),
+                            ("SWEEP_GRACE_SEC", 1)):
+            self._stack.enter_context(mock.patch.object(daemon, name, value))
+        self._srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._srv.bind(self.sock_path)
+        self._srv.listen(4)
+        threading.Thread(target=self._accept, args=(daemon,), daemon=True).start()
+        return self
+
+    def _accept(self, daemon) -> None:
+        while True:
+            try:
+                conn, _ = self._srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=daemon.serve_client, args=(conn,), daemon=True).start()
+
+    def serve_subprocess(self) -> subprocess.Popen:
+        """Поднять демона отдельным процессом — иначе не послать ему сигнал."""
+        src = _DAEMON_SRC.format(root=str(Path(__file__).resolve().parent),
+                                 bindir=str(self.tmp / "bin"), rundir=str(self.tmp / "run"),
+                                 sock=self.sock_path)
+        p = subprocess.Popen([sys.executable, "-c", src], stdout=subprocess.PIPE, text=True)
+        self._procs.append(p)
+        assert p.stdout.readline().strip() == "READY", "демон не поднялся"
+        return p
+
+    # -- клиенты ---------------------------------------------------------
+    def connect(self, timeout: float = 15.0) -> socket.socket:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(self.sock_path)
+        self._socks.append(s)
+        return s
+
+    def ask(self, sock: socket.socket, req: dict) -> dict:
+        sock.sendall((json.dumps(req) + "\n").encode())
+        return self.reply(sock)
+
+    def reply(self, sock: socket.socket) -> dict:
+        """Ближайший кадр с ответом; строки логов пропускаем."""
+        buf = b""
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                raise AssertionError("демон закрыл соединение, не ответив")
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                obj = json.loads(line.decode())
+                if "ok" in obj:
+                    return obj
+
+    def spawn_client(self) -> subprocess.Popen:
+        """Клиент отдельным процессом: поднимает туннель и живёт, пока не убьют."""
+        p = subprocess.Popen(
+            [sys.executable, "-c", _CLIENT_SRC.format(sock=self.sock_path, xray=self.xray)],
+            stdout=subprocess.PIPE, text=True,
+        )
+        self._procs.append(p)
+        reply = json.loads(p.stdout.readline())
+        assert reply.get("ok") is True, reply
+        return p
+
+    def start_tunnel(self) -> None:
+        """Поднять «туннель» через сокет и убедиться, что процесс появился."""
+        sock = self.connect()
+        reply = self.ask(sock, {"cmd": "start", "socks_port": 10808, "xray_path": self.xray})
+        assert reply["ok"] is True, reply
+
+    # -- наблюдение ------------------------------------------------------
+    def singbox_pids(self) -> list[str]:
+        r = subprocess.run(["/usr/bin/pgrep", "-f", f"{self.tmp}/bin/sing-box run -c"],
+                           capture_output=True, text=True)
+        return [p for p in r.stdout.split() if p]
+
+    def wait_gone(self, timeout: float = 15.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not self.singbox_pids():
+                return True
+            time.sleep(0.05)
+        return False
+
+    def wait_up(self, timeout: float = 10.0) -> bool:
+        """Поднялся И готов: метку пишет сам поддельный sing-box (см. выше)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.singbox_pids() and self.ready.exists():
+                return True
+            time.sleep(0.05)
+        return False
+
+    def spawn_orphan(self) -> None:
+        """Поднять sing-box с той же командной строкой, но без надзора."""
+        (self.tmp / "run").mkdir(exist_ok=True)
+        (self.tmp / "run" / "singbox.json").write_text("{}")
+        self._procs.append(subprocess.Popen(
+            f"exec {self.tmp}/bin/sing-box run -c {self.tmp}/run/singbox.json", shell=True))
+        assert self.wait_up(), "подложный сирота не поднялся"
+
+    # -- уборка ----------------------------------------------------------
+    def __enter__(self) -> _Stand:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        from helper import daemon
+
+        for p in self._procs:
+            p.kill()
+            p.wait()
+        for s in self._socks:
+            with contextlib.suppress(OSError):
+                s.close()
+        if self._srv is not None:
+            self._srv.close()
+        daemon.SUPERVISOR.stop()
+        self._stack.close()
+        subprocess.run(["/usr/bin/pkill", "-9", "-f", f"{self.tmp}/bin/sing-box run -c"],
+                       capture_output=True)
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
 
 @check
@@ -268,24 +469,40 @@ def test_exclude_ips_become_host_routes():
     assert "2001:db8::1/128" in excludes, excludes
 
 
+def _refusal(fn, *args) -> str:
+    """Текст отказа. Проверять сам факт отказа мало: важна его причина."""
+    try:
+        fn(*args)
+    except Exception as e:  # noqa: BLE001
+        return str(e)
+    raise AssertionError(f"{fn.__name__} не отказал на {args}")
+
+
 @check
 def test_daemon_refuses_binary_outside_its_dir():
-    """Иначе любой процесс пользователя подменит sing-box и получит root."""
+    """Иначе любой процесс пользователя подменит sing-box и получит root.
+
+    Берём именно существующий, root-овый и исполняемый файл: раньше здесь были
+    несуществующие пути, и проверка проходила бы даже без сравнения с BIN_DIR —
+    отказ приходил от resolve(strict=True), то есть тест мерил не то.
+    """
     from pathlib import Path
 
-    from helper.daemon import check_binary
+    from helper.daemon import BIN_DIR, check_binary
 
-    for bad in (Path("/tmp/sing-box"), Path.home() / "sing-box", Path("/usr/local/bin/sing-box")):
-        try:
-            check_binary(bad)
-        except PermissionError:
-            continue
-        raise AssertionError(f"пропустил бинарник вне своей папки: {bad}")
+    assert "вне" in _refusal(check_binary, Path("/bin/sh")), "/bin/sh пролез"
+    assert "вне" in _refusal(check_binary, Path("/usr/bin/true"))
+    assert "нет такого" in _refusal(check_binary, BIN_DIR / "не-существует")
 
 
 @check
 def test_daemon_refuses_user_writable_binary():
-    """Файл в своей папке, но с правом записи для всех — тоже отказ."""
+    """Все четыре причины отказа check_binary, каждая по отдельности.
+
+    Порядок проверок в check_binary выбран так, чтобы каждая была видна: если
+    проверка на root стоит первой, она накрывает собой остальные (временный
+    файл принадлежит пользователю), и тест зеленеет, что бы ни удалили.
+    """
     import os
     import tempfile
     from pathlib import Path
@@ -297,17 +514,17 @@ def test_daemon_refuses_user_writable_binary():
         fake_dir = Path(d)
         fake = fake_dir / "sing-box"
         fake.write_bytes(b"")
-        fake.chmod(0o777)
         with mock.patch.object(daemon, "BIN_DIR", fake_dir):
-            try:
-                daemon.check_binary(fake)
-            except PermissionError:
-                pass
-            else:
-                raise AssertionError("пропустил бинарник, доступный на запись всем")
+            fake.chmod(0o777)
+            assert "на запись" in _refusal(daemon.check_binary, fake)
+            fake.chmod(0o755)
+            fake.chmod(0o644)
+            assert "не исполняемый" in _refusal(daemon.check_binary, fake)
             fake.chmod(0o755)
             if os.geteuid() == 0:
                 daemon.check_binary(fake)   # root:wheel 0755 — годится
+            else:
+                assert "не принадлежит root" in _refusal(daemon.check_binary, fake)
 
 
 @check
@@ -324,35 +541,233 @@ def test_daemon_singbox_asset_is_darwin_arm64():
 
 @check
 def test_daemon_rejects_bad_request_without_dying():
+    """Каждый отказ — по своей причине. Голое ok=False здесь ничего не значит:
+    без установленного sing-box любой start вернул бы ok=False."""
     from helper.daemon import handle_line
 
     state = {}
-    reply = handle_line('{"cmd": "start", "socks_port": 99999}', state)
-    assert reply["ok"] is False, reply
-    assert "порт" in reply["error"], reply
-
-    reply = handle_line("это не json", state)
-    assert reply["ok"] is False, reply
-
-    reply = handle_line('{"cmd": "плясать"}', state)
-    assert reply["ok"] is False, reply
-
-    # Длина каждого имени ограничена в config.validate(), а число имён — нет:
-    # список на 200 000 записей даёт конфиг в мегабайты, который root запишет
-    # на диск. Потолок стоит на стороне демона.
-    huge = json.dumps({"cmd": "start", "socks_port": 10808, "split_apps": ["a"] * 200_000})
-    reply = handle_line(huge, state)
-    assert reply["ok"] is False, reply
-    assert "split_apps" in reply["error"], reply
+    cases = [
+        ('{"cmd": "start", "socks_port": 99999}', "порт"),
+        ("это не json", "не разобрал"),
+        ('{"cmd": "плясать"}', "неизвестная команда"),
+        ("[1, 2, 3]", "не разобрал"),
+        # Длина каждого имени ограничена в config.validate(), а число имён —
+        # нет: список на 200 000 записей даёт конфиг в мегабайты, который root
+        # запишет на диск. Потолок стоит на стороне демона.
+        (json.dumps({"cmd": "start", "socks_port": 10808,
+                     "split_apps": ["a"] * 200_000}), "split_apps"),
+        (json.dumps({"cmd": "start", "socks_port": 10808,
+                     "exclude_ips": ["1.2.3.4"] * 2000}), "exclude_ips"),
+        # Глубокая вложенность: json.loads отдаёт RecursionError, а он не
+        # ValueError. Наружу это уходило мимо всех веток, то есть рвало
+        # соединение — а обрыв соединения у нас снимает туннель.
+        ("[" * 260_000 + "]" * 260_000, "не разобрал"),
+    ]
+    for line, expected in cases:
+        reply = handle_line(line, state)
+        assert reply["ok"] is False, (line[:40], reply)
+        assert expected in reply["error"], (line[:40], reply)
 
 
 @check
 def test_daemon_rejects_foreign_xray_path():
-    from helper.daemon import handle_line
+    """Путь к ядру уезжает в process_path — правило выпуска мимо туннеля."""
+    import tempfile
+    from pathlib import Path
 
-    for bad in (None, "relative/xray", "/bin/sh", "/tmp/не-существует/xray"):
-        reply = handle_line(json.dumps({"cmd": "start", "socks_port": 10808, "xray_path": bad}), {})
-        assert reply["ok"] is False, (bad, reply)
+    from helper.daemon import _checked_xray_path
+
+    tmp = Path(tempfile.mkdtemp())
+    good = tmp / "xray"
+    good.write_text("")
+    good.chmod(0o755)
+    assert _checked_xray_path(str(good)) == str(good.resolve())   # положительный контроль
+
+    assert "абсолютным" in _refusal(_checked_xray_path, None)
+    assert "абсолютным" in _refusal(_checked_xray_path, "relative/xray")
+    assert "абсолютным" in _refusal(_checked_xray_path, 42)
+    assert "xray" in _refusal(_checked_xray_path, "/bin/sh")
+    assert "нет такого файла" in _refusal(_checked_xray_path, str(tmp / "нет" / "xray"))
+
+    # Симлинк с правильным именем на чужой бинарник: имя проверяется до
+    # канонизации — и в правило уезжает /bin/sh.
+    link = tmp / "link" / "xray"
+    link.parent.mkdir()
+    link.symlink_to("/bin/sh")
+    assert "ведёт на" in _refusal(_checked_xray_path, str(link))
+
+    # Файл, в который может писать кто угодно, — не ядро, а приглашение.
+    ww = tmp / "ww" / "xray"
+    ww.parent.mkdir()
+    ww.write_text("")
+    ww.chmod(0o777)
+    assert "на запись" in _refusal(_checked_xray_path, str(ww))
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+@check
+def test_daemon_drops_tunnel_when_connection_closes():
+    """Главное свойство демона: обрыв соединения снимает туннель.
+
+    Заодно это положительный контроль для всей семьи проверок вокруг start:
+    здесь корректный запрос обязан вернуть ok=True, иначе ok=False в соседних
+    проверках не значило бы ничего.
+    """
+    with _Stand().serve_here() as stand:
+        sock = stand.connect()
+        reply = stand.ask(sock, {"cmd": "start", "socks_port": 10808, "xray_path": stand.xray})
+        assert reply["ok"] is True, reply
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+        assert stand.ask(sock, {"cmd": "status"})["running"] is True
+
+        sock.close()
+        assert stand.wait_gone(), f"sing-box пережил обрыв соединения: {stand.singbox_pids()}"
+
+
+@check
+def test_daemon_drops_tunnel_when_client_is_killed():
+    """Ровно сценарий ручной проверки Задачи 11: pkill -9 по приложению."""
+    with _Stand().serve_here() as stand:
+        client = stand.spawn_client()
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+        client.kill()
+        client.wait()
+        assert stand.wait_gone(), f"sing-box пережил смерть клиента: {stand.singbox_pids()}"
+
+
+@check
+def test_daemon_drops_tunnel_on_repeated_sigterm():
+    """launchctl unload и выключение машины. Второй сигнал не должен всё сорвать.
+
+    sing-box здесь упрямый — игнорирует SIGTERM, поэтому демон уходит в
+    ожидание, и туда прилетает второй SIGTERM. Раньше он поднимал SystemExit
+    прямо из ожидания: демон уходил с кодом 0, а sing-box оставался жив.
+    """
+    import signal
+
+    with _Stand(_STUBBORN_SINGBOX) as stand:
+        d = stand.serve_subprocess()
+        stand.spawn_client()
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+        d.send_signal(signal.SIGTERM)
+        time.sleep(0.3)                 # демон уже внутри ожидания
+        d.send_signal(signal.SIGTERM)
+        assert d.wait(timeout=30) == 0
+        assert stand.wait_gone(), f"sing-box пережил уход демона: {stand.singbox_pids()}"
+
+
+@check
+def test_daemon_drops_tunnel_on_sighup():
+    """Демона запускают и руками; закрытое окно терминала — это SIGHUP."""
+    import signal
+
+    with _Stand() as stand:
+        d = stand.serve_subprocess()
+        stand.spawn_client()
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+        d.send_signal(signal.SIGHUP)
+        assert d.wait(timeout=30) == 0
+        assert stand.wait_gone(), f"sing-box пережил SIGHUP демону: {stand.singbox_pids()}"
+
+
+@check
+def test_daemon_sweeps_stubborn_orphan_at_start():
+    """От SIGKILL по демону защиты нет — есть подметание при следующем старте.
+
+    Сирота упрямая: на SIGTERM не уходит. pkill возвращается сразу после
+    отправки сигнала, поэтому «послал и записал успех» здесь недостаточно —
+    нужно дождаться смерти и добить SIGKILL.
+    """
+    from unittest import mock
+
+    from helper import daemon
+
+    with _Stand(_STUBBORN_SINGBOX) as stand:
+        stand.spawn_orphan()
+        with mock.patch.object(daemon, "BIN_DIR", stand.tmp / "bin"), \
+             mock.patch.object(daemon, "RUN_DIR", stand.tmp / "run"), \
+             mock.patch.object(daemon, "SWEEP_GRACE_SEC", 1):
+            clean = daemon.kill_stale_singbox()
+        assert not stand.singbox_pids(), "сирота пережила подметание"
+        assert clean is True, "подметание отчиталось об успехе неправдиво"
+
+
+@check
+def test_daemon_caps_request_line():
+    """Строка без перевода строки не должна расти в памяти root-процесса."""
+    with _Stand().serve_here() as stand:
+        sock = stand.connect()
+
+        def flood():
+            # Льём в отдельном потоке: демон оборвёт разговор на середине,
+            # и sendall упрётся в закрытый сокет.
+            with contextlib.suppress(OSError):
+                sock.sendall(b"[" * (2 << 20))
+
+        threading.Thread(target=flood, daemon=True).start()
+        reply = stand.reply(sock)
+        assert reply["ok"] is False, reply
+        assert "длиннее допустимого" in reply["error"], reply
+
+
+@check
+def test_daemon_drops_logs_instead_of_stalling_singbox():
+    """Клиент перестал читать сокет — это не повод останавливать sing-box.
+
+    Логи ядра идут клиенту тем же соединением. Если писать прямо из потока,
+    который читает stdout sing-box, встанет сначала он, потом переполнится
+    труба, а потом и сам sing-box: поведение клиентского сокета управляло бы
+    туннелем.
+    """
+    from helper.daemon import Outbox
+
+    left, right = socket.socketpair()
+    try:
+        outbox = Outbox(left, maxsize=2)   # поток не запускаем: очередь никто не разбирает
+        started = time.monotonic()
+        for i in range(200):
+            outbox.send({"log": f"строка {i}"})
+        spent = time.monotonic() - started
+        assert spent < 1.0, f"отправка задержалась на {spent:.1f} с — значит блокирует"
+        assert outbox.dropped == 198, outbox.dropped
+    finally:
+        left.close()
+        right.close()
+
+
+@check
+def test_daemon_keeps_handle_on_unkillable_singbox():
+    """Не убедился в смерти — не отпускай ручку.
+
+    Раньше self.proc обнулялся первым делом, а неудача wait() глоталась: демон
+    терял живой sing-box, running врал False, и следующий start поднял бы
+    второй рядом с первым.
+    """
+    from unittest import mock
+
+    from helper import daemon
+
+    with _Stand() as stand:
+        proc = subprocess.Popen([str(stand.tmp / "bin" / "sing-box")])
+        try:
+            sup = daemon.Supervisor()
+            sup.proc = proc
+            # Процесс в непрерываемом сне: сигналы уходят, wait не дожидается.
+            with mock.patch.object(proc, "terminate", lambda: None), \
+                 mock.patch.object(proc, "kill", lambda: None), \
+                 mock.patch.object(proc, "wait",
+                                   side_effect=subprocess.TimeoutExpired("sing-box", 1)), \
+                 mock.patch.object(daemon, "STOP_GRACE_SEC", 1), \
+                 mock.patch.object(daemon, "KILL_GRACE_SEC", 1):
+                sup.stop()
+            assert sup.proc is proc, "ручку на живом sing-box потеряли"
+            assert sup.running is True, "running врёт, что туннеля нет"
+        finally:
+            proc.kill()
+            proc.wait()
 
 
 def main() -> int:
