@@ -29,6 +29,7 @@ sing-box и возвращает маршруты. Не при следующе�
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
@@ -53,6 +54,9 @@ SOCKET_PATH = "/var/run/scvpn-helper.sock"
 HELPER_DIR = Path("/Library/Application Support/SCVPN")
 BIN_DIR = HELPER_DIR / "bin"
 RUN_DIR = HELPER_DIR / "run"
+
+# Файл-замок против второго демона (см. _acquire_singleton_lock).
+LOCK_PATH = "/var/run/scvpn-helper.lock"
 
 SINGBOX_RELEASES_API = "https://api.github.com/repos/SagerNet/sing-box/releases/latest"
 
@@ -85,6 +89,43 @@ _EXIT_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT)
 def log(msg: str) -> None:
     """В stderr — launchd сложит его в StandardErrorPath."""
     print(f"[helper] {msg}", file=sys.stderr, flush=True)
+
+
+# ----------------------------------------------------------------------
+# Единственность демона
+# ----------------------------------------------------------------------
+# Держим дескриптор модульной переменной: если он попадёт только в локальную
+# переменную функции, сборщик мусора его закроет вместе с блокировкой, и
+# второй демон спокойно встанет следом за первым.
+_lock_fd: int | None = None
+
+
+def _acquire_singleton_lock(path: str | Path = LOCK_PATH) -> None:
+    """Не пустить второй экземпляр демона поверх работающего.
+
+    launchd держит один экземпляр сам, но ничто не мешает запустить второй
+    руками (`sudo python run.py --helper`) поверх уже работающего launchd-
+    демона. kill_stale_singbox() бьёт по всей командной строке sing-box, не
+    различая, чей это процесс, — второй демон снёс бы РАБОЧИЙ туннель первого.
+    А следом main() отвязывает и перехватывает сокет — так второй экземпляр
+    забрал бы себе клиента первого, который остался бы говорить в пустоту.
+
+    flock — ровно тот примитив, которым такие вещи принято решать в POSIX:
+    неблокирующий эксклюзивный захват до какой-либо разрушительной операции.
+    Замок на файле, а не на PID: PID-файлы врут после падения без очистки, а
+    flock снимается ядром сам, как только процесс, державший дескриптор,
+    умирает — второй демон встанет сразу же, без ручной уборки.
+    """
+    global _lock_fd
+    fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        raise RuntimeError(
+            f"другой экземпляр демона уже работает (замок занят: {path})"
+        ) from None
+    _lock_fd = fd
 
 
 # ----------------------------------------------------------------------
@@ -706,6 +747,15 @@ def serve_forever(srv: socket.socket) -> int:
 def main() -> int:
     if os.geteuid() != 0:
         log("демон обязан работать от root")
+        return 1
+
+    # До этой черты — только чтение. Дальше идут разрушительные операции
+    # (снятие чужого sing-box, перехват сокета), поэтому единственность
+    # проверяем первым делом, раньше kill_stale_singbox.
+    try:
+        _acquire_singleton_lock()
+    except RuntimeError as e:
+        log(str(e))
         return 1
 
     install_signal_handlers()

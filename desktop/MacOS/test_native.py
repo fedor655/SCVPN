@@ -963,6 +963,59 @@ def test_daemon_keeps_handle_on_unkillable_singbox():
             proc.wait()
 
 
+@check
+def test_daemon_refuses_second_instance():
+    """flock не даёт второму демону встать поверх первого.
+
+    Второй `sudo python run.py --helper` при живом launchd-демоне без этой
+    защиты снёс бы РАБОЧИЙ sing-box первого (kill_stale_singbox бьёт по всей
+    командной строке) и перехватил бы его сокет. Замок должен отказать до
+    того, как второй экземпляр успеет тронуть то и другое.
+    """
+    import os
+
+    from helper import daemon
+
+    with tempfile.TemporaryDirectory() as td:
+        lock_path = Path(td) / "helper.lock"
+        daemon._acquire_singleton_lock(lock_path)
+        try:
+            try:
+                daemon._acquire_singleton_lock(lock_path)
+                raise AssertionError("второй экземпляр получил тот же замок")
+            except RuntimeError as e:
+                assert "другой экземпляр" in str(e), e
+        finally:
+            if daemon._lock_fd is not None:
+                os.close(daemon._lock_fd)
+                daemon._lock_fd = None
+
+
+@check
+def test_plist_points_at_this_build():
+    """В plist должен попасть путь к тому, что реально запущено, а не заглушка."""
+    import plistlib
+
+    from helper.install import plist_text
+
+    data = plistlib.loads(plist_text().encode())
+    assert data["Label"] == "com.scvpn.helper", data["Label"]
+    assert data["KeepAlive"] is True, data
+    assert data["RunAtLoad"] is True, data
+    args = data["ProgramArguments"]
+    assert args[-1] == "--helper", args
+    assert all(a.startswith("/") for a in args[:-1]), args
+
+
+@check
+def test_installed_reflects_reality():
+    from pathlib import Path
+
+    from helper.install import installed
+
+    assert installed() == Path("/Library/LaunchDaemons/com.scvpn.helper.plist").exists()
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
