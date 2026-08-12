@@ -265,11 +265,22 @@ def install_singbox(say: Callable[[str], None]) -> str:
 # Надзор за sing-box
 # ----------------------------------------------------------------------
 class Supervisor:
-    """Один живой sing-box и его конфиг. Останавливается при обрыве клиента."""
+    """Один живой sing-box и его конфиг. Останавливается при обрыве клиента.
+
+    owner — соединение (объект `socket.socket`, тот же, что accept() отдаёт
+    serve_client), которое подняло текущий туннель. Раньше клиент был ровно
+    один, и serve_client() снимал туннель по факту ЛЮБОГО обрыва — это было
+    верно, пока у демона не завелись короткоживущие соединения без своего
+    туннеля (install_singbox() открывает отдельное соединение на один запрос
+    и закрывает его). Без owner обрыв такого постороннего соединения сносил
+    бы ЧУЖОЙ активный туннель — serve_client() не спрашивал, чьё соединение
+    закрылось. См. Задачу 9, Important 2.
+    """
 
     def __init__(self) -> None:
         self.proc: subprocess.Popen | None = None
         self._reader: threading.Thread | None = None
+        self.owner: socket.socket | None = None
         # Клиентов может оказаться больше одного (соединений никто не считает),
         # а sing-box один на всех. Под замком start и stop не переплетаются, и
         # процесс не остаётся без хозяина между «создал» и «записал в self».
@@ -279,7 +290,8 @@ class Supervisor:
     def running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self, params: dict, xray_path: str, on_log: Callable[[str], None]) -> None:
+    def start(self, params: dict, xray_path: str, on_log: Callable[[str], None],
+              owner: socket.socket | None = None) -> None:
         with self._lock:
             # Двух sing-box рядом быть не должно: они подерутся за default
             # route. Прежнего снимаем, осиротевшего от прошлого демона
@@ -315,6 +327,7 @@ class Supervisor:
                 bufsize=1,
             )
             log(f"sing-box запущен, PID {self.proc.pid}")
+            self.owner = owner
             # Колбэк передаём аргументом, а не читаем self._on_log из потока:
             # после рестарта «sing-box завершился» от старого процесса ушло бы
             # новому клиенту, как будто это про его туннель.
@@ -348,6 +361,7 @@ class Supervisor:
                 return
             if proc.poll() is not None:
                 self.proc = None
+                self.owner = None
                 return
 
             log("останавливаю sing-box (маршруты вернутся сами)")
@@ -369,6 +383,7 @@ class Supervisor:
                     return
 
             self.proc = None
+            self.owner = None
 
 
 SUPERVISOR = Supervisor()
@@ -487,7 +502,7 @@ def handle_line(line: str, state: dict[str, Any]) -> dict:
             # процессу выход мимо туннеля — значит путь надо проверить, а не
             # принять на слово (см. _checked_xray_path).
             xray_path = _checked_xray_path(req.get("xray_path"))
-            SUPERVISOR.start(params, xray_path, say)
+            SUPERVISOR.start(params, xray_path, say, owner=state.get("conn"))
             return {"ok": True, "running": True}
 
         if cmd == "stop":
@@ -654,7 +669,12 @@ def serve_client(conn: socket.socket) -> None:
     """Обслужить одного клиента и прибрать за ним, когда он отвалится.
 
     Обрыв соединения — это и есть dead-man's switch: приложение мертво,
-    значит туннель надо снять, иначе система останется без интернета.
+    значит туннель надо снять, иначе система останется без интернета. Но
+    снимаем только СВОЙ туннель — тот, который подняло именно это соединение
+    (см. Supervisor.owner). Клиентов больше одного бывает: install_singbox()
+    в native/tun.py открывает отдельное соединение на один запрос и закрывает
+    его же — такое соединение не должно ронять чужой активный туннель одним
+    своим обрывом.
     """
     # Всё, что может бросить, — внутри try. Снаружи оставался запуск Outbox, а
     # поток создать не всегда удаётся (accept-цикл плодит их без ограничения):
@@ -663,7 +683,7 @@ def serve_client(conn: socket.socket) -> None:
     try:
         outbox = Outbox(conn).start()
         send = outbox.send
-        state: dict[str, Any] = {"say": lambda s: outbox.send_log({"log": s})}
+        state: dict[str, Any] = {"say": lambda s: outbox.send_log({"log": s}), "conn": conn}
         # errors="replace": на кривых байтах читатель не должен разваливаться,
         # пусть мусор дойдёт до handle_line и получит вежливый отказ.
         with conn.makefile("r", encoding="utf-8", errors="replace") as reader:
@@ -687,9 +707,11 @@ def serve_client(conn: socket.socket) -> None:
         log(f"обслуживание клиента прервалось: {type(e).__name__}: {e}")
     finally:
         # Единственная ветка выхода: сюда приходят и обрыв, и EOF, и любая
-        # неожиданная ошибка выше. Второго клиента приложение не открывает,
-        # поэтому «туннель поднят, а этот клиент ушёл» всегда значит «снимать».
-        if SUPERVISOR.running:
+        # неожиданная ошибка выше. Но снимаем, только если это соединение
+        # (conn) и есть владелец текущего туннеля — иначе постороннее
+        # соединение (install_singbox, status и т.п.) сносило бы чужой
+        # активный туннель одним своим закрытием.
+        if SUPERVISOR.running and SUPERVISOR.owner is conn:
             log("клиент отключился, а туннель поднят — снимаю его")
             SUPERVISOR.stop()
         if outbox is not None:

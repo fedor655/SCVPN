@@ -266,15 +266,25 @@ class Tun:
             self.on_log(f"[tun] раздельный туннель: {what} — {', '.join(apps)}")
 
         conn = _Connection(lambda s: self.on_log("[tun] " + s))
-        reply = conn.request({
-            "cmd": "start",
-            "socks_port": socks_port,
-            "exclude_ips": ips,
-            "split_mode": split_mode,
-            "split_apps": apps,
-            "stack": stack,
-            "xray_path": str(paths.xray_exe().resolve()),
-        }, timeout=60.0)
+        try:
+            reply = conn.request({
+                "cmd": "start",
+                "socks_port": socks_port,
+                "exclude_ips": ips,
+                "split_mode": split_mode,
+                "split_apps": apps,
+                "stack": stack,
+                "xray_path": str(paths.xray_exe().resolve()),
+            }, timeout=60.0)
+        except Exception:
+            # request() бросил (таймаут, обрыв, кривой кадр лога и т.п.) уже
+            # ПОСЛЕ того, как демон мог поднять туннель. Если тут не закрыть
+            # conn, соединение зависает в traceback исключения (тот же путь,
+            # которым QMessageBox.critical в main_window держит e), а туннель
+            # остаётся поднятым до тех пор, пока сборщик мусора не доберётся
+            # до сокета — то есть непредсказуемо.
+            conn.close()
+            raise
         if not reply.get("ok"):
             conn.close()
             raise HelperError(reply.get("error", "не удалось поднять TUN"))

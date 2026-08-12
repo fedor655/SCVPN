@@ -683,13 +683,23 @@ def test_daemon_drops_tunnel_on_sighup():
 
 
 @check
-def test_daemon_drops_tunnel_when_serving_falls_over():
+def test_daemon_closes_socket_even_when_serving_falls_over_on_a_foreign_connection():
     """Обслуживание клиента может свалиться и не на чтении сокета.
 
     Поток для ответов создаётся не всегда (лимит потоков достижим: accept-цикл
     плодит их без ограничения). Если такое исключение уйдёт мимо finally,
-    туннель останется поднятым, а соединение — незакрытым: путь в обход
-    самого dead-man's switch.
+    соединение останется незакрытым — путь в обход самого dead-man's switch.
+
+    Крах случается на ВТОРОМ соединении, которое ничего не поднимало (как
+    install_singbox или обычный status) — значит по Supervisor.owner чужой
+    активный туннель этот крах трогать не должен (см. Задачу 9, Important 2,
+    и test_install_singbox_does_not_drop_a_running_tunnel рядом). Раньше здесь
+    проверялось обратное — что любой крах на любом соединении сносит туннель,
+    — но это было прямым следствием того самого бага: демон не различал, чьё
+    соединение оборвалось, и не имел этого свойства как отдельного намерения.
+    Что действительно проверяет этот тест — что finally отрабатывает и
+    закрывает СВОЁ (упавшее) соединение, даже когда исключение прилетело не
+    с чтения сокета, а из создания Outbox.
     """
     from unittest import mock
 
@@ -706,7 +716,56 @@ def test_daemon_drops_tunnel_when_serving_falls_over():
             second = stand.connect()
             assert second.recv(1) == b"", "соединение не закрыто, peer не увидит EOF"
 
-        assert stand.wait_gone(), f"туннель пережил падение обслуживания: {stand.singbox_pids()}"
+        # conn.close() в finally — последняя строчка, ПОСЛЕ проверки
+        # SUPERVISOR.owner (см. serve_client в helper/daemon.py): раз EOF уже
+        # виден, проверка владельца к этому моменту гарантированно отработала.
+        assert stand.singbox_pids(), f"чужое соединение снесло активный туннель: {stand.singbox_pids()}"
+
+
+@check
+def test_install_singbox_does_not_drop_a_running_tunnel():
+    """Меж-задачная находка (ревью Задачи 9, Important 2).
+
+    install_singbox() в native/tun.py открывает СВОЁ соединение — отдельное
+    от того, что держит активный туннель, — на один запрос, и закрывает его.
+    Раньше serve_client() снимал ЛЮБОЙ поднятый туннель по факту обрыва СВОЕГО
+    соединения, не спрашивая, чьё оно: воспроизводится вручную — туннель
+    поднят, открыть второе соединение, спросить status, закрыть — сносило
+    активный sing-box, а Tun.running навсегда оставался True (on_state(False)
+    не приходил, потому что с точки зрения владеющего соединения ничего не
+    случилось).
+
+    Настоящую скачку sing-box (живой GitHub) не гоняем — запрещено условиями
+    задачи. Бьём напрямую тем же протокольным паттерном, каким пользуется
+    install_singbox(): открыть соединение, один запрос, закрыть — команда
+    не важна, важен факт постороннего открытия-и-закрытия.
+    """
+    from unittest import mock
+
+    from native import paths, tun
+    from shared.models import Server
+
+    with _Stand().serve_here() as stand:
+        states: list[bool] = []
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True):
+            t = tun.Tun(on_state=states.append)
+            t.start(Server(address="127.0.0.1"), 10808)
+            assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+            second = stand.connect()
+            assert stand.ask(second, {"cmd": "status"})["ok"] is True
+            second.close()
+
+            time.sleep(0.5)   # дать демону время среагировать на обрыв, если бы среагировал
+            assert stand.singbox_pids(), "постороннее соединение снесло активный туннель"
+            assert t.running is True, "Tun решил, что туннель упал, хотя он жив"
+            assert states == [True], f"on_state(False) не должен был прийти: {states}"
+
+            t.stop()
+            assert stand.wait_gone(), f"Tun.stop() не снял туннель: {stand.singbox_pids()}"
+        assert states == [True, False], states
 
 
 @check
@@ -1317,6 +1376,194 @@ def test_tun_connection_loss_drops_tunnel_without_stop():
         client.kill()          # ни stop(), ни штатное закрытие — чистый крах
         client.wait()
         assert stand.wait_gone(), f"sing-box пережил смерть клиента Tun: {stand.singbox_pids()}"
+
+
+@check
+def test_tun_stop_command_alone_drops_tunnel_when_connection_stays_open():
+    """Симметрично test_tun_connection_loss_drops_tunnel_without_stop: два
+    независимых способа снять туннель обязаны работать и ПО ОДНОМУ. Здесь —
+    команда stop без обрыва соединения: _Connection.close() глушим, чтобы
+    закрытие соединения не подмешалось к результату и туннель мог упасть
+    только от того, что демон обработал команду.
+    """
+    from unittest import mock
+
+    from native import paths, tun
+    from shared.models import Server
+
+    with _Stand().serve_here() as stand:
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True), \
+             mock.patch.object(tun._Connection, "close", lambda self: None):
+            t = tun.Tun()
+            t.start(Server(address="127.0.0.1"), 10808)
+            assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+            # Держим _Connection живым сами. Иначе после stop() поток
+            # _read_logs рано или поздно оборвёт свой блокирующий read (см.
+            # send(): settimeout трогает общий с ним сокет — отдельный,
+            # уже отложенный Minor) и выйдет, роняя последнюю ссылку на
+            # _Connection — тогда объект соберёт обычный рефкаунт (не
+            # цикличный GC, gc.disable() тут не спасёт) и закроет сокет сам
+            # в __del__. Тест тогда проверял бы случайную уборку мусора, а
+            # не команду stop. Держим ссылку, чтобы этот путь был отрезан.
+            held = t._conn
+
+            t.stop()
+            try:
+                assert stand.wait_gone(), (
+                    "команда stop одна (соединение намеренно не закрыто) не сняла туннель"
+                )
+            finally:
+                del held
+
+
+@check
+def test_tun_stop_closes_connection_even_when_command_cannot_be_sent():
+    """Симметрично предыдущей: если отправка команды stop заглушена
+    (_Connection.send — no-op), закрытие соединения внутри Tun.stop() обязано
+    снять туннель само по себе — это и есть вторая независимая гарантия."""
+    from unittest import mock
+
+    from native import paths, tun
+    from shared.models import Server
+
+    with _Stand().serve_here() as stand:
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True), \
+             mock.patch.object(tun._Connection, "send", lambda self, *a, **k: None):
+            t = tun.Tun()
+            t.start(Server(address="127.0.0.1"), 10808)
+            assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+            t.stop()
+            assert stand.wait_gone(), (
+                "закрытие соединения одно (команда stop заглушена) не сняло туннель"
+            )
+
+
+@check
+def test_connection_close_shuts_down_before_closing_socket():
+    """shutdown обязан идти РАНЬШЕ close(): иначе поток, заблокированный в
+    recv (Tun._read_logs / stream_logs), не гарантированно проснётся сразу —
+    см. комментарий в _Connection.close() и тот же приём в Outbox._overflow
+    демона. Порядок проверяем напрямую, без реального сокета: подставляем
+    вместо sock/_file объекты, которые просто запоминают порядок вызовов.
+    """
+    from unittest import mock
+
+    from native.tun import _Connection
+
+    calls: list[str] = []
+    conn = object.__new__(_Connection)  # без __init__: настоящий connect() тут не нужен
+    conn.sock = mock.MagicMock()
+    conn.sock.shutdown.side_effect = lambda *a: calls.append("shutdown")
+    conn.sock.close.side_effect = lambda *a: calls.append("sock.close")
+    conn._file = mock.MagicMock()
+    conn._file.close.side_effect = lambda: calls.append("file.close")
+
+    conn.close()
+
+    assert calls and calls[0] == "shutdown", f"shutdown не первым: {calls}"
+    assert "sock.close" in calls, calls
+
+
+@check
+def test_tun_start_forwards_tun_stack_setting_to_daemon():
+    """tun_stack из настроек обязан долететь до конфига sing-box, а не
+    потеряться по дороге — от Tun.start() через демон до JSON на диске.
+    """
+    import json
+    from unittest import mock
+
+    from native import paths, tun
+    from shared import storage
+    from shared.models import Server
+
+    with _Stand().serve_here() as stand:
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True), \
+             mock.patch.object(storage, "load_settings", lambda: {"tun_stack": "system"}):
+            t = tun.Tun()
+            t.start(Server(address="127.0.0.1"), 10808)
+            try:
+                assert stand.wait_up(), "поддельный sing-box не поднялся"
+                cfg = json.loads((stand.tmp / "run" / "singbox.json").read_text())
+                assert cfg["inbounds"][0]["stack"] == "system", cfg["inbounds"][0]
+            finally:
+                t.stop()
+                assert stand.wait_gone()
+
+
+@check
+def test_tun_start_closes_connection_when_request_fails_after_daemon_already_started():
+    """Ревью Задачи 9, Important 3.
+
+    Если conn.request() бросает уже ПОСЛЕ того, как демон обработал start и
+    поднял sing-box (таймаут по 60-секундному потолку, обрыв, не-dict в
+    ответе, исключение из on_log на кадре лога — не важно, что именно),
+    Tun.start() обязан всё равно закрыть conn. В интерфейсе именно этот путь:
+    shared/ui/main_window.py ловит исключение в except Exception as e: и
+    держит QMessageBox — то есть держит traceback, а вместе с ним и
+    незакрытое соединение, если Tun.start() его не закрыл сам.
+
+    Инжектируем ошибку в _Connection.request ПОСЛЕ настоящего успешного
+    обмена с настоящим демоном — то есть демон реально стартовал sing-box, а
+    клиент об этом успехе так и не узнал (ровно сценарий ревьюера: PID жив,
+    t.running is False, t._conn is None, t.stop() — пустышка).
+    """
+    from unittest import mock
+
+    from helper import daemon
+    from native import paths, tun
+    from shared.models import Server
+
+    real_request = tun._Connection.request
+    # Своим poll'ом stand.wait_up() тут не обойтись: при исправленном коде
+    # Tun.start() закрывает conn СРАЗУ в обработчике исключения — демон видит
+    # обрыв и валит sing-box за миллисекунды, быстрее первого опроса pgrep.
+    # Поэтому предусловие («демон и правда поднял sing-box до инжекции»)
+    # проверяем синхронно, в момент, когда реальный request() уже вернул
+    # ответ — это и есть момент, после которого демон гарантированно вызвал
+    # SUPERVISOR.start().
+    precondition: list[bool] = []
+
+    def flaky_request(self, payload, timeout=240.0):
+        reply = real_request(self, payload, timeout)
+        if payload.get("cmd") == "start":
+            precondition.append(daemon.SUPERVISOR.running)
+            raise OSError("инъекция: обрыв после того, как демон уже ответил")
+        return reply
+
+    with _Stand().serve_here() as stand:
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True), \
+             mock.patch.object(tun._Connection, "request", flaky_request):
+            t = tun.Tun()
+            held_exc = None
+            try:
+                t.start(Server(address="127.0.0.1"), 10808)
+                raise AssertionError("start() должен был бросить инжектированный OSError")
+            except OSError as e:
+                # Держим traceback живым — как QMessageBox.critical(...) в
+                # main_window.py: именно так, а не сразу, обнаруживается утечка.
+                held_exc = e
+
+            assert precondition == [True], "демон должен был реально поднять sing-box до инжекции"
+            assert t.running is False, "Tun не должен считать себя запущенным"
+            assert t._conn is None, "Tun не должен держать ссылку на оборванное соединение"
+
+            # Главная проверка: соединение закрыто ЯВНО в момент отказа, а не
+            # «когда-нибудь через сборщик мусора» — обрыв должен быть виден
+            # демону сразу, без ожидания финализатора.
+            assert stand.wait_gone(timeout=3), (
+                f"демон не увидел закрытие соединения — conn утёк: {stand.singbox_pids()}"
+            )
+            del held_exc
 
 
 def main() -> int:
