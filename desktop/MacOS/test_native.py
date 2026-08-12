@@ -1744,15 +1744,31 @@ def test_normalize_strips_bundle_suffix_and_path():
 
 @check
 def test_running_apps_includes_system_applications():
-    """running_apps должна показывать встроенные приложения из /System/Applications."""
-    from native.apps import running_apps
+    """running_apps с синтетическим вводом покрывает все три префикса и мутации."""
+    from unittest import mock
+    from pathlib import Path
 
-    apps = running_apps()
-    # Terminal запущен постоянно в рамках прогона этого теста; он из
-    # /System/Applications/Utilities/Terminal.app. Проверяем что он попал в
-    # список — это гарантирует что фильтр включает /System/Applications и
-    # корректно срезает имена файлов из более глубокой иерархии.
-    assert "Terminal" in apps, f"Terminal из /System/Applications не попал в список: {apps}"
+    from native import apps
+
+    # Синтетический выход ps, покрывающий все три префикса, вложенность и .appex.
+    synthetic_ps = """/Applications/Telegram.app/Contents/MacOS/Telegram
+/System/Applications/Mail.app/Contents/MacOS/Mail
+/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal
+{home}/Applications/Steam.app/Contents/MacOS/Steam
+/System/Applications/Utilities/Terminal.app/Contents/PlugIns/TerminalLiveActivityWidgetExtension.appex/Contents/MacOS/TerminalLiveActivityWidgetExtension
+/Applications/Electron.app/Contents/PlugIns/ElectronExtension.appex/Contents/MacOS/ElectronExtension
+/usr/libexec/something
+""".format(home=Path.home())
+
+    mock_result = mock.MagicMock()
+    mock_result.stdout = synthetic_ps
+
+    with mock.patch.object(apps.subprocess, "run", return_value=mock_result):
+        result = apps.running_apps()
+
+    # Ожидаем ровно четыре имени: из трёх префиксов, без .appex и без системной мелочи.
+    expected = ["Mail", "Steam", "Telegram", "Terminal"]
+    assert result == expected, f"ожидали {expected}, получили {result}"
 
 
 def main() -> int:
