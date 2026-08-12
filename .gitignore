@@ -5,7 +5,9 @@ desktop/Windows/.venv/
 desktop/Windows/build/
 desktop/Windows/dist/
 desktop/Windows/dist_installer/
-desktop/MacOS/venv/
+# venv macOS живёт вне репозитория (~/.venvs/scvpn по умолчанию, см.
+# desktop/MacOS/test.sh) — iCloud Drive внутри дерева репозитория помечает
+# его файлы UF_HIDDEN, из-за чего Qt не находит свои же плагины платформы.
 desktop/MacOS/build/
 desktop/MacOS/dist/
 

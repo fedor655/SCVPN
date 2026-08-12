@@ -36,13 +36,42 @@ def is_admin() -> bool:
         return False
 
 
+# Тексты ShellExecuteW для кодов возврата <= 32 (ошибка) — самые частые
+# причины отказа, чтобы last_privilege_error() говорил по существу, а не
+# "не получилось". Источник — документация Microsoft на ShellExecute.
+_SHELL_EXECUTE_ERRORS = {
+    0: "не хватило памяти или ресурсов операционной системы.",
+    2: "не найден исполняемый файл для перезапуска.",
+    3: "не найден путь для перезапуска.",
+    5: "запрос на права администратора отклонён (нажато «Нет» в диалоге UAC).",
+    8: "не хватило памяти для запуска.",
+    26: "файл занят другим процессом.",
+    31: "для этого файла не назначено приложение, которое могло бы его открыть.",
+}
+
+# Текст последней ошибки acquire_privilege(), когда та вернула "failed".
+# Контракт acquire_privilege() -> str (общий с macOS) не трогаем — это просто
+# карман для причины, которую иначе было бы некуда деть: main_window иначе
+# показал бы одну и ту же зашитую фразу и на отказе пользователя от UAC, и на
+# том, что ShellExecuteW не смог найти файл для перезапуска.
+_last_error = ""
+
+
+def last_privilege_error() -> str:
+    """Что пошло не так в последнем acquire_privilege(), если не "restart"."""
+    return _last_error
+
+
 def relaunch_as_admin() -> bool:
     """Перезапустить приложение с правами администратора (вызовет UAC).
 
     Возвращает True, если запрос на повышение отправлен (текущий процесс надо
-    закрыть). False — если не на Windows или пользователь отказался.
+    закрыть). False — если не на Windows или пользователь отказался; причину
+    смотри в last_privilege_error().
     """
+    global _last_error
     if not sys.platform.startswith("win"):
+        _last_error = "TUN-режим с повышением прав доступен только на Windows."
         return False
     try:
         import os
@@ -59,8 +88,14 @@ def relaunch_as_admin() -> bool:
             rest = sys.argv[1:]
             params = " ".join(f'"{a}"' for a in [script, *rest])
         rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", file, params, workdir, 1)
-        return int(rc) > 32  # >32 — успех (UAC показан)
-    except Exception:  # noqa: BLE001
+        rc = int(rc)
+        if rc > 32:  # >32 — успех (UAC показан)
+            _last_error = ""
+            return True
+        _last_error = _SHELL_EXECUTE_ERRORS.get(rc, f"ShellExecuteW вернул код ошибки {rc}.")
+        return False
+    except Exception as e:  # noqa: BLE001
+        _last_error = f"{type(e).__name__}: {e}"
         return False
 
 

@@ -1369,7 +1369,11 @@ def test_installed_handles_corrupted_plist():
 
 @check
 def test_tun_contract_matches_windows():
-    """shared/ знает только контракт — обе платформы обязаны его закрывать."""
+    """Точечная проверка native.tun ЭТОЙ платформы (не Windows, вопреки имени
+    — оставлено для обратной совместимости с прежними правками; настоящая
+    сверка обеих платформ по фактическому набору имён, которые shared/
+    реально импортирует, — test_native_contract_covers_both_platforms ниже).
+    """
     from native import tun
 
     for name in ("SPLIT_OFF", "SPLIT_EXCLUDE", "SPLIT_INCLUDE", "PRIVILEGE_QUESTION",
@@ -1377,6 +1381,120 @@ def test_tun_contract_matches_windows():
         assert hasattr(tun, name), f"в native.tun нет {name}"
     t = tun.Tun()
     assert t.running is False
+
+
+def _native_imports_required_by_shared() -> set[tuple[str, str]]:
+    """(модуль, имя) — всё, что desktop/shared/ реально импортирует из native/.
+
+    Разбираем AST, а не грепаем текст: так подхватывается многострочный
+    `from native.tun import (...)`, а любой будущий новый импорт из native/
+    попадает в контракт сам, без ручного обновления списка имён.
+    """
+    import ast
+
+    shared_dir = Path(__file__).resolve().parent.parent / "shared"
+    required: set[tuple[str, str]] = set()
+    for py in shared_dir.rglob("*.py"):
+        if "__pycache__" in py.parts:
+            continue
+        tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and (
+                node.module == "native" or node.module.startswith("native.")
+            ):
+                for alias in node.names:
+                    required.add((node.module, alias.name))
+    return required
+
+
+def _missing_native_names(platform_dir: Path, required: set[tuple[str, str]]) -> list[str]:
+    """"модуль.имя" из required, которых не хватает в native/ этой платформы.
+
+    Обе платформы называют свой пакет одинаково ("native") — импортировать
+    оба в одном процессе значит столкнуть их в sys.modules. Гоняем отдельным
+    интерпретатором с sys.path, указывающим строго на одну платформу.
+
+    Смотрим на ФАКТИЧЕСКУЮ доступность имени через getattr после настоящего
+    import, а не на текст файла: SPLIT_OFF/SPLIT_EXCLUDE/SPLIT_INCLUDE в
+    MacOS/native/tun.py не определены, а реэкспортированы из
+    helper.config — grep по определению их бы не нашёл.
+    """
+    pairs = sorted(required)
+    # "from native import X" — особый случай: X может быть подмодулем
+    # (native/X.py, как paths и sysproxy) ИЛИ именем, определённым прямо в
+    # native/__init__.py. Питон на этот синтаксис сперва пробует
+    # импортировать native.X как подмодуль — простой hasattr() после голого
+    # "import native" этого не воспроизводит (submodule не становится
+    # атрибутом пакета сам по себе, пока его явно не импортировали), и
+    # ловил бы paths/sysproxy как отсутствующие на обеих платформах.
+    script = f"""
+import importlib, json, sys
+sys.path.insert(0, {str(platform_dir)!r})
+sys.path.insert(0, {str(platform_dir.parent)!r})
+pairs = {pairs!r}
+missing = []
+mod_cache = {{}}
+for module, name in pairs:
+    if module == "native":
+        try:
+            importlib.import_module(f"native.{{name}}")
+            continue
+        except ImportError:
+            pass
+    if module not in mod_cache:
+        try:
+            mod_cache[module] = importlib.import_module(module)
+        except Exception as e:
+            mod_cache[module] = e
+    m = mod_cache[module]
+    if isinstance(m, Exception):
+        missing.append(f"{{module}}.{{name}} (модуль не импортировался: {{type(m).__name__}}: {{m}})")
+        continue
+    if not hasattr(m, name):
+        missing.append(f"{{module}}.{{name}}")
+print(json.dumps(missing))
+"""
+    r = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=30,
+    )
+    if r.returncode != 0:
+        raise AssertionError(
+            f"проверка контракта для {platform_dir} упала целиком "
+            f"(returncode={r.returncode}): {r.stderr}"
+        )
+    return json.loads(r.stdout)
+
+
+@check
+def test_native_contract_covers_both_platforms():
+    """Ревью Задачи 11, Critical Раунда 2: main_window.py тянул
+    last_privilege_error из native.tun на уровне модуля, а в Windows/native/
+    tun.py такого имени не было — ImportError при импорте главного окна,
+    до создания чего бы то ни было. python3 -m compileall это не ловит
+    (импорт разрешается в рантайме), самопроверка тогда прошла.
+
+    Эта проверка разбирает АСТ desktop/shared/ на предмет "from native
+    import X" / "from native.<модуль> import X, Y" — то есть строит контракт
+    из того, что shared/ реально использует, а не из зашитого вручную
+    списка, — и сверяет каждое имя против MacOS/native/ и Windows/native/
+    отдельными интерпретаторами (см. _missing_native_names). Следующая
+    такая правка упадёт здесь, а не на машине пользователя.
+    """
+    required = _native_imports_required_by_shared()
+    assert required, "не нашлось ни одного импорта из native/ в shared/ — парсер AST сломан"
+    assert ("native.tun", "last_privilege_error") in required, (
+        "контроль на контроль: last_privilege_error должен быть виден парсеру"
+    )
+
+    macos_dir = Path(__file__).resolve().parent
+    windows_dir = macos_dir.parent / "Windows"
+    assert windows_dir.is_dir(), f"не нашёл {windows_dir}"
+
+    macos_missing = _missing_native_names(macos_dir, required)
+    windows_missing = _missing_native_names(windows_dir, required)
+
+    assert not macos_missing, f"MacOS/native не хватает: {macos_missing}"
+    assert not windows_missing, f"Windows/native не хватает: {windows_missing}"
 
 
 @check
@@ -1924,6 +2042,35 @@ def _bare_window(mode: str) -> "object":
     win._start_with_fingerprint = lambda *a, **k: None
     win._want_connected = False
     return win
+
+
+@check
+def test_connect_vpn_tun_missing_components_warns_before_privilege_question():
+    """Minor ревью Раунда 2: ветка `if not tun_present(): ... return` в
+    connect_vpn() не была покрыта ничем — удаление всего блока давало
+    72/72. Заодно закрывает и Important 3 того же раунда (порядок
+    префлайта): при отсутствии компонентов TUN пользователя не должны
+    вообще спрашивать про права администратора — tun_present() проверяется
+    раньше privileged()/acquire_privilege(), и QMessageBox.question не
+    должен звонить вовсе.
+    """
+    import shared.ui.main_window as mw
+
+    win = _bare_window("tun")
+    with mock.patch.object(mw, "core_present", lambda: True), \
+         mock.patch.object(mw, "tun_present", lambda: False), \
+         mock.patch.object(mw, "privileged", lambda: False), \
+         mock.patch.object(mw.QMessageBox, "question") as question_mock, \
+         mock.patch.object(mw.QApplication, "quit") as quit_mock, \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.connect_vpn()
+
+    question_mock.assert_not_called()
+    quit_mock.assert_not_called()
+    warn_mock.assert_called_once()
+    shown_title = warn_mock.call_args.args[1]
+    assert "компонент" in shown_title.lower(), shown_title
+    assert win._want_connected is False
 
 
 @check
