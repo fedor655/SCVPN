@@ -52,6 +52,7 @@ from native.tun import (
     Tun,
     acquire_privilege,
     cleanup_stray,
+    last_privilege_error,
     privileged,
 )
 from . import theme
@@ -412,8 +413,20 @@ class MainWindow(QMainWindow):
             return
 
         # Префлайт для TUN: нужны компоненты и повышенные права.
+        # Порядок — компоненты раньше прав, как на Windows: перестановка была
+        # оправдана в Задаче 11 тем, что tun_present() на macOS якобы
+        # спрашивает демона, но это не так (native/downloader.tun_present() —
+        # это helper_installed() and paths.singbox_exe().exists(), обе части
+        # чисто локальные, без похода в сокет). Обратный порядок на Windows
+        # означал бы лишний круг UAC раньше сообщения «нет компонентов».
         mode = self.settings.get("vpn_mode", "proxy")
         if mode == "tun":
+            if not tun_present():
+                QMessageBox.warning(
+                    self, "Нет компонентов TUN",
+                    "Меню «⋯» → «Скачать компоненты TUN».",
+                )
+                return
             if not privileged():
                 r = QMessageBox.question(self, "Нужны права администратора", PRIVILEGE_QUESTION)
                 if r != QMessageBox.Yes:
@@ -423,14 +436,20 @@ class MainWindow(QMainWindow):
                     QApplication.quit()
                     return
                 if outcome != "ok":
-                    QMessageBox.warning(self, "Не вышло", "Не удалось получить права администратора.")
+                    # last_privilege_error() — настоящая причина от install()
+                    # (helper/install.py): «Установка отменена.» или stderr
+                    # launchctl. Зашитая фраза ни о чём — ровно то, из-за чего
+                    # первое включение TUN на macOS било пользователя мимо цели.
+                    detail = last_privilege_error()
+                    self._append_log(
+                        f"[!] Не удалось поставить системный компонент: {detail}"
+                        if detail else "[!] Не удалось поставить системный компонент."
+                    )
+                    QMessageBox.warning(
+                        self, "Не вышло",
+                        detail or "Не удалось получить права администратора.",
+                    )
                     return
-            if not tun_present():
-                QMessageBox.warning(
-                    self, "Нет компонентов TUN",
-                    "Меню «⋯» → «Скачать компоненты TUN».",
-                )
-                return
 
         self._want_connected = True
         self._render_state("connecting")
@@ -554,7 +573,21 @@ class MainWindow(QMainWindow):
         if running:
             self._append_log("[tun] TUN-адаптер активен — весь трафик идёт через VPN.")
         elif self._want_connected and self.settings.get("vpn_mode") == "tun":
-            # TUN упал во время сессии — рвём всё, чтобы не остаться без сети
+            # TUN упал во время сессии — рвём всё, чтобы не остаться без сети.
+            #
+            # self._want_connected = False ОБЯЗАН стоять раньше self.tun.stop()
+            # и self.runner.stop() — не только по смыслу, а из-за реального
+            # переплетения сигналов. self.runner.stop() синхронно (тот же
+            # поток, то же соединение сигнал-слот) может дёрнуть _on_state(False)
+            # прямо изнутри этого же вызова — а у _on_state() своя ветка
+            # `if self._want_connected: ... self.tun.stop() ...`, дословно
+            # повторяющая эту уборку. Если _want_connected к этому моменту всё
+            # ещё True, _on_state отработает её ЕЩЁ РАЗ поверх текущей —
+            # повторные tun.stop()/sysproxy.disable(), конфликтующий лог и
+            # render_state("error") поверх состояния, которое ещё не
+            # доделали здесь. Сбросив флаг первой строкой, вторая ветка видит
+            # его уже False и просто откатывается в "idle", не начиная свою
+            # уборку заново.
             self._append_log("[!] TUN остановился — отключаюсь.")
             self._want_connected = False
             self.tun.stop()  # закрыть соединение с демоном (Tun уже знает, что не жив)

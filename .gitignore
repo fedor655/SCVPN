@@ -5,7 +5,7 @@ desktop/Windows/.venv/
 desktop/Windows/build/
 desktop/Windows/dist/
 desktop/Windows/dist_installer/
-desktop/MacOS/.venv/
+desktop/MacOS/venv/
 desktop/MacOS/build/
 desktop/MacOS/dist/
 

@@ -1622,6 +1622,57 @@ def test_tun_reports_disconnect_when_singbox_dies_on_its_own():
 
 
 @check
+def test_tun_start_closes_stale_connection_left_open_by_previous_session():
+    """Ревью Задачи 11, minor 4. Соседняя проверка
+    (test_tun_reports_disconnect_when_singbox_dies_on_its_own) показывает,
+    что после смерти sing-box самого по себе t._conn остаётся не закрытым —
+    закрывать его обязана вызывающая сторона (main_window._on_tun_state), но
+    та чистит только когда vpn_mode остаётся "tun"; переключение способа
+    подключения посреди поднятого TUN этот путь не проходит. Без защёлки в
+    Tun.start() второй старт поверх такого «хвоста» завёл бы ещё один сокет
+    и поток поверх уже повисшего — соединение утекло бы.
+    """
+    from native import paths, tun
+    from shared.models import Server
+
+    with _Stand(_SINGBOX_CRASHES).serve_here() as stand:
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True):
+            t = tun.Tun()
+            t.start(Server(address="127.0.0.1"), 10808)
+
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and t.running:
+                time.sleep(0.05)
+            assert t.running is False, "Tun не заметил, что sing-box умер сам"
+            stale_conn = t._conn
+            assert stale_conn is not None, "предпосылка: соединение должно было остаться открытым"
+            assert stale_conn.sock.fileno() >= 0, "предпосылка: сокет ещё не закрыт"
+
+            # Второй старт без явного stop() между ними — ровно тот сценарий,
+            # который защёлка обязана разрулить сама. _SINGBOX_CRASHES у
+            # второй сессии тоже сразу умрёт — тут это не мешает: важно, что
+            # request на "start" прошёл (демон принял его, не отказал
+            # "прежний sing-box не снялся") и что старое соединение реально
+            # ЗАКРЫТО, а не просто заслонено новым — иначе оно продолжало бы
+            # держать сокет и поток независимо от того, что t._conn уже
+            # указывает на другой объект.
+            t.start(Server(address="127.0.0.1"), 10808)
+            try:
+                assert t._conn is not None and t._conn is not stale_conn, (
+                    "должно было завестись новое соединение, а не повиснуть на старом"
+                )
+                assert t.running is True, "второй start() должен был отрапортовать успех"
+                assert stale_conn.sock.fileno() == -1, (
+                    "старое соединение должно было закрыться, а не остаться висеть"
+                )
+            finally:
+                t.stop()
+                assert stand.wait_gone()
+
+
+@check
 def test_tun_start_forwards_tun_stack_setting_to_daemon():
     """tun_stack из настроек обязан долететь до конфига sing-box, а не
     потеряться по дороге — от Tun.start() через демон до JSON на диске.
@@ -1644,6 +1695,43 @@ def test_tun_start_forwards_tun_stack_setting_to_daemon():
                 assert stand.wait_up(), "поддельный sing-box не поднялся"
                 cfg = json.loads((stand.tmp / "run" / "singbox.json").read_text())
                 assert cfg["inbounds"][0]["stack"] == "system", cfg["inbounds"][0]
+            finally:
+                t.stop()
+                assert stand.wait_gone()
+
+
+@check
+def test_tun_stack_default_is_gvisor_and_reaches_daemon_from_real_settings():
+    """Половина Шага 3 Задачи 11, которую соседняя проверка не покрывает:
+    test_tun_start_forwards_tun_stack_setting_to_daemon подменяет
+    storage.load_settings() целиком лямбдой — удали ключ "tun_stack" из
+    DEFAULT_SETTINGS в shared/storage.py совсем, та проверка этого не
+    заметит. Здесь — настоящий load_settings() без settings.json на диске
+    (DEFAULT_SETTINGS единственный источник) прогоняется через настоящий
+    Tun.start() до конфига sing-box.
+    """
+    import json
+    from unittest import mock
+
+    from native import paths, tun
+    from shared import storage
+    from shared.models import Server
+
+    assert storage.DEFAULT_SETTINGS.get("tun_stack") == "gvisor", storage.DEFAULT_SETTINGS.get("tun_stack")
+
+    with _Stand().serve_here() as stand:
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True), \
+             mock.patch.object(paths, "SETTINGS_FILE", stand.tmp / "no-such-settings.json"):
+            assert storage.load_settings().get("tun_stack") == "gvisor", "умолчание из DEFAULT_SETTINGS не дошло"
+
+            t = tun.Tun()
+            t.start(Server(address="127.0.0.1"), 10808)
+            try:
+                assert stand.wait_up(), "поддельный sing-box не поднялся"
+                cfg = json.loads((stand.tmp / "run" / "singbox.json").read_text())
+                assert cfg["inbounds"][0]["stack"] == "gvisor", cfg["inbounds"][0]
             finally:
                 t.stop()
                 assert stand.wait_gone()
@@ -1811,15 +1899,20 @@ def test_running_apps_includes_system_applications():
 # ----------------------------------------------------------------------
 # Префлайт TUN в shared/ui/main_window.py: три исхода acquire_privilege()
 # ----------------------------------------------------------------------
-# Живой QApplication в этой среде не поднимается (несовместимость PySide6
-# 6.11.1 с этой версией macOS на уровне загрузки Qt-плагина платформы —
-# QPluginLoader с абсолютным путём грузит cocoa.dylib и валидные метаданные
-# успешно, а QApplication всё равно падает qFatal "no Qt platform plugin
-# could be initialized" даже для offscreen/minimal, которым экран не нужен
-# вовсе; это окружение, а не код). Поэтому префлайт проверяем без реального
-# Qt: MainWindow создаём в обход __init__ (object.__new__), а QMessageBox и
-# QApplication подменяем моками прямо в модуле — тело connect_vpn при этом
-# настоящее, ничего не эмулируется.
+# Настоящий QApplication здесь не поднимаем — не потому, что не умеет (умеет,
+# см. отчёт Задачи 11: venv лежал под каталогом со снятым флагом UF_HIDDEN,
+# из-за чего Qt/QDir не видел свои же файлы плагинов платформы; переезд на
+# venv/ без ведущей точки и chflags -R nohidden это чинит без единой
+# переменной окружения), а потому, что раннер гоняет каждую проверку в
+# отдельном потоке (см. _run_with_timeout ниже), а конструктор QApplication
+# трогает Cocoa (setMainMenu и т.п.), которая требует ГЛАВНЫЙ поток —
+# QApplication() не на нём валит процесс целиком SIGABRT'ом
+# (NSInternalInconsistencyException), проверено. Поэтому префлайт проверяем
+# без реального Qt: MainWindow создаём в обход __init__ через
+# MainWindow.__new__(MainWindow) — обычный object.__new__() на QObject-
+# наследнике шибокен запрещает явно, — а QMessageBox и QApplication
+# подменяем моками прямо в модуле; тело connect_vpn при этом настоящее,
+# ничего не эмулируется.
 def _bare_window(mode: str) -> "object":
     import shared.ui.main_window as mw
 
@@ -1898,6 +1991,75 @@ def test_connect_vpn_tun_failed_outcome_warns_without_quit():
     quit_mock.assert_not_called()
     warn_mock.assert_called_once()
     assert win._want_connected is False, "на неудачном исходе старт не должен был продолжиться"
+
+
+@check
+def test_connect_vpn_surfaces_real_installer_error_text():
+    """Ревью Задачи 11, Important 2. acquire_privilege() глотала настоящий
+    RuntimeError от install() (helper/install.py — «Установка отменена.»
+    либо живой stderr launchctl) и возвращала голое "failed"; main_window
+    показывал зашитую фразу ни о чём — основной путь первого включения TUN
+    на macOS оставлял пользователя без единой зацепки. Теперь текст идёт
+    через native.tun.last_privilege_error(). Проверяем НАСТОЯЩИЙ
+    acquire_privilege() (не мок лямбдой, как в соседних трёх проверках) —
+    подменяем только install() (сетевой/системный вызов), а contract
+    acquire_privilege() -> str не трогаем.
+    """
+    import shared.ui.main_window as mw
+    from native import tun as tun_module
+
+    win = _bare_window("tun")
+    with mock.patch.object(mw, "core_present", lambda: True), \
+         mock.patch.object(mw, "privileged", lambda: False), \
+         mock.patch.object(mw, "tun_present", lambda: True), \
+         mock.patch.object(tun_module, "_install_helper", side_effect=RuntimeError("Установка отменена.")), \
+         mock.patch.object(mw.QMessageBox, "question", staticmethod(lambda *a, **k: mw.QMessageBox.Yes)), \
+         mock.patch.object(mw.QApplication, "quit") as quit_mock, \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.connect_vpn()
+
+    quit_mock.assert_not_called()
+    warn_mock.assert_called_once()
+    shown = warn_mock.call_args.args[-1]
+    assert "Установка отменена." in shown, shown
+    assert shown != "Не удалось получить права администратора.", (
+        "должен показываться настоящий текст причины, а не зашитая фраза ни о чём"
+    )
+
+
+@check
+def test_run_app_reaches_event_loop():
+    """run_app() был сломан целиком (`from .. import paths` резолвился в
+    несуществующий shared.paths вместо native.paths) — запуск ронялся
+    ImportError'ом до создания окна, и так было десять задач подряд, пока
+    баг не всплыл в Задаче 11 при первом же ручном запуске. Ничем не
+    закрыт, кроме однократной ручной проверки — вот регрессионная версия.
+
+    Настоящий QApplication здесь не создаём: конструктор трогает Cocoa
+    (setMainMenu и т.п.), а Cocoa требует главный поток — раннер же гоняет
+    каждую проверку в отдельном потоке (см. _run_with_timeout), и настоящий
+    QApplication() с не-главного потока валит процесс целиком (проверено:
+    NSInternalInconsistencyException, весь прогон обрывается). Поэтому
+    QApplication и MainWindow подменены, а всё остальное в run_app() —
+    настоящее: реальный `from native import paths`, реальные вызовы
+    setApplicationName/setStyleSheet/setWindowIcon/show и возврат app.exec().
+    """
+    from unittest import mock
+
+    import shared.ui.main_window as mw
+
+    fake_app = mock.MagicMock()
+    fake_app.exec.return_value = 0
+    fake_win = mock.MagicMock()
+
+    with mock.patch.object(mw, "QApplication", return_value=fake_app) as app_cls, \
+         mock.patch.object(mw, "MainWindow", return_value=fake_win) as win_cls:
+        assert mw.run_app() == 0
+
+    app_cls.assert_called_once()
+    win_cls.assert_called_once()
+    fake_win.show.assert_called_once()
+    fake_app.exec.assert_called_once()
 
 
 def main() -> int:

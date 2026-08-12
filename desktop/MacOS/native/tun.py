@@ -43,13 +43,33 @@ def privileged() -> bool:
     return helper_installed()
 
 
+# Текст последней ошибки acquire_privilege(), когда та вернула не "ok"/"restart".
+# Контракт acquire_privilege() -> str (общий с Windows) менять нельзя, а
+# install() из helper/install.py поднимает содержательный RuntimeError —
+# «Установка отменена.» или сырой stderr launchctl. Раньше этот текст просто
+# терялся в except, и пользователь на macOS видел зашитую фразу ни о чём на
+# самом частом первом включении TUN. Здесь — просто карман для него.
+_last_error = ""
+
+
+def last_privilege_error() -> str:
+    """Что пошло не так в последнем acquire_privilege(), если не "ok"."""
+    return _last_error
+
+
 def acquire_privilege() -> str:
     """Поставить демона. "ok" — можно продолжать в этом же процессе."""
+    global _last_error
     try:
         _install_helper()
-    except RuntimeError:
+    except RuntimeError as e:
+        _last_error = str(e)
         return "failed"
-    return "ok" if helper_installed() else "failed"
+    if helper_installed():
+        _last_error = ""
+        return "ok"
+    _last_error = "демон не запустился после установки (launchd его не поднял)"
+    return "failed"
 
 
 # ----------------------------------------------------------------------
@@ -247,6 +267,16 @@ class Tun:
     ) -> None:
         if not helper_installed():
             raise HelperError("Системный компонент не установлен.")
+
+        if self._conn is not None:
+            # Прошлая сессия не закрыла своё соединение сама — например,
+            # on_state(False) уже пришёл (sing-box умер сам, см. _read_logs),
+            # а вызывающая сторона на этот сигнал стоп не позвала (main_window
+            # чистит только когда vpn_mode остаётся "tun"; переключение
+            # способа подключения посреди поднятого TUN этот путь не
+            # проходит). Без явного закрытия здесь второй start() поверх
+            # первого завёл бы ещё один сокет и поток поверх уже висящего.
+            self.stop()
 
         # Ключ tun_stack появится в DEFAULT_SETTINGS только в Задаче 11 —
         # .get() с умолчанием "gvisor" не чинить, так и задумано.

@@ -1,7 +1,7 @@
 """Точка входа SCVPN для macOS.
 
-Запуск:      .venv/bin/python run.py
-Демон:       .venv/bin/python run.py --helper   (запускает launchd от root)
+Запуск:      venv/bin/python run.py
+Демон:       venv/bin/python run.py --helper   (запускает launchd от root)
 """
 import sys
 from pathlib import Path
