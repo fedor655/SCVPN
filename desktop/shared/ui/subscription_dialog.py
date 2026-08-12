@@ -205,7 +205,7 @@ class SubscriptionDialog(QDialog):
         link.setWordWrap(True)
         link.setTextInteractionFlags(Qt.TextSelectableByMouse)
         link.setStyleSheet(
-            f"color: {theme.TEXT}; font-size: 11px; font-family: Consolas, monospace;"
+            f"color: {theme.TEXT}; font-size: 11px; font-family: {theme.MONO_FONT}, monospace;"
             f"background: {theme.BG}; border: 1px solid {theme.STROKE};"
             "border-radius: 8px; padding: 8px;"
         )

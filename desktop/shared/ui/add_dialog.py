@@ -48,7 +48,7 @@ class AddDialog(QDialog):
         self.input.setStyleSheet(
             f"background: {theme.BG}; border: 1px solid {theme.STROKE};"
             f"border-radius: 8px; color: {theme.TEXT}; padding: 8px;"
-            "font-family: Consolas, monospace; font-size: 11px;"
+            f"font-family: {theme.MONO_FONT}, monospace; font-size: 11px;"
         )
         root.addWidget(self.input)
 

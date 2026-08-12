@@ -49,6 +49,10 @@ _FAKE_SINGBOX = "#!/bin/sh\necho $$ > {ready}\nwhile :; do sleep 1; done\n"
 # Упрямый вариант: игнорирует SIGTERM, как повёл бы себя зависший sing-box.
 _STUBBORN_SINGBOX = "#!/bin/sh\ntrap '' TERM\necho $$ > {ready}\nwhile :; do sleep 1; done\n"
 
+# Умирает сам сразу после старта — симулирует падение sing-box или снятие его
+# другим клиентом. Соединение при этом демон не рвёт (см. Задачу 11, п.3).
+_SINGBOX_CRASHES = "#!/bin/sh\necho $$ > {ready}\nexit 7\n"
+
 _DAEMON_SRC = """
 import socket, sys
 from pathlib import Path
@@ -1585,6 +1589,39 @@ def test_tun_stop_closes_connection_even_when_command_cannot_be_sent():
 
 
 @check
+def test_tun_reports_disconnect_when_singbox_dies_on_its_own():
+    """Задача 11, п.3: sing-box может умереть сам — упасть, или его снимет
+    другой клиент, — и демон при этом соединение с ЭТИМ клиентом не рвёт:
+    dead-man's switch реагирует на обрыв связи, а тут связь жива, приложение
+    не мертво. Единственный сигнал об этом — лог-кадр "sing-box завершился"
+    (см. Supervisor._pump в helper/daemon.py). Без разбора этого кадра Tun
+    вечно считал бы себя подключённым к мёртвому туннелю — ровно та ложь о
+    состоянии, ради ухода от которой писался весь модуль.
+    """
+    from native import paths, tun
+    from shared.models import Server
+
+    with _Stand(_SINGBOX_CRASHES).serve_here() as stand:
+        states: list[bool] = []
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True):
+            t = tun.Tun(on_state=states.append)
+            t.start(Server(address="127.0.0.1"), 10808)
+            assert t.running is True
+
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and t.running:
+                time.sleep(0.05)
+            assert t.running is False, "Tun не заметил, что sing-box умер сам"
+            assert states == [True, False], states
+            # Соединение демон не рвал — Tun не должен был закрывать его сам
+            # (это не его решение, см. комментарий в Tun._read_logs): значит
+            # отправить в него ещё что-то всё ещё можно.
+            assert t._conn is not None, "Tun не должен закрывать соединение сам по кадру лога"
+
+
+@check
 def test_tun_start_forwards_tun_stack_setting_to_daemon():
     """tun_stack из настроек обязан долететь до конфига sing-box, а не
     потеряться по дороге — от Tun.start() через демон до JSON на диске.
@@ -1769,6 +1806,98 @@ def test_running_apps_includes_system_applications():
     # Ожидаем ровно четыре имени: из трёх префиксов, без .appex и без системной мелочи.
     expected = ["Mail", "Steam", "Telegram", "Terminal"]
     assert result == expected, f"ожидали {expected}, получили {result}"
+
+
+# ----------------------------------------------------------------------
+# Префлайт TUN в shared/ui/main_window.py: три исхода acquire_privilege()
+# ----------------------------------------------------------------------
+# Живой QApplication в этой среде не поднимается (несовместимость PySide6
+# 6.11.1 с этой версией macOS на уровне загрузки Qt-плагина платформы —
+# QPluginLoader с абсолютным путём грузит cocoa.dylib и валидные метаданные
+# успешно, а QApplication всё равно падает qFatal "no Qt platform plugin
+# could be initialized" даже для offscreen/minimal, которым экран не нужен
+# вовсе; это окружение, а не код). Поэтому префлайт проверяем без реального
+# Qt: MainWindow создаём в обход __init__ (object.__new__), а QMessageBox и
+# QApplication подменяем моками прямо в модуле — тело connect_vpn при этом
+# настоящее, ничего не эмулируется.
+def _bare_window(mode: str) -> "object":
+    import shared.ui.main_window as mw
+
+    win = mw.MainWindow.__new__(mw.MainWindow)
+    win.settings = {"vpn_mode": mode}
+    win._current_server = lambda: mw.Server(address="127.0.0.1", security="none")
+    win._render_state = lambda *_: None
+    win._append_log = lambda *_: None
+    win._start_with_fingerprint = lambda *a, **k: None
+    win._want_connected = False
+    return win
+
+
+@check
+def test_connect_vpn_tun_ok_outcome_continues_in_process():
+    """acquire_privilege() == "ok" — демон уже поставлен, macOS продолжает
+    connect_vpn() в этом же процессе: без QApplication.quit() и без диалога
+    об ошибке. Раньше (до Задачи 11) код понимал только "restart" и на этой
+    ветке показывал бы неверное «Не удалось перезапустить с правами
+    администратора» — ровно то, о чём предупреждала брифа Задачи 11."""
+    import shared.ui.main_window as mw
+
+    win = _bare_window("tun")
+    with mock.patch.object(mw, "core_present", lambda: True), \
+         mock.patch.object(mw, "privileged", lambda: False), \
+         mock.patch.object(mw, "acquire_privilege", lambda: "ok"), \
+         mock.patch.object(mw, "tun_present", lambda: True), \
+         mock.patch.object(mw.QMessageBox, "question", staticmethod(lambda *a, **k: mw.QMessageBox.Yes)), \
+         mock.patch.object(mw.QApplication, "quit") as quit_mock, \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.connect_vpn()
+
+    quit_mock.assert_not_called()
+    warn_mock.assert_not_called()
+    assert win._want_connected is True, "префлайт должен был пропустить старт дальше"
+
+
+@check
+def test_connect_vpn_tun_restart_outcome_quits_without_warning():
+    """acquire_privilege() == "restart" (путь Windows) — процесс обязан выйти
+    через QApplication.quit(), без предупреждения об ошибке: это не отказ, а
+    штатный перезапуск с правами."""
+    import shared.ui.main_window as mw
+
+    win = _bare_window("tun")
+    with mock.patch.object(mw, "core_present", lambda: True), \
+         mock.patch.object(mw, "privileged", lambda: False), \
+         mock.patch.object(mw, "acquire_privilege", lambda: "restart"), \
+         mock.patch.object(mw, "tun_present", lambda: True), \
+         mock.patch.object(mw.QMessageBox, "question", staticmethod(lambda *a, **k: mw.QMessageBox.Yes)), \
+         mock.patch.object(mw.QApplication, "quit") as quit_mock, \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.connect_vpn()
+
+    quit_mock.assert_called_once()
+    warn_mock.assert_not_called()
+    assert win._want_connected is False, "на restart-исходе старт не должен был продолжиться"
+
+
+@check
+def test_connect_vpn_tun_failed_outcome_warns_without_quit():
+    """Любой прочий исход (например "failed") — предупреждение, без
+    QApplication.quit(): пользователь остаётся в работающем приложении."""
+    import shared.ui.main_window as mw
+
+    win = _bare_window("tun")
+    with mock.patch.object(mw, "core_present", lambda: True), \
+         mock.patch.object(mw, "privileged", lambda: False), \
+         mock.patch.object(mw, "acquire_privilege", lambda: "failed"), \
+         mock.patch.object(mw, "tun_present", lambda: True), \
+         mock.patch.object(mw.QMessageBox, "question", staticmethod(lambda *a, **k: mw.QMessageBox.Yes)), \
+         mock.patch.object(mw.QApplication, "quit") as quit_mock, \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.connect_vpn()
+
+    quit_mock.assert_not_called()
+    warn_mock.assert_called_once()
+    assert win._want_connected is False, "на неудачном исходе старт не должен был продолжиться"
 
 
 def main() -> int:

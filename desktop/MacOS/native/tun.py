@@ -307,8 +307,25 @@ class Tun:
         conn = self._conn
         if conn is None:
             return
+
+        def on_line(s: str) -> None:
+            self.on_log("[tun] " + s)
+            # Демон снял sing-box сам — упал ли он, или его забрал другой
+            # клиент — а соединение при этом НЕ рвёт: обрыв связи демон
+            # читает как «приложение мертво», а тут приложение живо, просто
+            # без туннеля (см. Supervisor._pump в helper/daemon.py). Без этой
+            # проверки Tun продолжал бы считать себя подключённым до
+            # следующего действия пользователя — та самая ложь о состоянии,
+            # от которой уходил весь проект. conn здесь не трогаем: закрыть
+            # его безопасно можно только из другого потока (см. stop() и
+            # docstring _Connection.close), а мы сейчас внутри цикла чтения
+            # этого же соединения.
+            if self._running and s.startswith("sing-box завершился"):
+                self._running = False
+                self.on_state(False)
+
         try:
-            conn.stream_logs(lambda s: self.on_log("[tun] " + s))
+            conn.stream_logs(on_line)
         except OSError:
             pass
         if self._running:

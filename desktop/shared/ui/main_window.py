@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import sys
 import time
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
@@ -262,6 +263,17 @@ class MainWindow(QMainWindow):
             "tls_fingerprint", "auto",
         )
 
+        if sys.platform == "darwin":
+            # Сетевой стек TUN — тот самый винт, который приходится крутить,
+            # когда туннель ведёт себя странно на конкретной сети.
+            self._radio_group(
+                menu.addMenu("Сетевой стек TUN"),
+                [("gvisor — самый предсказуемый", "gvisor"),
+                 ("system — быстрее", "system"),
+                 ("mixed — TCP системный, UDP gvisor", "mixed")],
+                "tun_stack", "gvisor",
+            )
+
         menu.addSeparator()
 
         self.sysproxy_action = self._check_item(
@@ -276,6 +288,8 @@ class MainWindow(QMainWindow):
         menu.addAction("Измерить пинг", self._ping_all)
         menu.addAction("Скачать ядро Xray", self._download_core)
         menu.addAction("Скачать компоненты TUN", self._download_tun)
+        if sys.platform == "darwin":
+            menu.addAction("Удалить системный компонент…", self._remove_helper)
 
         menu.addSeparator()
         log_action = menu.addAction("Показывать лог ядра")
@@ -397,25 +411,25 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Нет ядра", "Меню «⋯» → «Скачать ядро Xray».")
             return
 
-        # Префлайт для TUN: нужны компоненты и права администратора.
+        # Префлайт для TUN: нужны компоненты и повышенные права.
         mode = self.settings.get("vpn_mode", "proxy")
         if mode == "tun":
+            if not privileged():
+                r = QMessageBox.question(self, "Нужны права администратора", PRIVILEGE_QUESTION)
+                if r != QMessageBox.Yes:
+                    return
+                outcome = acquire_privilege()
+                if outcome == "restart":
+                    QApplication.quit()
+                    return
+                if outcome != "ok":
+                    QMessageBox.warning(self, "Не вышло", "Не удалось получить права администратора.")
+                    return
             if not tun_present():
                 QMessageBox.warning(
-                    self, "Нет TUN",
-                    "Меню «⋯» → «Скачать компоненты TUN» (sing-box + wintun).",
+                    self, "Нет компонентов TUN",
+                    "Меню «⋯» → «Скачать компоненты TUN».",
                 )
-                return
-            if not privileged():
-                r = QMessageBox.question(
-                    self, "Нужны права администратора",
-                    PRIVILEGE_QUESTION,
-                )
-                if r == QMessageBox.Yes:
-                    if acquire_privilege() == "restart":
-                        QApplication.quit()
-                    else:
-                        QMessageBox.warning(self, "Не вышло", "Не удалось перезапустить с правами администратора.")
                 return
 
         self._want_connected = True
@@ -543,6 +557,7 @@ class MainWindow(QMainWindow):
             # TUN упал во время сессии — рвём всё, чтобы не остаться без сети
             self._append_log("[!] TUN остановился — отключаюсь.")
             self._want_connected = False
+            self.tun.stop()  # закрыть соединение с демоном (Tun уже знает, что не жив)
             self.runner.stop()
             if sysproxy.is_enabled():
                 sysproxy.disable()
@@ -772,6 +787,25 @@ class MainWindow(QMainWindow):
         self._workers.append(w)
         w.start()
 
+    def _remove_helper(self) -> None:
+        """Снять привилегированный демон TUN (только macOS)."""
+        r = QMessageBox.question(
+            self, "Удалить системный компонент",
+            "TUN-режим перестанет работать, пока компонент не установят заново.\n"
+            "Удалить? Понадобится пароль администратора.",
+        )
+        if r != QMessageBox.Yes:
+            return
+        self.disconnect_vpn()
+        from helper.install import uninstall
+
+        try:
+            uninstall()
+        except RuntimeError as e:
+            QMessageBox.warning(self, "Не вышло", str(e))
+            return
+        self._append_log("[*] Системный компонент удалён.")
+
     # ------------------------------------------------------------------
     # Прочее
     # ------------------------------------------------------------------
@@ -800,9 +834,7 @@ class MainWindow(QMainWindow):
 
 
 def run_app() -> int:
-    import sys
-
-    from .. import paths
+    from native import paths
 
     app = QApplication(sys.argv)
     app.setApplicationName("SCVPN")
