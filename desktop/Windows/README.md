@@ -1,7 +1,7 @@
 # SCVPN для Windows
 
 Клиент-обёртка вокруг открытого ядра [Xray-core](https://github.com/XTLS/Xray-core).
-Общее описание проекта и разбор архитектуры — в [README репозитория](../README.md).
+Общее описание проекта и разбор архитектуры — в [README репозитория](../../README.md).
 
 ## Запуск из исходников
 
@@ -40,20 +40,21 @@ python -m venv .venv
 
 | Файл | За что отвечает |
 |------|-----------------|
-| `scvpn/subscription.py` | парсинг ссылок (vless/vmess/trojan/ss) и подписок, загрузка по URL |
-| `scvpn/models.py`       | модель сервера → outbound-секция конфига Xray |
-| `scvpn/xray_config.py`  | сборка полного конфига Xray (inbounds/outbounds/routing/dns) |
-| `scvpn/core_runner.py`  | запуск/остановка `xray.exe` |
-| `scvpn/sysproxy.py`     | системный прокси Windows (реестр) |
-| `scvpn/ping.py`         | TCP-пинг серверов |
-| `scvpn/storage.py`      | хранение профилей и настроек (JSON в `data/`) |
-| `scvpn/downloader.py`   | разовое скачивание Xray-core и sing-box+wintun |
-| `scvpn/connect.py`      | автоподбор рабочего TLS-отпечатка |
-| `scvpn/tun.py`          | TUN-режим (sing-box поднимает адаптер), права админа |
-| `scvpn/paths.py`        | все пути приложения в одном месте |
-| `scvpn/ui/`             | интерфейс: окно, виджеты, знак, тема |
-| `setup/brand.py`        | фирменный знак (общий с Android) |
-| `setup/make_icon.py`    | генерация `scvpn.ico` |
+| `../shared/subscription.py` | парсинг ссылок (vless/vmess/trojan/ss) и подписок, загрузка по URL |
+| `../shared/models.py`       | модель сервера → outbound-секция конфига Xray |
+| `../shared/xray_config.py`  | сборка полного конфига Xray (inbounds/outbounds/routing/dns) |
+| `../shared/core_runner.py`  | запуск/остановка `xray.exe` |
+| `native/sysproxy.py`        | системный прокси Windows (реестр) |
+| `../shared/ping.py`         | TCP-пинг серверов |
+| `../shared/storage.py`      | хранение профилей и настроек (JSON в `data/`) |
+| `native/downloader.py`      | разовое скачивание Xray-core и sing-box+wintun |
+| `../shared/connect.py`      | автоподбор рабочего TLS-отпечатка |
+| `native/tun.py`             | TUN-режим (sing-box поднимает адаптер), права админа |
+| `native/paths.py`           | все пути приложения в одном месте |
+| `native/apps.py`            | список запущенных `.exe` для раздельного туннелирования |
+| `../shared/ui/`             | интерфейс: окно, виджеты, знак, тема |
+| `setup/brand.py`            | фирменный знак (общий с Android и macOS) |
+| `setup/make_icon.py`        | генерация `scvpn.ico` |
 
 ## Режимы
 
