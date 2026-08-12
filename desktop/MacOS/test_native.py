@@ -1172,6 +1172,32 @@ def test_osascript_command_actually_uses_as_literal():
     assert r.returncode == 0, (cmd, r.stderr)
 
 
+@check
+def test_installed_handles_corrupted_plist():
+    """installed() обязан вернуть False при испорченном plist, не упасть.
+
+    Файл может быть испорчен в середине многобайтовой UTF-8-последовательности
+    (atомарность printf, обрыв записи) или быть бинарным plist (результат
+    plutil -convert binary1). В обоих случаях read_text(..., encoding="utf-8")
+    кинет UnicodeDecodeError — подкласс ValueError, а не OSError. Без правильного
+    перехвата обеих исключений installed() упадёт с необработанным исключением
+    вместо аккуратного False.
+    """
+    from unittest import mock
+
+    from helper import install
+    from native import paths
+
+    with tempfile.TemporaryDirectory() as td:
+        corrupted = Path(td) / "com.scvpn.helper.plist"
+        with mock.patch.object(paths, "HELPER_PLIST", corrupted):
+            # Невалидные UTF-8 байты — например, вторая половина многобайтовой
+            # последовательности без первой (такое может быть при обрыве записи)
+            # или header бинарного plist.
+            corrupted.write_bytes(b'bplist00\xd1\x01\x02\xff\xfe')
+            assert install.installed() is False, "установщик упал на испорченном plist"
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:

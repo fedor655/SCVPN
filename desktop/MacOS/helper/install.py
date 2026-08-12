@@ -71,7 +71,12 @@ def installed() -> bool:
     """
     try:
         return paths.HELPER_PLIST.read_text(encoding="utf-8") == plist_text()
-    except OSError:
+    except (OSError, ValueError):
+        # OSError — когда файл не существует или доступ запрещён.
+        # ValueError (подкласс которого UnicodeDecodeError) — когда содержимое
+        # испорчено (printf не атомарен, обрыв записи на середине UTF-8
+        # многобайтовой последовательности) или это бинарный plist (результат
+        # plutil -convert binary1), не читающийся как UTF-8 текст.
         return False
 
 
