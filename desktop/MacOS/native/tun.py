@@ -276,18 +276,21 @@ class Tun:
                 "stack": stack,
                 "xray_path": str(paths.xray_exe().resolve()),
             }, timeout=60.0)
+            if not reply.get("ok"):
+                raise HelperError(reply.get("error", "не удалось поднять TUN"))
         except Exception:
-            # request() бросил (таймаут, обрыв, кривой кадр лога и т.п.) уже
-            # ПОСЛЕ того, как демон мог поднять туннель. Если тут не закрыть
-            # conn, соединение зависает в traceback исключения (тот же путь,
-            # которым QMessageBox.critical в main_window держит e), а туннель
-            # остаётся поднятым до тех пор, пока сборщик мусора не доберётся
-            # до сокета — то есть непредсказуемо.
+            # Сюда попадает и request() (таймаут, обрыв, кривой кадр лога),
+            # и HelperError выше при reply["ok"] is False, и AttributeError,
+            # если reply вдруг окажется не словарём (.get() на нём же и
+            # упадёт — сегодня демон шлёт только словари, но эта ветка не
+            # должна зависеть от того, что он никогда не пришлёт иначе).
+            # Всё это — уже ПОСЛЕ того, как демон мог поднять туннель. Если
+            # тут не закрыть conn, соединение зависает в traceback исключения
+            # (тот же путь, которым QMessageBox.critical в main_window держит
+            # e), а туннель остаётся поднятым до тех пор, пока сборщик мусора
+            # не доберётся до сокета — то есть непредсказуемо.
             conn.close()
             raise
-        if not reply.get("ok"):
-            conn.close()
-            raise HelperError(reply.get("error", "не удалось поднять TUN"))
 
         self._conn = conn
         self._running = True

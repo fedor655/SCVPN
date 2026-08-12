@@ -326,8 +326,16 @@ class Supervisor:
                 errors="replace",
                 bufsize=1,
             )
-            log(f"sing-box запущен, PID {self.proc.pid}")
+            # owner выставляем вплотную к Popen, ДО log(): log() пишет в
+            # stderr, который под launchd — файл (StandardErrorPath), и
+            # запись может отказать (ENOSPC, EIO, сломанная труба). Если бы
+            # log() стоял между Popen и owner и падал, получалось бы
+            # состояние, которого быть не должно: процесс уже поднят,
+            # running уже True, а owner ещё None — serve_client() в finally
+            # не признал бы в этом соединении владельца и не снял бы туннель
+            # по его обрыву. Зазор между Popen и owner обязан быть пустым.
             self.owner = owner
+            log(f"sing-box запущен, PID {self.proc.pid}")
             # Колбэк передаём аргументом, а не читаем self._on_log из потока:
             # после рестарта «sing-box завершился» от старого процесса ушло бы
             # новому клиенту, как будто это про его туннель.
@@ -711,7 +719,17 @@ def serve_client(conn: socket.socket) -> None:
         # (conn) и есть владелец текущего туннеля — иначе постороннее
         # соединение (install_singbox, status и т.п.) сносило бы чужой
         # активный туннель одним своим закрытием.
-        if SUPERVISOR.running and SUPERVISOR.owner is conn:
+        #
+        # `... or SUPERVISOR.owner is None` — отказ в безопасную сторону.
+        # owner может оказаться None не только в короткий зазор внутри
+        # start() (тот зазор теперь пуст, см. комментарий там), но и если
+        # владевшее соединение свой туннель само не смогло снять и ушло —
+        # owner в Supervisor.stop() сбрасывается только вместе с proc, так
+        # что «протухшего» владельца без proc не бывает, а вот proc без
+        # owner в принципе не должен возникать. Если он всё же возникнет
+        # (дефект, о котором мы ещё не знаем) — туннель без хозяина обязан
+        # снять первый же отключившийся, а не остаться висеть навсегда.
+        if SUPERVISOR.running and SUPERVISOR.owner in (conn, None):
             log("клиент отключился, а туннель поднят — снимаю его")
             SUPERVISOR.stop()
         if outbox is not None:

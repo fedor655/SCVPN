@@ -635,6 +635,86 @@ def test_daemon_drops_tunnel_when_connection_closes():
 
 
 @check
+def test_daemon_sets_owner_before_the_only_fallible_step_after_popen():
+    """Ревью Задачи 9, Критикал (Раунд 2).
+
+    Между self.proc = Popen(...) и self.owner = owner раньше стоял ровно
+    один оператор — log(). Под launchd stderr — файл (StandardErrorPath), и
+    запись в него может отказать (ENOSPC, EIO, сломанная труба). Если бы
+    log() падал в этом зазоре, получалось бы состояние, которого быть не
+    должно: процесс уже есть, running уже True, а owner ещё None —
+    serve_client() не признал бы владельца и не снял бы туннель по обрыву
+    его же соединения. Зазор должен быть пуст: owner выставляется вплотную
+    к Popen, до log().
+
+    Проверяем настоящим протоколом с настоящим демоном: log() подменён так,
+    чтобы бросить OSError именно на сообщении "sing-box запущен" — той самой
+    строке, что раньше стояла в зазоре. Даже так owner должен оказаться
+    выставлен, а обрыв этого (единственного в тесте) соединения — снять
+    туннель.
+    """
+    from unittest import mock
+
+    from helper import daemon
+
+    real_log = daemon.log
+
+    def flaky_log(msg: str) -> None:
+        if "sing-box запущен" in msg:
+            raise OSError(32, "Broken pipe")  # имитация отказавшего stderr под launchd
+        real_log(msg)
+
+    with _Stand().serve_here() as stand:
+        with mock.patch.object(daemon, "log", flaky_log):
+            sock = stand.connect()
+            # Ответ клиенту тут не главное (log() уронил обработку command —
+            # handle_line() поймает исключение и ответит ok=False). Главное —
+            # состояние демона ПОСЛЕ: успел ли owner встать до того, как всё
+            # посыпалось.
+            stand.ask(sock, {"cmd": "start", "socks_port": 10808, "xray_path": stand.xray})
+            assert stand.wait_up(), "sing-box должен был реально подняться, несмотря на упавший log()"
+            assert daemon.SUPERVISOR.owner is not None, (
+                "owner остался None — зазор между Popen и owner не пуст"
+            )
+
+            sock.close()
+            assert stand.wait_gone(), (
+                f"владеющее соединение закрылось, а туннель остался: {stand.singbox_pids()}"
+            )
+
+
+@check
+def test_daemon_drops_ownerless_tunnel_on_any_disconnect():
+    """Ревью Задачи 9, Критикал (Раунд 2): running=True при owner=None —
+    отказ в безопасную сторону.
+
+    Такое состояние в норме недостижимо (зазор в Supervisor.start() пуст —
+    см. соседнюю проверку), но если оно всё же возникнет по ещё не найденной
+    причине, туннель без хозяина обязан снять первый же отключившийся, а не
+    остаться висеть навсегда: root-овый sing-box с системными маршрутами,
+    снять который уже некому — тот самый мёртвый туннель без интернета,
+    ради ухода от которого написан весь модуль.
+    """
+    from helper import daemon
+
+    with _Stand().serve_here() as stand:
+        sock = stand.connect()
+        reply = stand.ask(sock, {"cmd": "start", "socks_port": 10808, "xray_path": stand.xray})
+        assert reply["ok"] is True, reply
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+        assert daemon.SUPERVISOR.owner is not None
+
+        # Симулируем само состояние (не важно, как оно возникло) —
+        # владелец потерян, а туннель жив.
+        daemon.SUPERVISOR.owner = None
+
+        sock.close()
+        assert stand.wait_gone(), (
+            f"туннель без владельца пережил обрыв соединения: {stand.singbox_pids()}"
+        )
+
+
+@check
 def test_daemon_drops_tunnel_when_client_is_killed():
     """Ровно сценарий ручной проверки Задачи 11: pkill -9 по приложению."""
     with _Stand().serve_here() as stand:
@@ -766,6 +846,32 @@ def test_install_singbox_does_not_drop_a_running_tunnel():
             t.stop()
             assert stand.wait_gone(), f"Tun.stop() не снял туннель: {stand.singbox_pids()}"
         assert states == [True, False], states
+
+
+@check
+def test_daemon_drops_tunnel_when_owning_connection_crashes_mid_serving():
+    """Симметрично test_daemon_closes_socket_even_when_serving_falls_over_on_a_
+    foreign_connection: там крах на ЧУЖОМ соединении туннель не трогает,
+    здесь крах на СВОЁМ — обязан снять, как и любой другой обрыв владеющего
+    соединения. Без этой проверки было бы легко "починить" Important 2 так,
+    что заодно перестал бы работать и обычный краш-путь на собственном
+    соединении, а мутационный прогон ревьюера такую регрессию не ловил.
+    """
+    from unittest import mock
+
+    from helper import daemon
+
+    with _Stand().serve_here() as stand:
+        sock = stand.connect()
+        assert stand.ask(sock, {"cmd": "start", "socks_port": 10808,
+                                "xray_path": stand.xray})["ok"] is True
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+        with mock.patch.object(daemon, "handle_line", side_effect=RuntimeError("boom")):
+            sock.sendall(b'{"cmd": "status"}\n')
+            assert sock.recv(1) == b"", "соединение не закрыто после краха на своём же соединении"
+
+        assert stand.wait_gone(), f"туннель пережил крах на владеющем соединении: {stand.singbox_pids()}"
 
 
 @check
@@ -1270,6 +1376,40 @@ def test_tun_contract_matches_windows():
 
 
 @check
+def test_connection_close_shuts_down_before_closing_socket():
+    """shutdown обязан идти РАНЬШЕ close(): иначе поток, заблокированный в
+    recv (Tun._read_logs / stream_logs), не гарантированно проснётся сразу —
+    см. комментарий в _Connection.close() и тот же приём в Outbox._overflow
+    демона. Порядок проверяем напрямую, без реального сокета: подставляем
+    вместо sock/_file объекты, которые просто запоминают порядок вызовов.
+
+    Нарочно поставлена здесь, а не рядом с остальными проверками Tun против
+    настоящего демона: она — единственная страховка от мутации «убрали
+    shutdown», а без shutdown реальные round-trip-проверки ниже по файлу
+    виснут насмерть (внутренний лок io.BufferedReader, который держит
+    заблокированный на чтении поток). Если сторож стоит ПОСЛЕ них, раннер
+    до него просто не доходит — даже с внешним таймаутом на каждую
+    проверку это лишние минуты ожидания вместо мгновенного FAIL по существу.
+    """
+    from unittest import mock
+
+    from native.tun import _Connection
+
+    calls: list[str] = []
+    conn = object.__new__(_Connection)  # без __init__: настоящий connect() тут не нужен
+    conn.sock = mock.MagicMock()
+    conn.sock.shutdown.side_effect = lambda *a: calls.append("shutdown")
+    conn.sock.close.side_effect = lambda *a: calls.append("sock.close")
+    conn._file = mock.MagicMock()
+    conn._file.close.side_effect = lambda: calls.append("file.close")
+
+    conn.close()
+
+    assert calls and calls[0] == "shutdown", f"shutdown не первым: {calls}"
+    assert "sock.close" in calls, calls
+
+
+@check
 def test_resolve_ips_passes_through_literals():
     from native.tun import resolve_ips
 
@@ -1445,32 +1585,6 @@ def test_tun_stop_closes_connection_even_when_command_cannot_be_sent():
 
 
 @check
-def test_connection_close_shuts_down_before_closing_socket():
-    """shutdown обязан идти РАНЬШЕ close(): иначе поток, заблокированный в
-    recv (Tun._read_logs / stream_logs), не гарантированно проснётся сразу —
-    см. комментарий в _Connection.close() и тот же приём в Outbox._overflow
-    демона. Порядок проверяем напрямую, без реального сокета: подставляем
-    вместо sock/_file объекты, которые просто запоминают порядок вызовов.
-    """
-    from unittest import mock
-
-    from native.tun import _Connection
-
-    calls: list[str] = []
-    conn = object.__new__(_Connection)  # без __init__: настоящий connect() тут не нужен
-    conn.sock = mock.MagicMock()
-    conn.sock.shutdown.side_effect = lambda *a: calls.append("shutdown")
-    conn.sock.close.side_effect = lambda *a: calls.append("sock.close")
-    conn._file = mock.MagicMock()
-    conn._file.close.side_effect = lambda: calls.append("file.close")
-
-    conn.close()
-
-    assert calls and calls[0] == "shutdown", f"shutdown не первым: {calls}"
-    assert "sock.close" in calls, calls
-
-
-@check
 def test_tun_start_forwards_tun_stack_setting_to_daemon():
     """tun_stack из настроек обязан долететь до конфига sing-box, а не
     потеряться по дороге — от Tun.start() через демон до JSON на диске.
@@ -1566,11 +1680,52 @@ def test_tun_start_closes_connection_when_request_fails_after_daemon_already_sta
             del held_exc
 
 
+# Сколько ждём одну проверку, прежде чем считать её зависшей. Самый долгий
+# легитимный прогон в файле — test_daemon_drops_tunnel_on_repeated_sigterm
+# (d.wait(timeout=30), с большим запасом сверху фактического времени) — так
+# что 45 с оставляют этому и любому похожему тесту солидный запас, но всё
+# ещё на порядок меньше, чем «висеть вечно».
+_CHECK_TIMEOUT_SEC = 45.0
+
+
+def _run_with_timeout(fn, timeout: float = _CHECK_TIMEOUT_SEC) -> None:
+    """Выполнить одну проверку под сторожевым таймаутом.
+
+    Дедлоки сокета (пример — close() без предварительного shutdown(), см.
+    Задачу 9) вешают поток НАВСЕГДА, а не бросают исключение: без внешнего
+    ограничения такая регрессия не даёт FAIL, а вешает весь прогон целиком,
+    и отличить «завис» от «просто небыстрый тест» можно только руками,
+    оборвав прогон снаружи. join(timeout) — вот эта граница: сама проверка
+    выполняется в отдельном потоке; если она не уложилась, поток остаётся
+    висеть сам по себе (не daemon-поток задачу не решит — процесс не выйдет,
+    пока он жив, поэтому именно daemon=True), а раннер идёт дальше и честно
+    репортует, какая именно проверка не уложилась, вместо того чтобы
+    зависнуть вместе с ней.
+    """
+    outcome: dict[str, BaseException] = {}
+
+    def runner() -> None:
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001 — донести причину наверх, не проглотить
+            outcome["error"] = e
+
+    t = threading.Thread(target=runner, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise TimeoutError(
+            f"не уложилась в {timeout:.0f} с — похоже на дедлок, а не на медленный код"
+        )
+    if "error" in outcome:
+        raise outcome["error"]
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
         try:
-            fn()
+            _run_with_timeout(fn)
             print(f"  ok   {fn.__name__}")
         except Exception as e:  # noqa: BLE001
             failed += 1
