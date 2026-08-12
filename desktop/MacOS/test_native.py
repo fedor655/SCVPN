@@ -1721,6 +1721,27 @@ def _run_with_timeout(fn, timeout: float = _CHECK_TIMEOUT_SEC) -> None:
         raise outcome["error"]
 
 
+@check
+def test_running_apps_lists_bundles_not_daemons():
+    from native.apps import running_apps
+
+    apps = running_apps()
+    assert apps, "не нашлось ни одного запущенного приложения"
+    assert all("/" not in a for a in apps), apps
+    assert all(not a.endswith(".app") for a in apps), apps
+    # Расширения (виджеты, .appex) — не приложения, в списке им не место.
+    assert not any("Extension" in a or "Widget" in a for a in apps), apps
+
+
+@check
+def test_normalize_strips_bundle_suffix_and_path():
+    from native.apps import normalize
+
+    assert normalize("  Telegram.app  ") == "Telegram"
+    assert normalize("/Applications/Telegram.app") == "Telegram"
+    assert normalize("Telegram") == "Telegram"
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
