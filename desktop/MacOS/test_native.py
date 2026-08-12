@@ -1742,6 +1742,19 @@ def test_normalize_strips_bundle_suffix_and_path():
     assert normalize("Telegram") == "Telegram"
 
 
+@check
+def test_running_apps_includes_system_applications():
+    """running_apps должна показывать встроенные приложения из /System/Applications."""
+    from native.apps import running_apps
+
+    apps = running_apps()
+    # Terminal запущен постоянно в рамках прогона этого теста; он из
+    # /System/Applications/Utilities/Terminal.app. Проверяем что он попал в
+    # список — это гарантирует что фильтр включает /System/Applications и
+    # корректно срезает имена файлов из более глубокой иерархии.
+    assert "Terminal" in apps, f"Terminal из /System/Applications не попал в список: {apps}"
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
