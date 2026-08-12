@@ -1198,6 +1198,127 @@ def test_installed_handles_corrupted_plist():
             assert install.installed() is False, "установщик упал на испорченном plist"
 
 
+@check
+def test_tun_contract_matches_windows():
+    """shared/ знает только контракт — обе платформы обязаны его закрывать."""
+    from native import tun
+
+    for name in ("SPLIT_OFF", "SPLIT_EXCLUDE", "SPLIT_INCLUDE", "PRIVILEGE_QUESTION",
+                 "privileged", "acquire_privilege", "cleanup_stray", "Tun"):
+        assert hasattr(tun, name), f"в native.tun нет {name}"
+    t = tun.Tun()
+    assert t.running is False
+
+
+@check
+def test_resolve_ips_passes_through_literals():
+    from native.tun import resolve_ips
+
+    assert resolve_ips("1.2.3.4") == ["1.2.3.4"]
+    assert resolve_ips("не-существует.invalid") == []
+
+
+@check
+def test_cleanup_stray_survives_missing_pid_file():
+    from native import paths
+    from native.tun import cleanup_stray
+
+    (paths.DATA_DIR / "xray.pid").unlink(missing_ok=True)
+    assert cleanup_stray(lambda s: None) is False
+
+
+# ----------------------------------------------------------------------
+# native.tun.Tun против настоящего демона (тот же стенд _Stand, что и выше)
+# ----------------------------------------------------------------------
+_TUN_CLIENT_SRC = """
+import sys, time
+sys.path.insert(0, {macos!r})
+sys.path.insert(0, {root!r})
+from pathlib import Path
+from unittest import mock
+from native import paths, tun
+from shared.models import Server
+
+with mock.patch.object(paths, "HELPER_SOCKET", Path({sock!r})), \\
+     mock.patch.object(paths, "BIN_DIR", Path({bindir!r})), \\
+     mock.patch.object(tun, "helper_installed", lambda: True):
+    t = tun.Tun(on_log=lambda s: print("LOG " + s, flush=True))
+    t.start(Server(address="127.0.0.1"), 10808)
+    print("READY", flush=True)
+    time.sleep(300)
+"""
+
+# Поддельный sing-box, который вдобавок эхает строку в stdout — так заодно
+# проверяется, что лог доходит от процесса до колбэка Tun.on_log.
+_SINGBOX_WITH_LOG = "#!/bin/sh\necho $$ > {ready}\necho 'привет из sing-box'\nwhile :; do sleep 1; done\n"
+
+
+@check
+def test_tun_start_stop_round_trip_against_real_daemon():
+    """native.tun.Tun целиком: настоящий демон (serve_here), настоящий сокет.
+
+    Это положительный контроль для соседней проверки обрыва: start обязан
+    поднять процесс и дать True, stop — снять его и дать False, а лог
+    поддельного sing-box обязан дойти до Tun.on_log.
+    """
+    from unittest import mock
+
+    from native import paths, tun
+    from shared.models import Server
+
+    with _Stand(_SINGBOX_WITH_LOG).serve_here() as stand:
+        logs: list[str] = []
+        states: list[bool] = []
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True):
+            t = tun.Tun(on_log=logs.append, on_state=states.append)
+            t.start(Server(address="127.0.0.1"), 10808)
+            assert t.running is True
+            assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not any("привет из sing-box" in s for s in logs):
+                time.sleep(0.05)
+            assert any("привет из sing-box" in s for s in logs), f"лог sing-box не дошёл до Tun: {logs}"
+
+            t.stop()
+            assert t.running is False
+            assert stand.wait_gone(), f"sing-box пережил Tun.stop(): {stand.singbox_pids()}"
+        assert states == [True, False], states
+
+
+@check
+def test_tun_connection_loss_drops_tunnel_without_stop():
+    """Главное свойство со стороны клиента: обрыв соединения без команды stop
+    всё равно снимает туннель. Симулируем крах приложения: клиент на
+    native.tun.Tun поднят в отдельном процессе и убит kill() — stop() он
+    позвать не успел, значит туннель обязан снять именно обрыв соединения.
+    """
+    with _Stand().serve_here() as stand:
+        src = _TUN_CLIENT_SRC.format(
+            macos=str(Path(__file__).resolve().parent),
+            root=str(Path(__file__).resolve().parent.parent),
+            sock=stand.sock_path, bindir=str(stand.tmp),
+        )
+        client = subprocess.Popen([sys.executable, "-c", src], stdout=subprocess.PIPE, text=True)
+        stand._procs.append(client)
+        # Клиент сперва печатает свои [tun]-логи (through on_log), и только
+        # потом READY — поэтому дожидаемся именно её, а не первой строки.
+        for _ in range(50):
+            line = client.stdout.readline()
+            assert line, "клиент не поднял туннель (процесс завершился раньше READY)"
+            if line.strip() == "READY":
+                break
+        else:
+            raise AssertionError("клиент не поднял туннель (READY не дождались)")
+        assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+        client.kill()          # ни stop(), ни штатное закрытие — чистый крах
+        client.wait()
+        assert stand.wait_gone(), f"sing-box пережил смерть клиента Tun: {stand.singbox_pids()}"
+
+
 def main() -> int:
     failed = 0
     for fn in CHECKS:
