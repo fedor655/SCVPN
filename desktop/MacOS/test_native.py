@@ -2190,23 +2190,42 @@ def test_run_app_reaches_event_loop():
     QApplication и MainWindow подменены, а всё остальное в run_app() —
     настоящее: реальный `from native import paths`, реальные вызовы
     setApplicationName/setStyleSheet/setWindowIcon/show и возврат app.exec().
+
+    QIcon тоже подменён, но не был подменён до Задачи 12 — тогда `scvpn.icns`
+    ещё не существовал, `paths.icon_file().exists()` был False, и ветка
+    `app.setWindowIcon(QIcon(str(ico)))` в run_app() ни разу не исполнялась:
+    тест был зелёным, ничего не проверяя. Теперь файл в git, ветка исполняется
+    по-настоящему при каждом прогоне — а настоящий QIcon(путь) грузит пиксели
+    и без настоящего QGuiApplication в процессе валит его тем же способом,
+    каким свалил бы настоящий QApplication (см. абзац выше) — родство ровно
+    в одном: оба требуют Cocoa/GuiApplication, которых здесь по конструкции
+    нет. Поэтому QIcon подменён так же, как QApplication/MainWindow, а
+    ассерты ниже проверяют, что ветка `ico.exists()` реально дошла до
+    QIcon(str(ico)) и до setWindowIcon — а не просто не упала.
     """
     from unittest import mock
 
     import shared.ui.main_window as mw
+    from native import paths
 
     fake_app = mock.MagicMock()
     fake_app.exec.return_value = 0
     fake_win = mock.MagicMock()
 
+    ico = paths.icon_file()
+    assert ico.exists(), "scvpn.icns отсутствует — ветка setWindowIcon не будет проверена"
+
     with mock.patch.object(mw, "QApplication", return_value=fake_app) as app_cls, \
-         mock.patch.object(mw, "MainWindow", return_value=fake_win) as win_cls:
+         mock.patch.object(mw, "MainWindow", return_value=fake_win) as win_cls, \
+         mock.patch.object(mw, "QIcon") as icon_cls:
         assert mw.run_app() == 0
 
     app_cls.assert_called_once()
     win_cls.assert_called_once()
     fake_win.show.assert_called_once()
     fake_app.exec.assert_called_once()
+    icon_cls.assert_called_once_with(str(ico))
+    fake_app.setWindowIcon.assert_called_once_with(icon_cls.return_value)
 
 
 def main() -> int:
