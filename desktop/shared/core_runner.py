@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import paths
+from native import paths
 
 
 def find_free_port(preferred: int) -> int:

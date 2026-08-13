@@ -21,8 +21,9 @@ import sys
 import threading
 from typing import Callable, Optional
 
+from shared.models import Server
+
 from . import paths
-from .models import Server
 
 
 # ----------------------------------------------------------------------
@@ -35,13 +36,42 @@ def is_admin() -> bool:
         return False
 
 
+# Тексты ShellExecuteW для кодов возврата <= 32 (ошибка) — самые частые
+# причины отказа, чтобы last_privilege_error() говорил по существу, а не
+# "не получилось". Источник — документация Microsoft на ShellExecute.
+_SHELL_EXECUTE_ERRORS = {
+    0: "не хватило памяти или ресурсов операционной системы.",
+    2: "не найден исполняемый файл для перезапуска.",
+    3: "не найден путь для перезапуска.",
+    5: "запрос на права администратора отклонён (нажато «Нет» в диалоге UAC).",
+    8: "не хватило памяти для запуска.",
+    26: "файл занят другим процессом.",
+    31: "для этого файла не назначено приложение, которое могло бы его открыть.",
+}
+
+# Текст последней ошибки acquire_privilege(), когда та вернула "failed".
+# Контракт acquire_privilege() -> str (общий с macOS) не трогаем — это просто
+# карман для причины, которую иначе было бы некуда деть: main_window иначе
+# показал бы одну и ту же зашитую фразу и на отказе пользователя от UAC, и на
+# том, что ShellExecuteW не смог найти файл для перезапуска.
+_last_error = ""
+
+
+def last_privilege_error() -> str:
+    """Что пошло не так в последнем acquire_privilege(), если не "restart"."""
+    return _last_error
+
+
 def relaunch_as_admin() -> bool:
     """Перезапустить приложение с правами администратора (вызовет UAC).
 
     Возвращает True, если запрос на повышение отправлен (текущий процесс надо
-    закрыть). False — если не на Windows или пользователь отказался.
+    закрыть). False — если не на Windows или пользователь отказался; причину
+    смотри в last_privilege_error().
     """
+    global _last_error
     if not sys.platform.startswith("win"):
+        _last_error = "TUN-режим с повышением прав доступен только на Windows."
         return False
     try:
         import os
@@ -58,8 +88,14 @@ def relaunch_as_admin() -> bool:
             rest = sys.argv[1:]
             params = " ".join(f'"{a}"' for a in [script, *rest])
         rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", file, params, workdir, 1)
-        return int(rc) > 32  # >32 — успех (UAC показан)
-    except Exception:  # noqa: BLE001
+        rc = int(rc)
+        if rc > 32:  # >32 — успех (UAC показан)
+            _last_error = ""
+            return True
+        _last_error = _SHELL_EXECUTE_ERRORS.get(rc, f"ShellExecuteW вернул код ошибки {rc}.")
+        return False
+    except Exception as e:  # noqa: BLE001
+        _last_error = f"{type(e).__name__}: {e}"
         return False
 
 
@@ -240,7 +276,7 @@ def build_singbox_config(
 # ----------------------------------------------------------------------
 # Запуск/остановка sing-box
 # ----------------------------------------------------------------------
-class SingBoxTun:
+class Tun:
     def __init__(
         self,
         on_log: Optional[Callable[[str], None]] = None,
@@ -323,9 +359,17 @@ class SingBoxTun:
         self.on_log(f"[tun] sing-box завершился (код {code})")
         self.on_state(False)
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """Снять sing-box. True — он снят; False — пережил остановку.
+
+        Контракт возврата общий с macOS (см. MacOS/native/tun.py): там правду
+        о снятии добывает ответ привилегированного демона, здесь — poll()
+        своего же процесса. Общий у них смысл: пока sing-box жив, TUN-адаптер
+        поднят и маршруты держатся, и интерфейс не имеет права показать
+        «Отключено» — shared/ui/main_window.py решает это по возврату.
+        """
         if self._proc is None:
-            return
+            return True
         if self._proc.poll() is None:
             self.on_log("[tun] останавливаю sing-box (маршруты вернутся сами)…")
             try:
@@ -334,8 +378,38 @@ class SingBoxTun:
                     self._proc.wait(timeout=7)
                 except subprocess.TimeoutExpired:
                     self._proc.kill()
+                    self._proc.wait(timeout=3)
             except Exception as e:  # noqa: BLE001
                 self.on_log(f"[tun] ошибка остановки: {e}")
+        if self._proc.poll() is None:
+            # Ручку на живом процессе не отпускаем: иначе running врал бы
+            # False, pid-файл ушёл бы вместе с единственным следом, и убрать
+            # за собой не смог бы даже следующий запуск (см. cleanup_stray).
+            self.on_log(
+                "[tun] ТРЕВОГА: sing-box пережил остановку — туннель ещё держит маршруты"
+            )
+            return False
         self._proc = None
         pid_file("singbox.pid").unlink(missing_ok=True)
         self.on_state(False)
+        return True
+
+
+# ----------------------------------------------------------------------
+# Обёртки контракта native: см. MacOS/native/tun.py — то же имя, другая
+# реализация привилегий (там это не UAC, а установка демона через launchd).
+# ----------------------------------------------------------------------
+PRIVILEGE_QUESTION = (
+    "TUN-режим (весь трафик) требует прав администратора.\n"
+    "Перезапустить приложение от имени администратора?"
+)
+
+
+def privileged() -> bool:
+    """Можно ли прямо сейчас поднять TUN. На Windows это права администратора."""
+    return is_admin()
+
+
+def acquire_privilege() -> str:
+    """Запросить права. "restart" — процесс надо закрыть, поднимется новый."""
+    return "restart" if relaunch_as_admin() else "failed"

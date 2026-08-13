@@ -1,16 +1,26 @@
 # ── Python / десктоп ────────────────────────────────────────────────
 __pycache__/
 *.pyc
-desktop/.venv/
-desktop/build/
-desktop/dist/
-desktop/dist_installer/
+desktop/Windows/.venv/
+desktop/Windows/build/
+desktop/Windows/dist/
+desktop/Windows/dist_installer/
+# venv macOS живёт вне репозитория (~/.venvs/scvpn по умолчанию, см.
+# desktop/MacOS/test.sh) — iCloud Drive внутри дерева репозитория помечает
+# его файлы UF_HIDDEN, из-за чего Qt не находит свои же плагины платформы.
+# По той же причине build.sh собирает .app вне репозитория (~/.scvpn-build
+# по умолчанию) и кладёт сюда лишь симлинки — без слэша на конце, чтобы
+# правило ловило и симлинк (не только настоящую директорию).
+desktop/MacOS/build
+desktop/MacOS/dist
 
 # Профили, настройки и логи: там реальные подписки и ключи серверов.
-desktop/data/
+desktop/Windows/data/
+desktop/MacOS/data/
 
 # Ядро и гео-базы — приложение качает их само при первом запуске.
-desktop/bin/
+desktop/Windows/bin/
+desktop/MacOS/bin/
 
 # ── Android ─────────────────────────────────────────────────────────
 android/.gradle/
@@ -33,6 +43,7 @@ android/keystore.properties
 *.iml
 Thumbs.db
 desktop.ini
+.DS_Store
 
 # личные заметки
 desktop/промпт.txt

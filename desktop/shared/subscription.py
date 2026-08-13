@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 
-from .hwid import device_headers
+from native.hwid import device_headers
 from .models import Server
 from .subinfo import SubscriptionInfo
 

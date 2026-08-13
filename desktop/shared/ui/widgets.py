@@ -54,6 +54,10 @@ class PowerButton(QAbstractButton):
         "connecting": (theme.TEXT, 3.0, Qt.SolidLine),
         "connected": (theme.ACCENT, 5.0, Qt.SolidLine),
         "error": (theme.TEXT, 3.0, Qt.DashLine),
+        # Просили отключиться, а туннель остался поднятым: кольцо толстое,
+        # как у «подключено» (трафик и правда идёт через VPN), но пунктиром —
+        # это не рабочее состояние, а то, что надо разбирать.
+        "tun_stuck": (theme.TEXT, 5.0, Qt.DashLine),
     }
 
     def __init__(self, size: int = 132, parent=None) -> None:

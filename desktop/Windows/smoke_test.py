@@ -15,6 +15,11 @@ import json
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+# Общий код лежит на уровень выше, в desktop/shared. Каталог самого скрипта
+# (desktop/Windows) Python добавляет в sys.path сам — оттуда берётся native.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 OK = "[ OK ]"
 FAIL = "[FAIL]"
@@ -34,14 +39,14 @@ def mark(title: str, ok: bool, detail: str = ""):
 # 1) Импорт модулей -----------------------------------------------------
 step("1. Импорт модулей")
 try:
-    from scvpn import paths
-    from scvpn.connect import find_working_fingerprint
-    from scvpn.core_runner import XrayRunner, find_free_port
-    from scvpn.downloader import core_present, tun_present
-    from scvpn.storage import load_profiles, load_settings
-    from scvpn.tun import build_singbox_config, is_admin
-    from scvpn.xray_config import build_config
-    import scvpn.ui.main_window  # noqa: F401
+    from native import paths
+    from native.downloader import core_present, tun_present
+    from native.tun import build_singbox_config, is_admin
+    from shared.connect import find_working_fingerprint
+    from shared.core_runner import XrayRunner, find_free_port
+    from shared.storage import load_profiles, load_settings
+    from shared.xray_config import build_config
+    import shared.ui.main_window  # noqa: F401
     mark("Импорт всех модулей", True)
 except Exception as e:  # noqa: BLE001
     mark("Импорт всех модулей", False, repr(e))

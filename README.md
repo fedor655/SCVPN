@@ -6,7 +6,8 @@
 
 | | |
 |---|---|
-| **Windows** | `desktop/` — Python + PySide6, ядро `xray.exe` рядом |
+| **Windows** | `desktop/Windows/` — Python + PySide6, ядро `xray.exe` рядом |
+| **macOS** | `desktop/MacOS/` — тот же код, TUN через привилегированный демон (Apple Silicon) |
 | **Android** | `android/` — Kotlin, то же ядро внутри процесса (`libv2ray.aar`) |
 | **iOS** | пока нет, в планах |
 
@@ -16,17 +17,19 @@
    Вместе с запросом уходит идентификатор устройства (`x-hwid`, ОС, её версия и
    модель) — этого требуют панели с лимитом устройств, иначе они отдают заглушку
    вместо серверов. Сам идентификатор машины наружу не уходит: шлём его SHA-256
-   с солью, см. `desktop/scvpn/hwid.py` и `android/.../Hwid.kt`.
+   с солью, см. `desktop/Windows/native/hwid.py`, `desktop/MacOS/native/hwid.py`
+   и `android/.../Hwid.kt`.
 2. **VPN-трафик** — через выбранный тобой сервер; этим занимается ядро Xray.
-3. **Скачивание ядра** (только Windows) — один раз тянет `xray.exe` + гео-базы с
-   официального GitHub (XTLS/Xray-core), а для TUN — `sing-box` (SagerNet) и
-   `wintun.dll` (wintun.net).
+3. **Скачивание ядра** (Windows и macOS) — один раз тянет `xray` + гео-базы с
+   официального GitHub (XTLS/Xray-core), а для TUN — `sing-box` (SagerNet) и,
+   только на Windows, `wintun.dll` (wintun.net).
 4. **Проверку соединения** — при автоподборе отпечатка короткий запрос через
-   твой же сервер (`api.ipify.org` на Windows, `gstatic.com/generate_204` на Android).
+   твой же сервер (`api.ipify.org` на десктопе, `gstatic.com/generate_204` на Android).
 
 Никакой аналитики, телеметрии, «домашних» серверов и автообновлений нет.
-Каждый сетевой вызов видно в коде: `desktop/scvpn/subscription.py`,
-`downloader.py`, `connect.py`; `android/.../SubscriptionParser.kt`, `XrayCore.kt`.
+Каждый сетевой вызов видно в коде: `desktop/shared/subscription.py`,
+`desktop/Windows/native/downloader.py`, `desktop/shared/connect.py`;
+`android/.../SubscriptionParser.kt`, `XrayCore.kt`.
 
 ---
 
@@ -42,15 +45,20 @@
                                           системный трафик заводится сюда
 ```
 
-### Общие слои (одни и те же на обеих платформах)
+### Общие слои
 
-| Слой | Windows | Android |
+Десктопные версии делят один и тот же код: он лежит в `desktop/shared/`, а в
+`desktop/Windows/native/` и `desktop/MacOS/native/` — только то, чем платформы
+действительно отличаются. Набор имён в обеих папках одинаков, поэтому общий код
+не догадывается, на чём работает.
+
+| Слой | Десктоп | Android |
 |---|---|---|
-| Разбор ссылок и подписок | `scvpn/subscription.py` | `SubscriptionParser.kt` |
-| Идентификатор устройства | `scvpn/hwid.py` | `Hwid.kt` |
-| Модель сервера | `scvpn/models.py` | `Model.kt` |
-| Сборка конфига Xray | `scvpn/xray_config.py` | `XrayConfig.kt` |
-| Хранение профилей | `scvpn/storage.py` (JSON в `data/`) | `Prefs.kt` (SharedPreferences) |
+| Разбор ссылок и подписок | `shared/subscription.py` | `SubscriptionParser.kt` |
+| Идентификатор устройства | `native/hwid.py` | `Hwid.kt` |
+| Модель сервера | `shared/models.py` | `Model.kt` |
+| Сборка конфига Xray | `shared/xray_config.py` | `XrayConfig.kt` |
+| Хранение профилей | `shared/storage.py` (JSON в `data/`) | `Prefs.kt` (SharedPreferences) |
 
 Разбор ссылок покрывает `vless://`, `vmess://`, `trojan://`, `ss://` и подписки
 (обычный список или base64). Модель `Server` — плоский набор полей ссылки;
@@ -58,7 +66,7 @@
 
 ### Чем платформы отличаются — тем, как трафик попадает в ядро
 
-**Windows** (`desktop/`) — ядро отдельным процессом, два способа завести трафик:
+**Windows** (`desktop/Windows/`) — ядро отдельным процессом, два способа завести трафик:
 
 ```
                     ┌── режим «прокси» ──────────────────────────┐
@@ -88,6 +96,42 @@
 Важное свойство: и системный прокси, и TUN откатываются при закрытии окна и при
 падении ядра (`closeEvent`, `_on_state`), чтобы не остаться без интернета.
 
+**macOS** (`desktop/MacOS/`) — тот же Xray отдельным процессом, те же два способа:
+
+```
+                    ┌── режим «прокси» ──────────────────────────┐
+приложения ─────────┤ networksetup на активных сервисах          │
+                    │        ↓ 127.0.0.1:HTTP                    │
+                    │   xray ── inbound socks+http               │──→ сервер
+                    └────────────────────────────────────────────┘
+
+                    ┌── режим «TUN» (нужен root) ────────────────┐
+весь трафик ОС ─────┤ utun-адаптер ← sing-box (от root)          │
+                    │        ↑ поднимает демон по unix-сокету    │
+                    │        ↓ 127.0.0.1:SOCKS                   │
+                    │   xray (от пользователя)                   │──→ сервер
+                    └────────────────────────────────────────────┘
+```
+
+Отличие от Windows одно, и оно про надёжность. TUN требует root, а если
+приложение упадёт, снять root-овый sing-box будет некому: он останется держать
+маршруты, и весь трафик системы уйдёт в мёртвый туннель. Поэтому вместо запроса
+пароля на каждое подключение здесь стоит LaunchDaemon: приложение держит с ним
+открытый unix-сокет, и обрыв этого соединения демон читает как «приложение
+мертво» — и снимает туннель сам, через секунду, а не при следующем запуске.
+
+Демон не принимает готовый конфиг: только параметры, каждый проверяет, конфиг
+собирает сам, и запускает лишь бинарники из своей root-овой папки. Сокет открыт
+группе `admin`, и всё, что оттуда приходит, считается недоверенным — см.
+`helper/config.py` и `helper/daemon.py`.
+
+Режим прокси root не требует: `networksetup` доступен администратору без пароля.
+Прежние настройки прокси пишутся на диск перед включением, поэтому откат
+переживает падение приложения. Откатываем при этом только своё: снимок на
+диске — он же признак «прокси ставили мы», а порт в нём сверяется с тем, что
+стоит в системе. Иначе SCVPN стирал бы настройки другого клиента (Happ,
+Tailscale и подобные тоже живут на `127.0.0.1`) просто по факту запуска.
+
 **Android** (`android/`) — ядро внутри процесса приложения, трафик один способ:
 
 ```
@@ -115,22 +159,32 @@ Xray к серверу идёт мимо TUN, иначе он заворачив
 В свежих сборках Xray отпечаток `chrome` шлёт пост-квантовую кривую, которую
 часть серверов не понимает, а `randomized` нестабилен. Поэтому перед
 подключением клиент быстро пробует firefox/safari/edge/ios и берёт первый
-рабочий. На Windows это `connect.py` (можно зафиксировать в меню «Отпечаток
-TLS»), на Android — `sanitizeFingerprint()` плюс перебор в `XrayCore.pingServer`.
+рабочий. На десктопе (Windows и macOS) это общий `shared/connect.py` (можно
+зафиксировать в меню «Отпечаток TLS»), на Android —
+`sanitizeFingerprint()` плюс перебор в `XrayCore.pingServer`.
 
 ---
 
 ## Сборка
 
-Подробности — в `desktop/README.md` и `android/README.md`. Коротко:
+Подробности — в `desktop/Windows/README.md`, `desktop/MacOS/README.md` и
+`android/README.md`. Коротко:
 
 ```powershell
 # Windows: exe + установщик
-cd desktop
+cd desktop\Windows
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 build.bat            # dist\SCVPN\SCVPN.exe
 build_installer.bat  # dist_installer\SCVPN-Setup-*.exe
+```
+
+```bash
+# macOS (Apple Silicon): SCVPN.app
+cd desktop/MacOS
+python3 -m venv ~/.venvs/scvpn
+~/.venvs/scvpn/bin/pip install -r requirements.txt
+./build.sh           # dist/SCVPN.app
 ```
 
 ```powershell
@@ -139,19 +193,25 @@ cd android
 build_apk.bat        # app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Сторонние бинарники (`libv2ray.aar`, `libhev-socks5-tunnel.so`, `xray.exe`,
-`sing-box.exe`, `wintun.dll`) в репозиторий не кладутся — откуда их взять
-написано в README соответствующей папки.
+Сторонние бинарники (`libv2ray.aar`, `libhev-socks5-tunnel.so`, `xray`/`xray.exe`,
+`sing-box`/`sing-box.exe`, `wintun.dll`) в репозиторий не кладутся — откуда их
+взять написано в README соответствующей папки.
 
 ## Фирменный знак
 
-Иконка рисуется кодом, а не хранится картинкой: `desktop/setup/brand.py` —
+Геометрия знака описана кодом в одном месте — `desktop/Windows/setup/brand.py`:
 одна траектория из двух касающихся дуг, обведённая штрихом с круглыми концами.
-Из неё делаются `scvpn.ico` (Windows) и запасные `ic_launcher.png` (Android);
-на Android основная иконка — векторная адаптивная
+Из неё сделаны `scvpn.ico` (Windows), `scvpn.icns` (macOS) и запасные
+`ic_launcher.png` (Android). На Android основная иконка векторная адаптивная
 (`android/app/src/main/res/drawable/ic_launcher_foreground.xml`), а в интерфейсе
-тот же знак рисуется Qt (`desktop/scvpn/ui/brandmark.py`). Геометрия во всех
-трёх местах одна и та же, поэтому знак нигде не разъезжается.
+тот же знак рисуется Qt (`desktop/shared/ui/brandmark.py`).
+
+`.icns` для macOS нарисован один раз и лежит в git готовым — при сборке он не
+пересоздаётся; как его перерисовать, написано в `desktop/MacOS/setup/README.md`.
+Отличие от Windows-иконки одно: плашка занимает 80 % холста, вокруг прозрачное
+поле — иначе иконка в доке выглядит крупнее соседних.
+
+Геометрия во всех местах одна и та же, поэтому знак нигде не разъезжается.
 
 ## Планы
 

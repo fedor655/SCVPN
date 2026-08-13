@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from . import paths
+from native import paths
 from .models import Server
 from .subinfo import SubscriptionInfo
 
@@ -111,6 +111,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "vpn_mode": "proxy",       # proxy = системный прокси; tun = весь трафик (нужен админ)
     "split_mode": "off",       # off | exclude | include — раздельное туннелирование (только TUN)
     "split_apps": [],          # имена .exe, к которым применяется split_mode
+    "tun_stack": "gvisor",     # сетевой стек sing-box в TUN (только macOS)
 }
 
 

@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import sys
 import time
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
@@ -28,12 +29,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import __version__, sysproxy
-from ..connect import find_working_fingerprint
-from ..core_runner import XrayRunner, find_free_port
-from ..downloader import core_present, download_core, download_singbox, tun_present
-from ..models import Server
-from ..storage import (
+from shared import __version__
+from shared.connect import find_working_fingerprint
+from shared.core_runner import XrayRunner, find_free_port
+from shared.models import Server
+from shared.storage import (
     Profiles,
     Subscription,
     load_profiles,
@@ -42,9 +42,19 @@ from ..storage import (
     save_profiles,
     save_settings,
 )
-from ..subscription import SubscriptionError, fetch_subscription_full, parse_link
-from ..tun import SPLIT_OFF, SingBoxTun, cleanup_stray, is_admin, relaunch_as_admin
-from ..xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
+from shared.subscription import SubscriptionError, fetch_subscription_full, parse_link
+from shared.xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
+from native import sysproxy
+from native.downloader import core_present, download_core, download_tun, tun_present
+from native.tun import (
+    PRIVILEGE_QUESTION,
+    SPLIT_OFF,
+    Tun,
+    acquire_privilege,
+    cleanup_stray,
+    last_privilege_error,
+    privileged,
+)
 from . import theme
 from .add_dialog import AddDialog
 from .brandmark import mark_pixmap
@@ -58,13 +68,23 @@ STATE_COLORS = {
     "connecting": theme.TEXT,
     "connected": theme.ACCENT,
     "error": theme.TEXT,
+    "tun_stuck": theme.TEXT,
 }
 STATE_TEXTS = {
     "idle": "Отключено",
     "connecting": "Подключение…",
     "connected": "Подключено",
     "error": "Не подключилось",
+    # Отдельное состояние, а не "error": ошибка подключения и «отключиться не
+    # вышло» — разные новости, и вторая опаснее. См. _report_tun_stuck().
+    "tun_stuck": "Туннель не снят",
 }
+
+TUN_STUCK_TEXT = (
+    "sing-box пережил остановку: TUN-адаптер поднят, весь трафик по-прежнему\n"
+    "идёт через него, а туннель уже никем не обслуживается.\n\n"
+    "Перезагрузка компьютера снимет адаптер наверняка."
+)
 
 
 class MainWindow(QMainWindow):
@@ -93,7 +113,7 @@ class MainWindow(QMainWindow):
             on_log=self.log_signal.emit,
             on_state=self.state_signal.emit,
         )
-        self.tun = SingBoxTun(
+        self.tun = Tun(
             on_log=self.log_signal.emit,
             on_state=self.tun_state_signal.emit,
         )
@@ -254,6 +274,17 @@ class MainWindow(QMainWindow):
             "tls_fingerprint", "auto",
         )
 
+        if sys.platform == "darwin":
+            # Сетевой стек TUN — тот самый винт, который приходится крутить,
+            # когда туннель ведёт себя странно на конкретной сети.
+            self._radio_group(
+                menu.addMenu("Сетевой стек TUN"),
+                [("gvisor — самый предсказуемый", "gvisor"),
+                 ("system — быстрее", "system"),
+                 ("mixed — TCP системный, UDP gvisor", "mixed")],
+                "tun_stack", "gvisor",
+            )
+
         menu.addSeparator()
 
         self.sysproxy_action = self._check_item(
@@ -268,6 +299,8 @@ class MainWindow(QMainWindow):
         menu.addAction("Измерить пинг", self._ping_all)
         menu.addAction("Скачать ядро Xray", self._download_core)
         menu.addAction("Скачать компоненты TUN", self._download_tun)
+        if sys.platform == "darwin":
+            menu.addAction("Удалить системный компонент…", self._remove_helper)
 
         menu.addSeparator()
         log_action = menu.addAction("Показывать лог ядра")
@@ -389,27 +422,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Нет ядра", "Меню «⋯» → «Скачать ядро Xray».")
             return
 
-        # Префлайт для TUN: нужны компоненты и права администратора.
         mode = self.settings.get("vpn_mode", "proxy")
-        if mode == "tun":
-            if not tun_present():
-                QMessageBox.warning(
-                    self, "Нет TUN",
-                    "Меню «⋯» → «Скачать компоненты TUN» (sing-box + wintun).",
-                )
-                return
-            if not is_admin():
-                r = QMessageBox.question(
-                    self, "Нужны права администратора",
-                    "TUN-режим (весь трафик) требует прав администратора.\n"
-                    "Перезапустить приложение от имени администратора?",
-                )
-                if r == QMessageBox.Yes:
-                    if relaunch_as_admin():
-                        QApplication.quit()
-                    else:
-                        QMessageBox.warning(self, "Не вышло", "Не удалось перезапустить с правами администратора.")
-                return
+        if mode == "tun" and not self._tun_preflight():
+            return
 
         self._want_connected = True
         self._render_state("connecting")
@@ -448,6 +463,71 @@ class MainWindow(QMainWindow):
         w.failed.connect(on_fail)
         self._workers.append(w)
         w.start()
+
+    # ------------------------------------------------------------------
+    # Префлайт TUN: компоненты и права
+    # ------------------------------------------------------------------
+    def _tun_preflight(self) -> bool:
+        """Всё ли готово для TUN. False — идти дальше нельзя, пользователю сказано.
+
+        Порядок шагов разный на разных платформах, и это не вкусовщина.
+
+        На Windows компоненты TUN — два файла рядом с приложением (sing-box и
+        wintun.dll), которые кладёт установщик, а права — независимый от них
+        UAC. Проверять файлы первыми правильно: иначе пользователь крутил бы
+        круг UAC только затем, чтобы следом прочитать «нет компонентов».
+
+        На macOS независимости нет. sing-box обязан лежать в root-овой папке
+        (иначе его подменил бы любой процесс и получил root), кладёт его туда
+        сам привилегированный демон, а ставит демона ровно эта ветка прав.
+        То есть права — не «ещё одно требование рядом с компонентами», а их
+        предусловие. Windows-порядок здесь давал неснимаемый круг: «нет
+        компонентов» → меню «Скачать компоненты TUN» → «сначала установи
+        системный компонент (включи TUN-режим)» → обратно в «нет
+        компонентов», и ни один из двух входов в TUN не проходим на чистой
+        машине. Поэтому на darwin сперва права (они же — установка демона),
+        и только потом перепроверка компонентов.
+        """
+        if sys.platform == "darwin":
+            return self._ensure_privilege() and self._ensure_tun_components()
+        return self._ensure_tun_components() and self._ensure_privilege()
+
+    def _ensure_tun_components(self) -> bool:
+        if tun_present():
+            return True
+        QMessageBox.warning(
+            self, "Нет компонентов TUN",
+            "Меню «⋯» → «Скачать компоненты TUN».",
+        )
+        return False
+
+    def _ensure_privilege(self) -> bool:
+        """Права на TUN: есть — True; получили — True; иначе False."""
+        if privileged():
+            return True
+        r = QMessageBox.question(self, "Нужны права администратора", PRIVILEGE_QUESTION)
+        if r != QMessageBox.Yes:
+            return False
+        outcome = acquire_privilege()
+        if outcome == "restart":
+            QApplication.quit()
+            return False
+        if outcome != "ok":
+            # last_privilege_error() — настоящая причина от install()
+            # (helper/install.py): «Установка отменена.» или stderr
+            # launchctl. Зашитая фраза ни о чём — ровно то, из-за чего
+            # первое включение TUN на macOS било пользователя мимо цели.
+            detail = last_privilege_error()
+            self._append_log(
+                f"[!] Не удалось поставить системный компонент: {detail}"
+                if detail else "[!] Не удалось поставить системный компонент."
+            )
+            QMessageBox.warning(
+                self, "Не вышло",
+                detail or "Не удалось получить права администратора.",
+            )
+            return False
+        return True
 
     def _start_with_fingerprint(self, server: Server, fingerprint: str) -> None:
         """Собрать конфиг с выбранным отпечатком и запустить ядро."""
@@ -503,11 +583,27 @@ class MainWindow(QMainWindow):
 
     def disconnect_vpn(self) -> None:
         self._want_connected = False
-        self.tun.stop()  # сначала TUN — он вернёт маршруты в исходное состояние
+        tun_down = self.tun.stop()  # сначала TUN — он вернёт маршруты в исходное состояние
         if sysproxy.is_enabled():
             sysproxy.disable()
             self._append_log("[*] Системный прокси выключён")
         self.runner.stop()
+        # После runner.stop(): она синхронно приводит к _on_state(False), а та
+        # рисует "idle" — то самое «Отключено», которое здесь было бы ложью.
+        if not tun_down:
+            self._report_tun_stuck()
+
+    def _report_tun_stuck(self) -> None:
+        """Туннель не снялся, и об этом сказал не наш домысел, а сам демон.
+
+        Tun.stop() возвращает False только по правдивому ответу системного
+        компонента: sing-box пережил и SIGTERM, и SIGKILL, utun поднят,
+        маршруты держатся. Показать «Отключено» в этот момент — соврать ровно
+        там, где правду специально добывали.
+        """
+        self._append_log("[!] ТРЕВОГА: туннель не снят — sing-box пережил остановку.")
+        self._render_state("tun_stuck")
+        QMessageBox.warning(self, "Туннель не снят", TUN_STUCK_TEXT)
 
     def _on_state(self, running: bool) -> None:
         if running:
@@ -521,11 +617,13 @@ class MainWindow(QMainWindow):
         # если ядро упало само, а мы думали что подключены — приберём всё
         if self._want_connected:
             self._want_connected = False
-            self.tun.stop()
+            tun_down = self.tun.stop()
             if sysproxy.is_enabled():
                 sysproxy.disable()
             self._append_log("[!] Соединение разорвано (ядро остановилось).")
             self._render_state("error")
+            if not tun_down:
+                self._report_tun_stuck()
         else:
             self._render_state("idle")
 
@@ -533,12 +631,30 @@ class MainWindow(QMainWindow):
         if running:
             self._append_log("[tun] TUN-адаптер активен — весь трафик идёт через VPN.")
         elif self._want_connected and self.settings.get("vpn_mode") == "tun":
-            # TUN упал во время сессии — рвём всё, чтобы не остаться без сети
+            # TUN упал во время сессии — рвём всё, чтобы не остаться без сети.
+            #
+            # self._want_connected = False ОБЯЗАН стоять раньше self.tun.stop()
+            # и self.runner.stop() — не только по смыслу, а из-за реального
+            # переплетения сигналов. self.runner.stop() синхронно (тот же
+            # поток, то же соединение сигнал-слот) может дёрнуть _on_state(False)
+            # прямо изнутри этого же вызова — а у _on_state() своя ветка
+            # `if self._want_connected: ... self.tun.stop() ...`, дословно
+            # повторяющая эту уборку. Если _want_connected к этому моменту всё
+            # ещё True, _on_state отработает её ЕЩЁ РАЗ поверх текущей —
+            # повторные tun.stop()/sysproxy.disable(), конфликтующий лог и
+            # render_state("error") поверх состояния, которое ещё не
+            # доделали здесь. Сбросив флаг первой строкой, вторая ветка видит
+            # его уже False и просто откатывается в "idle", не начиная свою
+            # уборку заново.
             self._append_log("[!] TUN остановился — отключаюсь.")
             self._want_connected = False
+            # закрыть соединение с демоном (Tun уже знает, что не жив)
+            tun_down = self.tun.stop()
             self.runner.stop()
             if sysproxy.is_enabled():
                 sysproxy.disable()
+            if not tun_down:
+                self._report_tun_stuck()
 
     # ------------------------------------------------------------------
     # Статус
@@ -748,8 +864,18 @@ class MainWindow(QMainWindow):
         self._run_download(download_core, "Ядро Xray-core {tag} установлено.", "ядро")
 
     def _download_tun(self) -> None:
-        self._append_log("[*] Скачиваю sing-box + wintun (для TUN-режима)…")
-        self._run_download(download_singbox, "TUN-компоненты установлены (sing-box {tag}).", "TUN")
+        # На macOS качать некуда, пока нет демона: sing-box обязан лежать в
+        # root-овой папке, и кладёт его туда он сам (native.tun.install_singbox
+        # без установленного демона так и отвечает — «сначала установи
+        # системный компонент»). Ставим демона прямо здесь, иначе этот вход в
+        # TUN отправлял бы пользователя ровно туда, откуда он сюда пришёл.
+        if sys.platform == "darwin" and not self._ensure_privilege():
+            return
+        # wintun — драйвер виртуального адаптера, он есть только на Windows;
+        # на macOS роль адаптера играет штатный utun, качать нечего.
+        what = "sing-box" if sys.platform == "darwin" else "sing-box + wintun"
+        self._append_log(f"[*] Скачиваю {what} (для TUN-режима)…")
+        self._run_download(download_tun, "TUN-компоненты установлены (sing-box {tag}).", "TUN")
 
     def _run_download(self, fn, success_text: str, what: str) -> None:
         w = Worker(lambda log: fn(progress=log))
@@ -765,6 +891,25 @@ class MainWindow(QMainWindow):
         self._workers.append(w)
         w.start()
 
+    def _remove_helper(self) -> None:
+        """Снять привилегированный демон TUN (только macOS)."""
+        r = QMessageBox.question(
+            self, "Удалить системный компонент",
+            "TUN-режим перестанет работать, пока компонент не установят заново.\n"
+            "Удалить? Понадобится пароль администратора.",
+        )
+        if r != QMessageBox.Yes:
+            return
+        self.disconnect_vpn()
+        from helper.install import uninstall
+
+        try:
+            uninstall()
+        except RuntimeError as e:
+            QMessageBox.warning(self, "Не вышло", str(e))
+            return
+        self._append_log("[*] Системный компонент удалён.")
+
     # ------------------------------------------------------------------
     # Прочее
     # ------------------------------------------------------------------
@@ -772,7 +917,7 @@ class MainWindow(QMainWindow):
         mode = self.settings.get("vpn_mode", "proxy")
         # системный прокси имеет смысл только в режиме proxy
         self.sysproxy_action.setEnabled(mode == "proxy")
-        if mode == "tun" and not is_admin():
+        if mode == "tun" and not privileged():
             self._append_log("[i] TUN потребует прав администратора при подключении.")
         self._update_substatus()
 
@@ -784,18 +929,21 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def closeEvent(self, event) -> None:  # noqa: N802
         try:
-            self.tun.stop()  # вернуть маршруты/адаптер
+            tun_down = self.tun.stop()  # вернуть маршруты/адаптер
             if sysproxy.is_enabled():
                 sysproxy.disable()
             self.runner.stop()
+            # Именно на закрытии молчать нельзя больше всего: приложения через
+            # секунду не будет, а поднятый utun с мёртвым туннелем останется —
+            # без этого сообщения пользователь узнает о нём по пропавшей сети.
+            if not tun_down:
+                self._report_tun_stuck()
         finally:
             super().closeEvent(event)
 
 
 def run_app() -> int:
-    import sys
-
-    from .. import paths
+    from native import paths
 
     app = QApplication(sys.argv)
     app.setApplicationName("SCVPN")

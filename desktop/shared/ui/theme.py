@@ -10,6 +10,12 @@
 """
 from __future__ import annotations
 
+import sys
+
+# Системный шрифт интерфейса: на macOS это SF, на Windows — Segoe UI.
+UI_FONT = '-apple-system, "SF Pro Text"' if sys.platform == "darwin" else '"Segoe UI"'
+MONO_FONT = "Menlo" if sys.platform == "darwin" else "Consolas"
+
 BG = "#000000"
 SURFACE = "#0D0D0D"
 SURFACE_HI = "#1C1C1C"
@@ -26,7 +32,7 @@ QSS = f"""
 QMainWindow, QWidget {{
     background: {BG};
     color: {TEXT};
-    font-family: "Segoe UI", sans-serif;
+    font-family: {UI_FONT}, sans-serif;
     font-size: 13px;
 }}
 
@@ -109,7 +115,7 @@ QPlainTextEdit {{
     border: 1px solid {STROKE};
     border-radius: 10px;
     color: {DIM};
-    font-family: Consolas, monospace;
+    font-family: {MONO_FONT}, monospace;
     font-size: 11px;
     padding: 8px;
 }}

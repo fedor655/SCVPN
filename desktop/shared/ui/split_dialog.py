@@ -10,11 +10,10 @@
   * «Всё через VPN» — без исключений.
   * два варианта по приложениям — их различает уже sing-box по процессу-владельцу
     соединения, поэтому они работают только в TUN-режиме: системный прокси — это
-    строчка в настройках Windows, приложения ходят в неё сами, и различить их
-    там нечем.
+    настройка ОС, приложения ходят в неё сами, и различить их там нечем.
 
 Список приложений набираем из запущенных процессов — так не нужно ходить по
-диску за .exe и гадать, как называется нужный файл.
+диску и гадать, как называется нужный файл.
 """
 from __future__ import annotations
 
@@ -33,40 +32,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..tun import SPLIT_EXCLUDE, SPLIT_INCLUDE, SPLIT_OFF
-from ..xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL
+from native.apps import MANUAL_HINT, normalize, running_apps
+from native.tun import SPLIT_EXCLUDE, SPLIT_INCLUDE, SPLIT_OFF
+from shared.xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL
 from . import theme
-
-# Системные процессы, которые в списке только мешают.
-_HIDDEN = {
-    "system", "system idle process", "registry", "memory compression", "svchost.exe",
-    "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe", "lsass.exe",
-    "smss.exe", "fontdrvhost.exe", "dwm.exe", "ctfmon.exe", "sihost.exe",
-    "taskhostw.exe", "runtimebroker.exe", "searchhost.exe", "conhost.exe",
-    "dllhost.exe", "spoolsv.exe", "audiodg.exe", "wudfhost.exe",
-}
-
-
-def running_apps() -> list[str]:
-    """Имена запущенных .exe, без системной мелочи и дубликатов."""
-    names: set[str] = set()
-    try:
-        import subprocess
-
-        out = subprocess.run(
-            ["tasklist", "/fo", "csv", "/nh"],
-            capture_output=True, text=True, encoding="cp866", errors="replace",
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        ).stdout
-        for line in out.splitlines():
-            if not line.startswith('"'):
-                continue
-            name = line.split('","')[0].strip('"')
-            if name and name.lower() not in _HIDDEN:
-                names.add(name)
-    except Exception:  # noqa: BLE001
-        pass
-    return sorted(names, key=str.lower)
 
 
 class SplitTunnelDialog(QDialog):
@@ -109,7 +78,7 @@ class SplitTunnelDialog(QDialog):
 
         note = QLabel(
             "Разбор по приложениям работает в режиме «TUN — весь трафик»:\n"
-            "системный прокси Windows приложения не различает."
+            "системный прокси приложения не различает."
         )
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {theme.DIM}; font-size: 11px; padding: 4px 0 2px 0;")
@@ -187,13 +156,12 @@ class SplitTunnelDialog(QDialog):
     def _add_manual(self) -> None:
         name, ok = QInputDialog.getText(
             self, "Добавить приложение",
-            "Имя исполняемого файла (например, Telegram.exe):",
+            MANUAL_HINT,
         )
         name = name.strip()
         if not ok or not name:
             return
-        if not name.lower().endswith(".exe"):
-            name += ".exe"
+        name = normalize(name)
         chosen = set(self._collect()) | {name}
         self._apps = sorted(chosen, key=str.lower)
         self._fill()

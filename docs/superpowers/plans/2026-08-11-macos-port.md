@@ -54,7 +54,7 @@ desktop/
 │   └── README.md
 └── MacOS/
     ├── native/                __init__ paths sysproxy hwid downloader tun apps
-    ├── helper/                __init__ config.py daemon.py install.py com.scvpn.helper.plist
+    ├── helper/                __init__ config.py daemon.py install.py
     ├── run.py build.sh test.sh SCVPN.spec smoke_test.py test_native.py
     ├── requirements.txt
     ├── setup/                 scvpn.icns
@@ -950,7 +950,10 @@ _PORT_RE = re.compile(r"^\(Hardware Port: .*, Device: (?P<dev>[^)]*)\)$")
 # Ключи `networksetup -getwebproxy`: "Enabled: Yes" / "Server: ..." / "Port: ..."
 _STATE_RE = re.compile(r"^(?P<key>Enabled|Server|Port):\s*(?P<value>.*)$")
 
-# Три вида прокси, которые мы выставляем. Для каждого — своя тройка команд.
+# Два вида прокси и команды к каждому: чтение, установка, выключение.
+# SOCKS сюда намеренно не входит: наружу мы отдаём только HTTP-порт Xray, а
+# записать его в -setsocksfirewallproxy значило бы отправить SOCKS-клиентов
+# на HTTP-инбаунд. Кому нужен весь трафик — тому TUN.
 _KINDS = (
     ("web", "-getwebproxy", "-setwebproxy", "-setwebproxystate"),
     ("secure", "-getsecurewebproxy", "-setsecurewebproxy", "-setsecurewebproxystate"),
@@ -1589,7 +1592,7 @@ def test_daemon_refuses_binary_outside_its_dir():
 
 
 @check
-def test_daemon_refuses_user_writable_binary(tmp=None):
+def test_daemon_refuses_user_writable_binary():
     """Файл в своей папке, но с правом записи для всех — тоже отказ."""
     import os
     import tempfile
@@ -1730,6 +1733,23 @@ def check_binary(path: Path) -> None:
         raise PermissionError(f"бинарник доступен на запись не только root: {resolved}")
     if not st.st_mode & stat.S_IXUSR:
         raise PermissionError(f"бинарник не исполняемый: {resolved}")
+
+
+def _checked_xray_path(raw: object) -> str:
+    """Проверить путь к ядру Xray, присланный клиентом.
+
+    Этот путь попадает в правило process_path, которое выпускает процесс мимо
+    туннеля. Подставив туда чужой бинарник, злоумышленник раздал бы себе обход
+    VPN — поэтому проверяем и имя, и что файл существует.
+    """
+    if not isinstance(raw, str) or not raw.startswith("/"):
+        raise ValidationError(f"путь к ядру должен быть абсолютным, пришло {raw!r}")
+    path = Path(raw)
+    if path.name != "xray":
+        raise ValidationError(f"ожидался бинарник с именем xray, пришло {path.name!r}")
+    if not path.is_file():
+        raise ValidationError(f"нет такого файла: {path}")
+    return str(path.resolve())
 
 
 # ----------------------------------------------------------------------
@@ -1890,11 +1910,10 @@ def handle_line(line: str, state: dict[str, Any]) -> dict:
     try:
         if cmd == "start":
             params = validate(req)
-            xray_path = str(BIN_DIR / "xray-placeholder")
-            # Путь к xray не берём у клиента: правило process_path даёт
-            # процессу прямой выход мимо туннеля, и подставить туда чужой
-            # бинарник значило бы раздать обход VPN кому попало.
-            xray_path = state.get("xray_path") or xray_path
+            # Путь к ядру приходит от клиента, но правило process_path даёт
+            # процессу выход мимо туннеля — значит путь надо проверить, а не
+            # принять на слово (см. _checked_xray_path).
+            xray_path = _checked_xray_path(req.get("xray_path"))
             SUPERVISOR.start(params, xray_path, say)
             return {"ok": True, "running": True}
 
@@ -1944,14 +1963,6 @@ def serve_client(conn: socket.socket) -> None:
                 line = line.strip()
                 if not line:
                     continue
-                if line.startswith("{") and '"xray_path"' in line:
-                    # Клиент сообщает, где лежит его ядро, при первом запросе.
-                    try:
-                        candidate = json.loads(line).get("xray_path")
-                        if isinstance(candidate, str) and candidate.startswith("/"):
-                            state["xray_path"] = candidate
-                    except ValueError:
-                        pass
                 send(handle_line(line, state))
     except OSError as e:
         log(f"соединение оборвалось: {e}")
@@ -2007,54 +2018,9 @@ def main() -> int:
     return 0
 ```
 
-- [ ] **Step 4: Упростить передачу пути к xray**
+- [ ] **Step 4: Добавить проверку на подложенный путь к ядру**
 
-Приведённый выше `handle_line` разбирает `xray_path` в двух местах — это остаток черновика. Заменить блок в `serve_client`, который парсит строку повторно, и вместо него принять путь как поле команды `start`, провалидировав его в `handle_line`:
-
-В `handle_line`, ветка `start`, заменить три строки про `xray_path` на:
-
-```python
-        if cmd == "start":
-            params = validate(req)
-            # Путь к ядру приходит от клиента, но правило process_path даёт
-            # процессу выход мимо туннеля — значит путь надо проверить, а не
-            # принять на слово. Разрешаем только существующий файл с именем
-            # xray внутри домашней папки того, кто нас позвал.
-            xray_path = _checked_xray_path(req.get("xray_path"))
-            SUPERVISOR.start(params, xray_path, say)
-            return {"ok": True, "running": True}
-```
-
-И добавить функцию рядом с `check_binary`:
-
-```python
-def _checked_xray_path(raw: object) -> str:
-    """Проверить путь к ядру Xray, присланный клиентом.
-
-    Этот путь попадает в правило process_path, которое выпускает процесс мимо
-    туннеля. Подставив туда чужой бинарник, злоумышленник раздал бы себе обход
-    VPN — поэтому проверяем и имя, и что файл существует.
-    """
-    if not isinstance(raw, str) or not raw.startswith("/"):
-        raise ValidationError(f"путь к ядру должен быть абсолютным, пришло {raw!r}")
-    path = Path(raw)
-    if path.name != "xray":
-        raise ValidationError(f"ожидался бинарник с именем xray, пришло {path.name!r}")
-    if not path.is_file():
-        raise ValidationError(f"нет такого файла: {path}")
-    return str(path.resolve())
-```
-
-Из `serve_client` удалить весь блок `if line.startswith("{") and '"xray_path"' in line:` вместе с телом, оставив цикл таким:
-
-```python
-        with conn.makefile("r", encoding="utf-8") as reader:
-            for line in reader:
-                line = line.strip()
-                if not line:
-                    continue
-                send(handle_line(line, state))
-```
+Путь к ядру приходит от клиента и попадает в правило `process_path`, которое выпускает процесс мимо туннеля. Проверка на то, что чужой путь туда не пролезет, — часть границы доверия, и она заслуживает отдельного теста.
 
 Добавить в `test_native.py`:
 
@@ -2142,10 +2108,11 @@ Expected: два `FAIL` с `ModuleNotFoundError: No module named 'helper.install
 """
 from __future__ import annotations
 
+import json
 import plistlib
+import shlex
 import subprocess
 import sys
-from pathlib import Path
 
 from native import paths
 
@@ -2228,15 +2195,7 @@ def uninstall() -> None:
     _osascript(script, "SCVPN удаляет системный компонент")
 ```
 
-Добавить в шапку импорты `json` и `shlex`:
-
-```python
-import json
-import plistlib
-import shlex
-import subprocess
-import sys
-```
+`json.dumps` здесь используется как экранирование для AppleScript: он даёт строку в двойных кавычках с экранированными спецсимволами — ровно тот литерал, который ждёт `do shell script`.
 
 - [ ] **Step 4: Запустить проверки**
 
@@ -2493,6 +2452,17 @@ class _Connection:
             return msg
         raise HelperError("Системный компонент закрыл соединение.")
 
+    def stream_logs(self, on_log: Callable[[str], None]) -> None:
+        """Читать лог до обрыва. Возврат означает, что соединение закрылось."""
+        self.sock.settimeout(None)
+        for line in self._file:
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if "log" in msg:
+                on_log(msg["log"])
+
     def close(self) -> None:
         try:
             self._file.close()
@@ -2587,14 +2557,7 @@ class Tun:
         if conn is None:
             return
         try:
-            conn.sock.settimeout(None)
-            for line in conn._file:  # noqa: SLF001
-                try:
-                    msg = json.loads(line)
-                except ValueError:
-                    continue
-                if "log" in msg:
-                    self.on_log("[tun] " + msg["log"])
+            conn.stream_logs(lambda s: self.on_log("[tun] " + s))
         except OSError:
             pass
         if self._running:
