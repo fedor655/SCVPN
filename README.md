@@ -182,8 +182,8 @@ build_installer.bat  # dist_installer\SCVPN-Setup-*.exe
 ```bash
 # macOS (Apple Silicon): SCVPN.app
 cd desktop/MacOS
-python3 -m venv ~/.venvs/scvpn
-~/.venvs/scvpn/bin/pip install -r requirements.txt
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
 ./build.sh           # dist/SCVPN.app
 ```
 

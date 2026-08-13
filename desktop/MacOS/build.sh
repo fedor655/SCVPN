@@ -9,25 +9,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# venv живёт ВНЕ дерева репозитория — см. test.sh/run.py. Причина: ~/Documents
-# синхронизируется iCloud Drive, и синк проставляет macOS-флаг UF_HIDDEN на
-# файлы ВНУТРИ синхронизируемого дерева, из-за чего Qt не находит собственные
-# плагины платформы и падает ещё до создания окна.
-#
-# Та же болезнь касается и результата сборки: PyInstaller раскладывает бандл
-# на сотни файлов (Contents/MacOS/*, десятки *.dylib и т.п.), и если собирать
-# прямо в desktop/MacOS/dist — внутри репозитория, — синхронизация рано или
-# поздно (по замерам для venv — за 75-90 секунд, не разом, а частями) начнёт
-# помечать часть из них флагом, и бандл сломается тем же способом, что и venv
-# до переезда. Поэтому PyInstaller собирает во временный каталог ВНЕ
-# репозитория, а desktop/MacOS/dist и desktop/MacOS/build — лишь симлинки на
-# него: путь dist/SCVPN.app остаётся тем, что ожидают остальные шаги, а сами
-# байты бандла никогда не попадают под iCloud.
-#
-# Переопределить: SCVPN_VENV=/путь SCVPN_BUILD_DIR=/путь ./build.sh
-VENV="${SCVPN_VENV:-$HOME/.venvs/scvpn}"
+# venv и результат сборки лежат в самом проекте. Переопределить:
+#   SCVPN_VENV=/путь SCVPN_BUILD_DIR=/путь ./build.sh
+VENV="${SCVPN_VENV:-$PWD/venv}"
 PY="$VENV/bin/python"
-BUILD_DIR="${SCVPN_BUILD_DIR:-$HOME/.scvpn-build}"
+BUILD_DIR="${SCVPN_BUILD_DIR:-$PWD}"
 
 if [ ! -x "$PY" ]; then
   echo "[!] Нет venv. Создай: python3 -m venv \"$VENV\" && \"$VENV/bin/pip\" install -r requirements.txt"
@@ -39,15 +25,6 @@ if [ "$(uname -m)" != "arm64" ]; then
   exit 1
 fi
 
-# Тот же дешёвый пояс, что и в test.sh: если venv всё же оказался под флагом
-# (перенесли копированием с уже помеченного дерева и т.п.), снимаем его перед
-# сборкой — иначе PyInstaller потом не найдёт нужные ему файлы venv.
-for _ in 1 2 3; do
-  remaining=$(find "$VENV" -flags +hidden 2>/dev/null | wc -l | tr -d ' ')
-  [ "$remaining" = "0" ] && break
-  chflags -R nohidden "$VENV" 2>/dev/null || true
-done
-
 mkdir -p "$BUILD_DIR"
 
 echo "=== PyInstaller ==="
@@ -56,18 +33,20 @@ echo "=== PyInstaller ==="
   SCVPN.spec
 
 echo "=== Подпись (ad-hoc) ==="
+# Снимаем расширенные атрибуты: codesign отказывается подписывать бандл, на
+# файлах которого висит com.apple.provenance (его ставит macOS при обращении)
+# или com.apple.fileprovider.fpfs (его ставит iCloud, если проект в
+# синхронизируемой папке) — «resource fork, Finder information, or similar
+# detritus not allowed». Атрибуты вернутся через десятки секунд, но уже
+# поставленную подпись это не ломает — проверено; важно лишь очистить их
+# непосредственно перед codesign.
+xattr -cr "$BUILD_DIR/dist/SCVPN.app"
+
 # Без Apple Developer ID подписываем сами собой: этого хватает, чтобы система
 # запустила приложение, но при первом запуске потребуется ПКМ -> «Открыть».
 codesign --force --deep --sign - "$BUILD_DIR/dist/SCVPN.app"
 codesign --verify --verbose "$BUILD_DIR/dist/SCVPN.app"
 
-echo "=== Симлинки dist/ и build/ на каталог сборки ==="
-# dist/ и build/ внутри репозитория в .gitignore — симлинк туда ничего не
-# коммитит, а лишь даёт привычный путь dist/SCVPN.app без риска UF_HIDDEN.
-rm -rf dist build
-ln -s "$BUILD_DIR/dist" dist
-ln -s "$BUILD_DIR/build" build
-
 echo
-echo "Готово: dist/SCVPN.app (симлинк на $BUILD_DIR/dist/SCVPN.app)"
+echo "Готово: dist/SCVPN.app"
 echo "Перенеси в /Applications и запусти первый раз через ПКМ -> «Открыть»."

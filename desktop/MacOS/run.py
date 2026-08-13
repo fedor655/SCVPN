@@ -1,12 +1,7 @@
 """Точка входа SCVPN для macOS.
 
-venv живёт вне репозитория — см. test.sh: ~/Documents синхронизируется
-iCloud Drive, и синхронизация помечает файлы внутри venv/ флагом UF_HIDDEN,
-из-за которого Qt не находит собственные плагины платформы. По умолчанию
-это ~/.venvs/scvpn (переопределяется переменной SCVPN_VENV).
-
-Запуск:      ~/.venvs/scvpn/bin/python run.py
-Демон:       ~/.venvs/scvpn/bin/python run.py --helper   (запускает launchd от root)
+Запуск:      venv/bin/python run.py
+Демон:       venv/bin/python run.py --helper   (запускает launchd от root)
 """
 import sys
 from pathlib import Path
