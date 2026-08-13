@@ -341,6 +341,101 @@ def test_snapshot_round_trip_restores_state():
         sysproxy._run(["-setproxybypassdomains", probe, "Empty"])
 
 
+# Опытный сервис для проверок, меняющих настройки НАСТОЯЩЕЙ сети этой машины.
+# Thunderbolt Bridge выбран потому, что на ней не используется: кабеля нет,
+# трафика через него нет, и порча его настроек никого не оставит без сети.
+# Wi-Fi и Ethernet-адаптеры такие проверки не трогают — см. подмену
+# hardware_services() в каждой из них.
+_PROBE_SERVICE = "Thunderbolt Bridge"
+
+
+def _reset_probe_proxy(sysproxy, service: str) -> None:
+    """Вернуть опытный сервис к пустому состоянию: выключено, пусто, без обхода."""
+    for _kind, _get, set_cmd, setstate_cmd in sysproxy._KINDS:
+        sysproxy._run([set_cmd, service, "", "0", "off"])
+        sysproxy._run([setstate_cmd, service, "off"])
+    sysproxy._run(["-setproxybypassdomains", service, "Empty"])
+
+
+@check
+def test_disable_leaves_a_foreign_proxy_alone():
+    """Ревью перед слиянием, Important 2: SCVPN стирал чужие настройки прокси
+    просто по запуску и закрытию.
+
+    is_enabled() считала нашим ЛЮБОЙ прокси на 127.0.0.1 без сверки порта, а
+    disable() при отсутствующем снимке выставляла всем сервисам пусто, off и
+    bypass «Empty». main_window зовёт эту пару в четырёх местах, включая
+    closeEvent. На машине, где живёт ещё один клиент (Happ, ChatVPN_*,
+    Tailscale — все они прописывают 127.0.0.1 на своём порту), достаточно
+    было открыть и закрыть SCVPN, ни разу не подключаясь, чтобы уничтожить
+    чужую конфигурацию на всех сетевых сервисах.
+
+    Проверка живая, на настоящем networksetup, но строго на одном опытном
+    сервисе (см. _PROBE_SERVICE): hardware_services() подменён, снимок уведён
+    во временную папку.
+    """
+    from native import sysproxy
+
+    assert _PROBE_SERVICE in sysproxy.hardware_services(), "нет опытного сервиса"
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        with mock.patch.object(sysproxy, "hardware_services", lambda: [_PROBE_SERVICE]), \
+             mock.patch.object(sysproxy, "_SNAPSHOT", tmp / "sysproxy_backup.json"):
+            # Чужой клиент выставил свой прокси — тот же 127.0.0.1, свой порт.
+            sysproxy._run(["-setwebproxy", _PROBE_SERVICE, "127.0.0.1", "9999", "off"])
+            sysproxy._run(["-setsecurewebproxy", _PROBE_SERVICE, "127.0.0.1", "9999", "off"])
+            sysproxy._run(["-setproxybypassdomains", _PROBE_SERVICE, "chat.example"])
+            foreign = sysproxy._read_state(_PROBE_SERVICE)
+            assert foreign["web"]["Port"] == "9999", foreign
+            assert foreign["web"]["Enabled"] == "Yes", foreign
+
+            # Запуск и закрытие SCVPN без единого подключения: снимка нет.
+            assert not sysproxy._SNAPSHOT.exists()
+            assert sysproxy.is_enabled() is False, "чужой прокси принят за свой"
+            # И даже прямой вызов disable() без снимка не смеет ничего трогать.
+            sysproxy.disable()
+            assert sysproxy._read_state(_PROBE_SERVICE) == foreign, (
+                f"чужие настройки изменены:\n{foreign}\n{sysproxy._read_state(_PROBE_SERVICE)}"
+            )
+    finally:
+        _reset_probe_proxy(sysproxy, _PROBE_SERVICE)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@check
+def test_is_enabled_wants_our_own_port_not_just_localhost():
+    """Вторая половина Important 2: одного снимка мало.
+
+    Снимок мог остаться от прошлого падения, а прокси за это время сменил
+    хозяина — на 127.0.0.1 сидят и другие клиенты. Порт мы знаем: его пишет
+    в снимок тот же enable(), который прокси и поставил.
+    """
+    from native import sysproxy
+
+    assert _PROBE_SERVICE in sysproxy.hardware_services(), "нет опытного сервиса"
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        with mock.patch.object(sysproxy, "hardware_services", lambda: [_PROBE_SERVICE]), \
+             mock.patch.object(sysproxy, "_SNAPSHOT", tmp / "sysproxy_backup.json"):
+            before = sysproxy._read_state(_PROBE_SERVICE)
+            sysproxy.enable("127.0.0.1", 10809)
+            try:
+                assert sysproxy.is_enabled() is True, "свой же прокси не опознан"
+                # Чужой клиент перебил настройку на свой порт: снимок наш, а
+                # прокси уже не наш — откатывать нечего.
+                sysproxy._run(["-setwebproxy", _PROBE_SERVICE, "127.0.0.1", "9999", "off"])
+                assert sysproxy.is_enabled() is False, "чужой порт принят за свой"
+            finally:
+                sysproxy.disable()
+            assert sysproxy._read_state(_PROBE_SERVICE) == before, (
+                f"состояние не восстановилось:\n{before}\n{sysproxy._read_state(_PROBE_SERVICE)}"
+            )
+            assert not sysproxy._SNAPSHOT.exists(), "снимок должен уйти вместе с откатом"
+    finally:
+        _reset_probe_proxy(sysproxy, _PROBE_SERVICE)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 @check
 def test_xray_asset_is_arm64():
     from native.downloader import ASSET_NAME
@@ -1384,11 +1479,25 @@ def test_tun_contract_matches_windows():
 
 
 def _native_imports_required_by_shared() -> set[tuple[str, str]]:
-    """(модуль, имя) — всё, что desktop/shared/ реально импортирует из native/.
+    """(модуль, имя) — всё, что desktop/shared/ реально берёт из native/.
 
     Разбираем AST, а не грепаем текст: так подхватывается многострочный
     `from native.tun import (...)`, а любой будущий новый импорт из native/
     попадает в контракт сам, без ручного обновления списка имён.
+
+    Форм обращения к native/ две, и собирать надо обе.
+
+    1) `from native.tun import Tun` — имя названо прямо в импорте.
+    2) `from native import paths` и следом `paths.icon_file()` — импорт не
+       называет ни одного имени ВНУТРИ модуля, поэтому по одним ImportFrom
+       контракт для paths.* и sysproxy.* сводился к «модуль импортируется»,
+       а 15 обращений к paths.* и 9 к sysproxy.* не проверялись вовсе.
+       Доказано мутацией: удаление icon_file() из Windows/native/paths.py
+       оставляло обе контрактные проверки зелёными, хотя run_app() зовёт
+       paths.icon_file() и на Windows свалился бы AttributeError до создания
+       окна — ровно тот класс отказа, ради которого проверка и писалась.
+       Поэтому для имён, связанных такой формой импорта, добираем ещё и
+       ast.Attribute: `<имя>.<атрибут>` в том же файле.
     """
     import ast
 
@@ -1398,12 +1507,25 @@ def _native_imports_required_by_shared() -> set[tuple[str, str]]:
         if "__pycache__" in py.parts:
             continue
         tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+        # Локальное имя -> подмодуль native, который за ним стоит.
+        bound: dict[str, str] = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module and (
                 node.module == "native" or node.module.startswith("native.")
             ):
                 for alias in node.names:
                     required.add((node.module, alias.name))
+                    if node.module == "native":
+                        bound[alias.asname or alias.name] = f"native.{alias.name}"
+        if not bound:
+            continue
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in bound
+            ):
+                required.add((bound[node.value.id], node.attr))
     return required
 
 
@@ -1479,12 +1601,23 @@ def test_native_contract_covers_both_platforms():
     списка, — и сверяет каждое имя против MacOS/native/ и Windows/native/
     отдельными интерпретаторами (см. _missing_native_names). Следующая
     такая правка упадёт здесь, а не на машине пользователя.
+
+    Ревью перед слиянием, Critical 2: одних импортов мало — модули, взятые
+    целиком (`from native import paths` / `sysproxy`), проверялись только на
+    «импортируется», а обращения к их атрибутам не проверялись никак. Теперь
+    в контракт входят и они, см. _native_imports_required_by_shared.
     """
     required = _native_imports_required_by_shared()
     assert required, "не нашлось ни одного импорта из native/ в shared/ — парсер AST сломан"
     assert ("native.tun", "last_privilege_error") in required, (
         "контроль на контроль: last_privilege_error должен быть виден парсеру"
     )
+    # Второй контроль на контроль — уже для атрибутов модуля, взятого целиком:
+    # run_app() зовёт paths.icon_file(), disconnect_vpn() — sysproxy.disable().
+    for pair in (("native.paths", "icon_file"), ("native.sysproxy", "disable")):
+        assert pair in required, (
+            f"контроль на контроль: {pair[0]}.{pair[1]} должен быть виден парсеру"
+        )
 
     macos_dir = Path(__file__).resolve().parent
     windows_dir = macos_dir.parent / "Windows"
@@ -1498,9 +1631,104 @@ def test_native_contract_covers_both_platforms():
 
 
 @check
+def test_tun_stop_returns_bool_on_both_platforms():
+    """Возврат Tun.stop() — часть контракта native, а не деталь macOS.
+
+    По нему shared/ui/main_window.py решает, показывать «Отключено» или
+    «Туннель не снят» (Important 1). Если бы на Windows stop() остался
+    возвращать None, `if not tun_down` срабатывал бы на КАЖДОМ отключении и
+    Windows-пользователь получал бы ложную тревогу при каждом штатном
+    выключении TUN. Проверка контракта по именам этого не ловит: имя stop
+    есть на обеих платформах.
+    """
+    macos_dir = Path(__file__).resolve().parent
+    windows_dir = macos_dir.parent / "Windows"
+    for platform_dir in (macos_dir, windows_dir):
+        script = f"""
+import inspect, sys
+sys.path.insert(0, {str(platform_dir)!r})
+sys.path.insert(0, {str(platform_dir.parent)!r})
+from native import tun
+print(inspect.signature(tun.Tun.stop).return_annotation)
+"""
+        r = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=30,
+        )
+        assert r.returncode == 0, f"{platform_dir}: {r.stderr}"
+        got = r.stdout.strip()
+        assert got in ("bool", "<class 'bool'>"), f"{platform_dir}: Tun.stop() -> {got}"
+
+
+# Тело Windows-версии Tun.stop() — не про сокеты и не про UAC, а про
+# subprocess: terminate, wait, poll. Всё это работает и здесь, поэтому её
+# поведение можно проверить по-настоящему, а не на слово. Отдельным
+# интерпретатором — иначе Windows/native столкнулся бы в sys.modules с
+# MacOS/native под тем же именем (та же причина, что и в _missing_native_names).
+_WINDOWS_STOP_SRC = """
+import subprocess, sys, tempfile
+from pathlib import Path
+from unittest import mock
+sys.path.insert(0, {windows!r})
+sys.path.insert(0, {root!r})
+from native import paths, tun
+
+def make(alive_forever):
+    t = tun.Tun(on_log=lambda s: None, on_state=states.append)
+    # DEVNULL обязателен: этот процесс — внук проверки, и унаследованную трубу
+    # он держал бы открытой, пока жив, а проверка ждала бы по ней EOF.
+    t._proc = subprocess.Popen(["/bin/sh", "-c", "while :; do sleep 1; done"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if alive_forever:
+        # sing-box, переживший и SIGTERM, и SIGKILL: сигналы не доходят.
+        t._proc.terminate = lambda: None
+        t._proc.kill = lambda: None
+        t._proc.wait = lambda timeout=None: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired("sing-box", 1))
+    return t
+
+with mock.patch.object(paths, "DATA_DIR", Path(tempfile.mkdtemp())):
+    states = []
+    t = make(False)
+    proc = t._proc
+    assert t.stop() is True, "штатная остановка обязана вернуть True"
+    assert proc.poll() is not None, "процесс пережил штатную остановку"
+    assert states == [False], states
+
+    states = []
+    t = make(True)
+    proc = t._proc
+    assert t.stop() is False, "процесс жив — stop() не смеет рапортовать успех"
+    assert t.running is True, "ручку на живом процессе отпускать нельзя"
+    assert states == [], f"«отключено» показывать было нельзя: {{states}}"
+    # Убираем за собой мимо подменённых на объекте terminate/kill/wait.
+    subprocess.Popen.kill(proc)
+    subprocess.Popen.wait(proc)
+print("OK")
+"""
+
+
+@check
+def test_windows_tun_stop_tells_the_truth_too():
+    """Возврат Tun.stop() — общий контракт, и Windows-половина обязана его
+    соблюдать не только по аннотации: по нему main_window решает, показывать
+    «Отключено» или «Туннель не снят». Если бы Windows-версия возвращала
+    успех вслепую (или None), пользователь Windows получал бы либо ту же
+    ложь о состоянии, либо ложную тревогу на каждом штатном отключении.
+    """
+    macos_dir = Path(__file__).resolve().parent
+    src = _WINDOWS_STOP_SRC.format(
+        windows=str(macos_dir.parent / "Windows"), root=str(macos_dir.parent),
+    )
+    r = subprocess.run([sys.executable, "-c", src], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0 and r.stdout.strip().endswith("OK"), (
+        f"Windows-версия Tun.stop() не прошла: {r.stdout}\n{r.stderr}"
+    )
+
+
+@check
 def test_connection_close_shuts_down_before_closing_socket():
     """shutdown обязан идти РАНЬШЕ close(): иначе поток, заблокированный в
-    recv (Tun._read_logs / stream_logs), не гарантированно проснётся сразу —
+    recv (Tun._read_logs / stream), не гарантированно проснётся сразу —
     см. комментарий в _Connection.close() и тот же приём в Outbox._overflow
     демона. Порядок проверяем напрямую, без реального сокета: подставляем
     вместо sock/_file объекты, которые просто запоминают порядок вызовов.
@@ -1603,10 +1831,52 @@ def test_tun_start_stop_round_trip_against_real_daemon():
                 time.sleep(0.05)
             assert any("привет из sing-box" in s for s in logs), f"лог sing-box не дошёл до Tun: {logs}"
 
-            t.stop()
+            assert t.stop() is True, "туннель снят — stop() обязан это подтвердить"
             assert t.running is False
             assert stand.wait_gone(), f"sing-box пережил Tun.stop(): {stand.singbox_pids()}"
         assert states == [True, False], states
+
+
+@check
+def test_tun_stop_reports_tunnel_that_survived_the_stop():
+    """Ревью перед слиянием, Important 1 — шов между Задачами 7 и 9.
+
+    Задача 7 сделала ответ демона на stop правдивым: {"ok": not running,
+    "running": running} — потому что stop() имеет право вернуться с живым
+    процессом, если тот пережил SIGKILL (test_daemon_stop_reply_tells_the_
+    truth). Задача 9 сделала Tun.stop() fire-and-forget: команду послал,
+    сокет закрыл, ответ не прочитал никто, следом безусловный on_state(False).
+    Итог: ровно в том случае, ради которого правду добывали — sing-box жив,
+    utun поднят, маршруты держатся — интерфейс говорил «Отключено».
+
+    Здесь всё настоящее: демон в этом же процессе, сокет, поток логов, кадр
+    ответа. Заглушена только Supervisor.stop — так «sing-box пережил
+    остановку» воспроизводится, ничего не убивая по-настоящему и не требуя
+    root (тот же приём, что и в проверке правдивости ответа).
+    """
+    from unittest import mock
+
+    from helper import daemon
+    from native import paths, tun
+    from shared.models import Server
+
+    with _Stand().serve_here() as stand:
+        logs: list[str] = []
+        states: list[bool] = []
+        with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
+             mock.patch.object(paths, "BIN_DIR", stand.tmp), \
+             mock.patch.object(tun, "helper_installed", lambda: True):
+            t = tun.Tun(on_log=logs.append, on_state=states.append)
+            t.start(Server(address="127.0.0.1"), 10808)
+            assert stand.wait_up(), "поддельный sing-box не поднялся"
+
+            with mock.patch.object(daemon.SUPERVISOR, "stop", lambda: None):
+                down = t.stop()
+
+            assert down is False, "демон ответил, что sing-box жив, — stop() соврал"
+            assert t.running is True, "Tun считает туннель снятым, а он поднят"
+            assert states == [True], f"«отключено» показывать было нельзя: {states}"
+            assert any("ТРЕВОГА" in s for s in logs), logs
 
 
 @check
@@ -1695,12 +1965,16 @@ def test_tun_stop_closes_connection_even_when_command_cannot_be_sent():
         with mock.patch.object(paths, "HELPER_SOCKET", Path(stand.sock_path)), \
              mock.patch.object(paths, "BIN_DIR", stand.tmp), \
              mock.patch.object(tun, "helper_installed", lambda: True), \
-             mock.patch.object(tun._Connection, "send", lambda self, *a, **k: None):
+             mock.patch.object(tun._Connection, "send", lambda self, *a, **k: None), \
+             mock.patch.object(tun, "STOP_REPLY_TIMEOUT_SEC", 1.0):
+            # Команда заглушена — значит ответа на неё не будет никогда, и
+            # stop() честно отстоит своё ожидание целиком. Настоящие 12 секунд
+            # тут ничего не проверяют, кроме терпения: укорачиваем.
             t = tun.Tun()
             t.start(Server(address="127.0.0.1"), 10808)
             assert stand.wait_up(), "поддельный sing-box не поднялся"
 
-            t.stop()
+            assert t.stop() is True, "ответа нет — считаем снятым, снимет обрыв соединения"
             assert stand.wait_gone(), (
                 "закрытие соединения одно (команда stop заглушена) не сняло туннель"
             )
@@ -2044,20 +2318,103 @@ def _bare_window(mode: str) -> "object":
     return win
 
 
+def _platform(name: str):
+    """Подменить sys.platform, который видит main_window, — и только его.
+
+    Патчить настоящий sys.platform на весь процесс нельзя: проверки идут в
+    отдельных потоках (_run_with_timeout), и подмена задела бы всё, что в
+    этот момент выполняется. Здесь же подменяется только имя `sys` в
+    пространстве самого main_window, а весь его интерес к нему — одна
+    строчка `sys.platform == "darwin"` в _tun_preflight()/_download_tun().
+    """
+    import types
+
+    import shared.ui.main_window as mw
+
+    return mock.patch.object(mw, "sys", types.SimpleNamespace(platform=name))
+
+
 @check
-def test_connect_vpn_tun_missing_components_warns_before_privilege_question():
-    """Minor ревью Раунда 2: ветка `if not tun_present(): ... return` в
-    connect_vpn() не была покрыта ничем — удаление всего блока давало
-    72/72. Заодно закрывает и Important 3 того же раунда (порядок
-    префлайта): при отсутствии компонентов TUN пользователя не должны
-    вообще спрашивать про права администратора — tun_present() проверяется
-    раньше privileged()/acquire_privilege(), и QMessageBox.question не
-    должен звонить вовсе.
+def test_connect_vpn_tun_on_clean_machine_reaches_privilege_question():
+    """Ревью перед слиянием, Critical 1: на чистой машине (демона нет,
+    sing-box нет) TUN включить было НЕВОЗМОЖНО — замкнутый круг.
+
+    Префлайт требовал компоненты раньше прав, а на macOS компоненты кладёт
+    привилегированный демон, которого ставит ровно ветка прав — за уже
+    непроходимым гейтом. Второй вход был закрыт симметрично: меню «Скачать
+    компоненты TUN» отвечало «сначала установи системный компонент (включи
+    TUN-режим)», то есть отправляло туда, откуда пользователь пришёл.
+
+    Сторож именно на круг: путь включения TUN на чистой машине ОБЯЗАН
+    дойти до вопроса про права, а не упереться в сообщение про компоненты.
+    Отвечаем «нет» — дальше по этому пути на этой машине идти нельзя
+    (установка демона запрещена условиями), но сам вопрос обязан прозвучать.
     """
     import shared.ui.main_window as mw
 
     win = _bare_window("tun")
-    with mock.patch.object(mw, "core_present", lambda: True), \
+    with _platform("darwin"), \
+         mock.patch.object(mw, "core_present", lambda: True), \
+         mock.patch.object(mw, "tun_present", lambda: False), \
+         mock.patch.object(mw, "privileged", lambda: False), \
+         mock.patch.object(mw.QMessageBox, "question",
+                           return_value=mw.QMessageBox.No) as question_mock, \
+         mock.patch.object(mw, "acquire_privilege") as acquire_mock, \
+         mock.patch.object(mw.QApplication, "quit") as quit_mock, \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.connect_vpn()
+
+    question_mock.assert_called_once()
+    shown = question_mock.call_args.args[-1]
+    assert shown == mw.PRIVILEGE_QUESTION, shown
+    warn_mock.assert_not_called()      # «нет компонентов» вместо вопроса — это и был круг
+    acquire_mock.assert_not_called()   # ответили «нет» — ставить демона не пошли
+    quit_mock.assert_not_called()
+    assert win._want_connected is False
+
+
+@check
+def test_connect_vpn_tun_rechecks_components_after_helper_is_installed():
+    """Вторая половина Critical 1: после установки демона компоненты надо
+    ПЕРЕПРОВЕРИТЬ — их всё ещё нет, и следующий шаг пользователя (меню
+    «Скачать компоненты TUN») теперь проходим, потому что демон уже стоит.
+    """
+    import shared.ui.main_window as mw
+
+    win = _bare_window("tun")
+    with _platform("darwin"), \
+         mock.patch.object(mw, "core_present", lambda: True), \
+         mock.patch.object(mw, "tun_present", lambda: False), \
+         mock.patch.object(mw, "privileged", lambda: False), \
+         mock.patch.object(mw, "acquire_privilege", lambda: "ok"), \
+         mock.patch.object(mw.QMessageBox, "question",
+                           return_value=mw.QMessageBox.Yes) as question_mock, \
+         mock.patch.object(mw.QApplication, "quit") as quit_mock, \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.connect_vpn()
+
+    question_mock.assert_called_once()
+    warn_mock.assert_called_once()
+    shown_title = warn_mock.call_args.args[1]
+    assert "компонент" in shown_title.lower(), shown_title
+    quit_mock.assert_not_called()
+    assert win._want_connected is False
+
+
+@check
+def test_connect_vpn_tun_keeps_windows_order_components_before_privilege():
+    """Порядок префлайта разведён по платформам, и вторая половина — тоже
+    требование: на Windows компоненты (два файла на диске) и права (UAC)
+    независимы, поэтому при отсутствии компонентов круг UAC гонять незачем —
+    сперва сообщение «нет компонентов», вопроса про права быть не должно.
+    Windows-половину здесь не запустить, но ветка префлайта — в общем
+    shared/, и выбрать её можно, подменив то, что видит main_window.
+    """
+    import shared.ui.main_window as mw
+
+    win = _bare_window("tun")
+    with _platform("win32"), \
+         mock.patch.object(mw, "core_present", lambda: True), \
          mock.patch.object(mw, "tun_present", lambda: False), \
          mock.patch.object(mw, "privileged", lambda: False), \
          mock.patch.object(mw.QMessageBox, "question") as question_mock, \
@@ -2071,6 +2428,59 @@ def test_connect_vpn_tun_missing_components_warns_before_privilege_question():
     shown_title = warn_mock.call_args.args[1]
     assert "компонент" in shown_title.lower(), shown_title
     assert win._want_connected is False
+
+
+@check
+def test_download_tun_installs_helper_first_on_macos():
+    """Второй вход в TUN. На macOS sing-box кладёт себе сам демон, и без него
+    скачивание отвечало «сначала установи системный компонент» — тот же круг
+    с другой стороны. Теперь пункт меню сперва предлагает поставить демона;
+    отказ означает, что скачивать никто не побежит.
+    """
+    import shared.ui.main_window as mw
+
+    win = _bare_window("tun")
+    started: list = []
+    win._run_download = lambda *a, **k: started.append(a)
+
+    with _platform("darwin"), \
+         mock.patch.object(mw, "privileged", lambda: False), \
+         mock.patch.object(mw.QMessageBox, "question",
+                           return_value=mw.QMessageBox.No) as question_mock:
+        win._download_tun()
+
+    question_mock.assert_called_once()
+    assert not started, "без демона качать некуда — скачивание не должно было стартовать"
+
+    with _platform("darwin"), \
+         mock.patch.object(mw, "privileged", lambda: True), \
+         mock.patch.object(mw.QMessageBox, "question") as question_mock:
+        win._download_tun()
+
+    question_mock.assert_not_called()   # демон уже стоит — спрашивать не о чем
+    assert len(started) == 1, "с установленным демоном скачивание обязано стартовать"
+
+
+@check
+def test_download_tun_log_does_not_promise_wintun_on_macos():
+    """Мелочь ревью: строка лога обещала «sing-box + wintun» на обеих
+    платформах, а wintun — драйвер адаптера, которого на macOS нет вовсе.
+    """
+    import shared.ui.main_window as mw
+
+    logs: list[str] = []
+    win = _bare_window("tun")
+    win._append_log = logs.append
+    win._run_download = lambda *a, **k: None
+
+    with _platform("darwin"), mock.patch.object(mw, "privileged", lambda: True):
+        win._download_tun()
+    assert "wintun" not in logs[-1].lower(), logs[-1]
+    assert "sing-box" in logs[-1], logs[-1]
+
+    with _platform("win32"):
+        win._download_tun()
+    assert "wintun" in logs[-1].lower(), logs[-1]
 
 
 @check
@@ -2172,6 +2582,53 @@ def test_connect_vpn_surfaces_real_installer_error_text():
     assert shown != "Не удалось получить права администратора.", (
         "должен показываться настоящий текст причины, а не зашитая фраза ни о чём"
     )
+
+
+@check
+def test_disconnect_does_not_report_idle_when_tunnel_survived():
+    """Important 1 со стороны интерфейса: правдивый ответ демона обязан
+    доехать до экрана. Раньше disconnect_vpn() возврат Tun.stop() не смотрел
+    вовсе, и «Отключено» рисовалось в любом случае.
+
+    Заодно сторож на состояние "tun_stuck": рисует его _render_state, а
+    кольцо кнопки берёт цвет и стиль из PowerButton._RING по тому же ключу —
+    забыть там строчку значит уронить paintEvent по KeyError уже в руках
+    пользователя, а не здесь.
+    """
+    import shared.ui.main_window as mw
+    from shared.ui.widgets import PowerButton
+
+    assert set(mw.STATE_TEXTS) == set(mw.STATE_COLORS) == set(PowerButton._RING), (
+        "состояния статуса и кольца кнопки разошлись: "
+        f"{sorted(mw.STATE_TEXTS)} / {sorted(mw.STATE_COLORS)} / {sorted(PowerButton._RING)}"
+    )
+
+    def window(tun_down: bool):
+        win = _bare_window("tun")
+        rendered: list[str] = []
+        win._render_state = rendered.append
+        win.tun = mock.MagicMock()
+        win.tun.stop.return_value = tun_down
+        win.runner = mock.MagicMock()
+        return win, rendered
+
+    # Туннель не снялся — «Отключено» показывать нельзя.
+    win, rendered = window(False)
+    with mock.patch.object(mw.sysproxy, "is_enabled", lambda: False), \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.disconnect_vpn()
+    warn_mock.assert_called_once()
+    assert rendered[-1:] == ["tun_stuck"], rendered
+    assert mw.STATE_TEXTS[rendered[-1]] != mw.STATE_TEXTS["idle"], mw.STATE_TEXTS
+
+    # Положительный контроль: снялся — никакой тревоги и никакого нового
+    # состояния поверх обычного «Отключено» (его рисует _on_state от runner).
+    win, rendered = window(True)
+    with mock.patch.object(mw.sysproxy, "is_enabled", lambda: False), \
+         mock.patch.object(mw.QMessageBox, "warning") as warn_mock:
+        win.disconnect_vpn()
+    warn_mock.assert_not_called()
+    assert rendered == [], rendered
 
 
 @check

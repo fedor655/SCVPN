@@ -359,9 +359,17 @@ class Tun:
         self.on_log(f"[tun] sing-box завершился (код {code})")
         self.on_state(False)
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """Снять sing-box. True — он снят; False — пережил остановку.
+
+        Контракт возврата общий с macOS (см. MacOS/native/tun.py): там правду
+        о снятии добывает ответ привилегированного демона, здесь — poll()
+        своего же процесса. Общий у них смысл: пока sing-box жив, TUN-адаптер
+        поднят и маршруты держатся, и интерфейс не имеет права показать
+        «Отключено» — shared/ui/main_window.py решает это по возврату.
+        """
         if self._proc is None:
-            return
+            return True
         if self._proc.poll() is None:
             self.on_log("[tun] останавливаю sing-box (маршруты вернутся сами)…")
             try:
@@ -370,11 +378,21 @@ class Tun:
                     self._proc.wait(timeout=7)
                 except subprocess.TimeoutExpired:
                     self._proc.kill()
+                    self._proc.wait(timeout=3)
             except Exception as e:  # noqa: BLE001
                 self.on_log(f"[tun] ошибка остановки: {e}")
+        if self._proc.poll() is None:
+            # Ручку на живом процессе не отпускаем: иначе running врал бы
+            # False, pid-файл ушёл бы вместе с единственным следом, и убрать
+            # за собой не смог бы даже следующий запуск (см. cleanup_stray).
+            self.on_log(
+                "[tun] ТРЕВОГА: sing-box пережил остановку — туннель ещё держит маршруты"
+            )
+            return False
         self._proc = None
         pid_file("singbox.pid").unlink(missing_ok=True)
         self.on_state(False)
+        return True
 
 
 # ----------------------------------------------------------------------

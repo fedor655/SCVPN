@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import signal
 import socket
 import threading
@@ -36,6 +37,12 @@ PRIVILEGE_QUESTION = (
     "который нужно установить один раз. Понадобится пароль администратора.\n\n"
     "Установить сейчас?"
 )
+
+# Сколько ждать правдивый ответ демона на команду stop. Верхняя граница — его
+# собственный бюджет на остановку: STOP_GRACE_SEC (7 с на SIGTERM) плюс
+# KILL_GRACE_SEC (3 с на SIGKILL), см. helper/daemon.py, — и запас на дорогу.
+# Дольше ждать нечего: если демон не ответил и за это время, ответа не будет.
+STOP_REPLY_TIMEOUT_SEC = 12.0
 
 
 def privileged() -> bool:
@@ -150,7 +157,7 @@ class _Connection:
 
     У соединения ровно один читатель за раз. Пока идёт start() или разовый
     install_singbox(), это вызывающий поток (через request()). После start()
-    читателем становится поток Tun._read_logs (через stream_logs()) — и с
+    читателем становится поток Tun._read_logs (через stream()) — и с
     этого момента request() больше не читает: два потока, одновременно
     вызывающих readline() на одном и том же файле сокета, отдавали бы строки
     непредсказуемо кому попало, и ответ на stop() мог годами дожидаться,
@@ -194,20 +201,28 @@ class _Connection:
         self.sock.settimeout(timeout)
         self.sock.sendall((json.dumps(payload, ensure_ascii=False) + "\n").encode())
 
-    def stream_logs(self, on_log: Callable[[str], None]) -> None:
-        """Читать лог до обрыва. Возврат означает, что соединение закрылось."""
+    def stream(self, on_frame: Callable[[dict], None]) -> None:
+        """Читать кадры до обрыва. Возврат означает, что соединение закрылось.
+
+        Наверх отдаём ВСЕ кадры, а не только log. После start() этот читатель
+        единственный на соединении — значит и ответ демона на stop приходит
+        сюда. Раньше здесь стояло `if "log" in msg`, и всё остальное молча
+        выбрасывалось: правдивый ответ на stop («running: True», если sing-box
+        пережил SIGKILL) было физически некому прочитать, а Tun.stop() всё
+        равно рапортовал «отключено». Сортирует кадры Tun._read_logs.
+        """
         self.sock.settimeout(None)
         for line in self._file:
             try:
                 msg = json.loads(line)
             except ValueError:
                 continue
-            if "log" in msg:
-                on_log(msg["log"])
+            if isinstance(msg, dict):
+                on_frame(msg)
 
     def close(self) -> None:
         # shutdown раньше close: если поток стоит в блокирующем recv внутри
-        # stream_logs, одного close() ему может не хватить, чтобы проснуться
+        # stream(), одного close() ему может не хватить, чтобы проснуться
         # немедленно — тот же приём демон применяет к самому себе на своей
         # стороне (см. Outbox._overflow в helper/daemon.py).
         try:
@@ -251,6 +266,9 @@ class Tun:
         self._conn: Optional[_Connection] = None
         self._pump: Optional[threading.Thread] = None
         self._running = False
+        # Ответы демона, вычитанные потоком логов (единственным законным
+        # читателем сокета) для того, кто их ждёт — см. stop().
+        self._replies: "queue.Queue[dict]" = queue.Queue()
         self.on_log = on_log or (lambda s: None)
         self.on_state = on_state or (lambda running: None)
 
@@ -330,13 +348,34 @@ class Tun:
         # Соединение остаётся открытым: демон читает его обрыв как «приложение
         # мертво» и снимает туннель сам. С этого момента и до stop() читает
         # сокет только этот поток — см. предупреждение в _Connection.
-        self._pump = threading.Thread(target=self._read_logs, daemon=True)
+        # Соединение потоку передаём аргументом, а не читаем из self: по нему
+        # он и узнаёт, его ли ещё очередь докладывать о состоянии (см. ниже).
+        self._pump = threading.Thread(target=self._read_logs, args=(conn,), daemon=True)
         self._pump.start()
 
-    def _read_logs(self) -> None:
-        conn = self._conn
-        if conn is None:
-            return
+    def _read_logs(self, conn: _Connection) -> None:
+        def mine() -> bool:
+            """Всё ещё ли self._conn — то соединение, которое читает этот поток.
+
+            Нет — значит либо его закрыл stop() (он обнуляет self._conn первой
+            строкой и сам, дождавшись правдивого ответа, докладывает, чем всё
+            кончилось), либо поверх уже поднята новая сессия. В обоих случаях
+            рассказывать свою версию событий не наше дело: перебить честное
+            «туннель не снят» или состояние чужой сессии своим on_state(False)
+            хуже, чем промолчать. Сверка именно по объекту соединения, а не по
+            флагу «идёт остановка»: флаг пришлось бы снимать, и поток, который
+            просыпается от close() не мгновенно, успел бы увидеть его снятым.
+            """
+            return self._conn is conn
+
+        def on_frame(msg: dict) -> None:
+            if "log" in msg:
+                on_line(str(msg["log"]))
+                return
+            # Не лог — значит ответ на команду. Свой ответ читают сами только
+            # start() и install_singbox(), и оба успевают до запуска этого
+            # потока; всё, что доходит сюда, ждёт stop().
+            self._replies.put(msg)
 
         def on_line(s: str) -> None:
             self.on_log("[tun] " + s)
@@ -350,41 +389,90 @@ class Tun:
             # его безопасно можно только из другого потока (см. stop() и
             # docstring _Connection.close), а мы сейчас внутри цикла чтения
             # этого же соединения.
-            if self._running and s.startswith("sing-box завершился"):
+            if mine() and self._running and s.startswith("sing-box завершился"):
                 self._running = False
                 self.on_state(False)
 
         try:
-            conn.stream_logs(on_line)
+            conn.stream(on_frame)
         except OSError:
             pass
+        if not mine():
+            return
         if self._running:
             self._running = False
             self.on_log("[tun] системный компонент закрыл соединение")
             self.on_state(False)
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """Снять туннель. True — он снят; False — демон честно ответил, что нет.
+
+        Ответ демона на stop правдив по построению: он смотрит на живой
+        процесс, а не рапортует False вслепую (см. handle_line в
+        helper/daemon.py и test_daemon_stop_reply_tells_the_truth). Прочитать
+        его обязательно: sing-box имеет право пережить и SIGTERM, и SIGKILL —
+        и тогда utun поднят, маршруты держатся, а «Отключено» на экране это
+        ровно та ложь о состоянии, ради ухода от которой правду и добывали.
+        """
         conn = self._conn
         self._conn = None
         if conn is None:
             if self._running:
-                self._running = False
-                self.on_state(False)
-            return
+                # Соединения нет, а туннель мы всё ещё считаем поднятым — так
+                # бывает ровно после неудачного stop() ниже: sing-box пережил
+                # остановку, соединение закрыто, попросить демона больше
+                # нечем. Сказать «снят» здесь значило бы соврать повторно.
+                return False
+            return True
+
+        # С этой секунды self._conn уже не то соединение, которое читает поток
+        # логов, — и поток по этому признаку замолкает, оставляя доклад о
+        # состоянии за нами (см. mine() в _read_logs).
         self.on_log("[tun] останавливаю туннель (маршруты вернутся сами)…")
-        self._running = False
+        reply: Optional[dict] = None
         try:
-            # request() здесь не годится: ответ на sock читает поток
-            # _read_logs (запущен в start()), и вычитывать сокет из двух
-            # потоков одновременно нельзя — ответ мог достаться не тому. Шлём
-            # команду не дожидаясь ответа, а закрытие соединения ниже — это
-            # ВТОРОЙ, независимый способ снять туннель, и на него самого по
-            # себе демон уже реагирует правильно (см. docstring модуля).
+            # request() здесь по-прежнему не годится: сокет с момента start()
+            # читает поток _read_logs, и второй читатель забирал бы строки
+            # непредсказуемо — на этом ответ на stop когда-то и терялся,
+            # подвешивая stop() до таймаута. Поэтому команду шлём отсюда, а
+            # ответ забираем у того же единственного читателя через очередь.
+            self._drain_replies()
             conn.send({"cmd": "stop"})
+            reply = self._await_stop_reply()
         except OSError as e:
             self.on_log(f"[tun] не удалось отправить команду остановки: {e}")
         finally:
             # Даже если команда stop не дошла или её съел разрыв связи —
             # демон увидит обрыв соединения и снимет туннель сам.
             conn.close()
-        self.on_state(False)
+
+        if reply is not None and reply.get("running"):
+            self.on_log(
+                "[tun] ТРЕВОГА: sing-box пережил остановку — туннель ещё держит маршруты"
+            )
+            self._running = True
+            return False
+
+        if self._running:
+            # Проверка не лишняя: туннель мог отвалиться сам ещё до stop() —
+            # тогда поток логов уже доложил об этом (на своём соединении, пока
+            # оно было нашим), и повторять то же самое незачем.
+            self._running = False
+            self.on_state(False)
+        return True
+
+    def _drain_replies(self) -> None:
+        """Выбросить ответы, оставшиеся от прошлых команд, — ждём только свой."""
+        while True:
+            try:
+                self._replies.get_nowait()
+            except queue.Empty:
+                return
+
+    def _await_stop_reply(self) -> Optional[dict]:
+        """Ответ демона на stop от потока логов. None — не дождались."""
+        try:
+            return self._replies.get(timeout=STOP_REPLY_TIMEOUT_SEC)
+        except queue.Empty:
+            self.on_log("[tun] системный компонент не ответил на команду остановки")
+            return None

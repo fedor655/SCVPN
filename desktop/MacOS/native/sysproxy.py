@@ -11,6 +11,13 @@ VPN-конфигов в системе бывают десятки, прокси
 Прежнее состояние каждого сервиса пишем на диск перед включением. Так откат
 переживает падение приложения: следующий запуск увидит снимок и вернёт как было.
 
+Снимок же — единственное разрешение что-либо откатывать. Нет снимка — значит
+этот прокси ставили не мы, и трогать его нельзя: на машине пользователя обычно
+живёт ещё один-два клиента (Happ, Tailscale и подобные), и все они прописывают
+себе ровно тот же 127.0.0.1, только на своём порту. Без такой проверки один
+запуск SCVPN «в холостую» — открыл и закрыл, ни разу не подключившись — стирал
+бы чужую настройку на всех сетевых сервисах разом.
+
 Это «режим как в браузере»: его уважают почти все приложения с интерфейсом.
 Консольные утилиты переменные прокси читают сами и про эту настройку не знают —
 для них есть TUN-режим.
@@ -104,18 +111,42 @@ def _read_state(service: str) -> dict[str, dict[str, str] | list[str]]:
     return state
 
 
+def _load_snapshot() -> dict | None:
+    """Снимок с диска или None, если его нет (или он нечитаем).
+
+    Возвращённый снимок всегда одной формы: {"services": {...}, "proxy": {...}}.
+    """
+    try:
+        data = json.loads(_SNAPSHOT.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if "services" not in data:
+        # Снимок прежнего формата: сервисы лежали прямо в корне, а свой адрес
+        # мы никуда не писали. Понять его надо — он хранит НАСТОЯЩЕЕ прежнее
+        # состояние сети, и потерять эту запись значит потерять настройки,
+        # ради сохранности которых снимок и заводился.
+        return {"services": data}
+    return data
+
+
 def enable(host: str = "127.0.0.1", port: int = 10809) -> None:
     """Включить системный HTTP/HTTPS-прокси на host:port."""
     services = hardware_services()
     if not services:
         raise RuntimeError("Не нашлось активных сетевых сервисов для настройки прокси")
 
-    # Снимок пишем до первого изменения и только если его ещё нет: повторный
-    # enable поверх включённого не должен запомнить наши же настройки как «было».
-    if not _SNAPSHOT.exists():
-        paths.ensure_dirs()
-        snapshot = {s: _read_state(s) for s in services}
-        _SNAPSHOT.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Состояние сервисов запоминаем до первого изменения и только если снимка
+    # ещё нет: повторный enable поверх включённого не должен запомнить наши же
+    # настройки как «было». А вот адрес пишем всегда свежий — порт выбирается
+    # при каждом подключении заново (find_free_port), и по устаревшему потом
+    # не опознать собственный прокси.
+    snapshot = _load_snapshot() or {}
+    snapshot.setdefault("services", {s: _read_state(s) for s in services})
+    snapshot["proxy"] = {"host": host, "port": int(port)}
+    paths.ensure_dirs()
+    _SNAPSHOT.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
 
     for service in services:
         for _kind, _get, set_cmd, _setstate in _KINDS:
@@ -125,14 +156,26 @@ def enable(host: str = "127.0.0.1", port: int = 10809) -> None:
 
 
 def disable() -> None:
-    """Выключить системный прокси и вернуть то, что стояло до нас."""
-    try:
-        snapshot = json.loads(_SNAPSHOT.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        snapshot = {}
+    """Выключить системный прокси и вернуть то, что стояло до нас.
+
+    Без снимка не делаем НИЧЕГО. Снимок — это и есть запись «прокси ставили
+    мы», и одновременно единственный источник знания, к чему возвращать. Без
+    него прежняя версия выставляла всем сервисам пустой Server, off и bypass
+    «Empty» — то есть стирала настройку чужого клиента, даже если SCVPN сам
+    в этот запуск ничего не включал.
+    """
+    snapshot = _load_snapshot()
+    if snapshot is None:
+        return
+    services_was = snapshot.get("services", {})
 
     for service in hardware_services():
-        was = snapshot.get(service, {})
+        if service not in services_was:
+            # Сервиса не было в снимке — значит его прокси мы не трогали
+            # (например, кабель воткнули уже после включения). Возвращать его
+            # «как было» нам не к чему и не по праву.
+            continue
+        was = services_was[service]
         for kind, _get, set_cmd, setstate_cmd in _KINDS:
             fields = was.get(kind, {})
             # -set*proxy сам взводит Enabled (даже при пустом Server — проверено
@@ -150,9 +193,28 @@ def disable() -> None:
 
 
 def is_enabled() -> bool:
-    """Стоит ли сейчас наш прокси хотя бы на одном сервисе."""
+    """Стоит ли сейчас НАШ прокси хотя бы на одном сервисе.
+
+    Два условия, и оба нужны.
+
+    Снимок: он есть только если включали мы. Переживает и падение приложения
+    — следующий запуск по нему и опознает свою работу, и откатит её.
+
+    Порт: на 127.0.0.1 сидят и другие VPN-клиенты (у владельца этой машины —
+    Happ, ChatVPN_*, Tailscale), и по одному лишь адресу чужой прокси не
+    отличить от своего. Порт мы знаем — он записан в снимке тем же enable(),
+    который прокси и поставил.
+    """
+    snapshot = _load_snapshot()
+    if snapshot is None:
+        return False
+    ours = snapshot.get("proxy") or {}
+    host = str(ours.get("host", ""))
+    port = str(ours.get("port", ""))
+    if not host or not port:
+        return False
     for service in hardware_services():
         web = _read_state(service).get("web", {})
-        if web.get("Enabled") == "Yes" and web.get("Server", "").startswith("127.0.0.1"):
+        if web.get("Enabled") == "Yes" and web.get("Server") == host and web.get("Port") == port:
             return True
     return False
