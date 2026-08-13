@@ -200,10 +200,12 @@ def is_enabled() -> bool:
     Снимок: он есть только если включали мы. Переживает и падение приложения
     — следующий запуск по нему и опознает свою работу, и откатит её.
 
-    Порт: на 127.0.0.1 сидят и другие VPN-клиенты (у владельца этой машины —
-    Happ, ChatVPN_*, Tailscale), и по одному лишь адресу чужой прокси не
-    отличить от своего. Порт мы знаем — он записан в снимке тем же enable(),
-    который прокси и поставил.
+    Хост: на 127.0.0.1 сидят и другие VPN-клиенты (у владельца этой машины —
+    Happ, ChatVPN_*, Tailscale). Новый снимок содержит и порт, и по адресу с
+    портом чужой прокси не отличить от своего. Снимок прежнего формата портом
+    не располагал — в нём восстанавливаем ровно как было, т.е. сверяемся по
+    хосту, без порта. Это отоб услове снимка: чужой клиент своего снимка у
+    нас не оставляет.
     """
     snapshot = _load_snapshot()
     if snapshot is None:
@@ -211,10 +213,24 @@ def is_enabled() -> bool:
     ours = snapshot.get("proxy") or {}
     host = str(ours.get("host", ""))
     port = str(ours.get("port", ""))
-    if not host or not port:
-        return False
+
+    # Старый формат: снимок без блока proxy. Сверяемся по хосту.
+    has_new_format = bool(ours)
+    if not has_new_format:
+        if not host:
+            host = "127.0.0.1"  # дефолт старого формата
+    else:
+        if not host or not port:
+            return False
+
     for service in hardware_services():
         web = _read_state(service).get("web", {})
-        if web.get("Enabled") == "Yes" and web.get("Server") == host and web.get("Port") == port:
-            return True
+        if web.get("Enabled") == "Yes" and web.get("Server") == host:
+            if has_new_format:
+                # Новый формат: требуем совпадение порта
+                if web.get("Port") == port:
+                    return True
+            else:
+                # Старый формат: только хост
+                return True
     return False

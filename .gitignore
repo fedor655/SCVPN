@@ -43,6 +43,7 @@ android/keystore.properties
 *.iml
 Thumbs.db
 desktop.ini
+.DS_Store
 
 # личные заметки
 desktop/промпт.txt

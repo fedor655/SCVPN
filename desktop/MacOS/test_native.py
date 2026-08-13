@@ -437,6 +437,55 @@ def test_is_enabled_wants_our_own_port_not_just_localhost():
 
 
 @check
+def test_is_enabled_recognizes_old_snapshot_format():
+    """Снимок старого формата (без блока proxy) опознаётся как наш.
+
+    Миграция между версиями: на диске остался снимок прежнего формата
+    (сервисы лежат в корне, без блока proxy), disable() по нему честно
+    откатывает настройки. Но is_enabled() для такого снимка должен вернуть
+    True, если стоит наш прокси на 127.0.0.1, — тогда disabled() будет
+    вызван и откатит настройки. Иначе путь «остался снимок от прошлой версии,
+    надо вернуть настройки» недостижим через интерфейс.
+    """
+    from native import sysproxy
+
+    assert _PROBE_SERVICE in sysproxy.hardware_services(), "нет опытного сервиса"
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        with mock.patch.object(sysproxy, "hardware_services", lambda: [_PROBE_SERVICE]), \
+             mock.patch.object(sysproxy, "_SNAPSHOT", tmp / "sysproxy_backup.json"):
+            before = sysproxy._read_state(_PROBE_SERVICE)
+            # Выставляем старый формат снимка: сервисы прямо в корне, нет блока proxy.
+            snapshot = {
+                _PROBE_SERVICE: {
+                    "web": {"Enabled": "No", "Server": "", "Port": "0"},
+                    "secure": {"Enabled": "No", "Server": "", "Port": "0"},
+                    "bypass": [],
+                }
+            }
+            sysproxy._SNAPSHOT.write_text(json.dumps(snapshot), encoding="utf-8")
+            # Ставим прокси на 127.0.0.1:10809 — это то, что enable() писал в старый формат.
+            sysproxy._run(["-setwebproxy", _PROBE_SERVICE, "127.0.0.1", "10809", "off"])
+            sysproxy._run(["-setsecurewebproxy", _PROBE_SERVICE, "127.0.0.1", "10809", "off"])
+            try:
+                # Снимок старого формата, прокси есть — опознаём как свой.
+                assert sysproxy.is_enabled() is True, "старый формат снимка не опознан"
+                # Откатываем — должен сработать, несмотря на отсутствие блока proxy.
+                sysproxy.disable()
+                # Проверяем, что откатилось.
+                after = sysproxy._read_state(_PROBE_SERVICE)
+                assert after == before, (
+                    f"состояние не восстановилось:\n{before}\n{after}"
+                )
+                assert not sysproxy.is_enabled(), "откатанный прокси считается своим"
+            finally:
+                sysproxy.disable()
+                _reset_probe_proxy(sysproxy, _PROBE_SERVICE)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@check
 def test_xray_asset_is_arm64():
     from native.downloader import ASSET_NAME
 
