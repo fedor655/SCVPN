@@ -4,7 +4,7 @@
 Делает то же, что Happ / v2rayTun (подписки, VLESS+Reality и др.), но весь код
 обёртки открыт и лежит здесь — видно, что и куда уходит.
 
-
+| | |
 |---|---|
 | **Windows** | `desktop/Windows/` — Python + PySide6, ядро `xray.exe` рядом |
 | **macOS** | `desktop/MacOS/` — тот же код, TUN через привилегированный демон (Apple Silicon) |
