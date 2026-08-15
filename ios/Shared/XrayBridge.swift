@@ -1,7 +1,7 @@
 import Foundation
 import SCVPNCore
-#if canImport(LibXray)
-import LibXray
+#if canImport(LibXrayKit)
+import LibXrayKit
 #endif
 
 /// Фасад над ядром Xray. Единственное место в проекте, где встречается имя
@@ -30,27 +30,48 @@ struct XrayBridge: DelayMeasuring {
         }
     }
 
-    #if canImport(LibXray)
+    #if canImport(LibXrayKit)
     static var available: Bool { true }
 
-    /// Весь API libXray — одна функция `LibXrayInvoke(requestJSON) -> responseJSON`
-    /// (`invoke.go`, API-версия 2). Метод и его аргументы едут внутри JSON,
-    /// ответ приходит в конверте `{"success":…,"data":…,"error":…}`.
-    private static let apiVersion = 2
+    /// Весь API libXray — одна функция `CGoInvoke(requestJSON) -> responseJSON`.
+    /// Метод и его аргументы едут внутри JSON, ответ приходит в конверте
+    /// `{"success":…,"data":…,"error":…}`.
+    ///
+    /// **Номер версии API меняется от сборки к сборке**, и на чужой libXray
+    /// отвечает `unsupported apiVersion`. Гадать бессмысленно: версия
+    /// определяется один раз при первом вызове перебором, безобидным методом
+    /// `xrayVersion`. Дешевле трёх лишних вызовов на запуск — сломанная сборка
+    /// после обновления фреймворка.
+    private static let versionLock = NSLock()
+    nonisolated(unsafe) private static var negotiated: Int?
+
+    private static func apiVersion() -> Int {
+        versionLock.lock(); defer { versionLock.unlock() }
+        if let negotiated { return negotiated }
+        for candidate in [2, 1, 3, 0] where !failsVersionCheck(candidate) {
+            negotiated = candidate
+            return candidate
+        }
+        negotiated = 2   // ничего не подошло — пусть ошибка будет говорящей
+        return 2
+    }
+
+    private static func failsVersionCheck(_ version: Int) -> Bool {
+        let request = #"{"apiVersion":\#(version),"method":"xrayVersion"}"#
+        return LibXrayCore.invoke(request).contains("unsupported apiVersion")
+    }
 
     @discardableResult
     private static func invoke(_ method: String, payload: [String: Any] = [:]) throws -> [String: Any] {
-        var request: [String: Any] = ["apiVersion": apiVersion, "method": method]
+        var request: [String: Any] = ["apiVersion": apiVersion(), "method": method]
         if !payload.isEmpty {
-            // payload у libXray — сырой JSON внутри JSON, но gomobile принимает
-            // объект: он разбирает его как json.RawMessage при декодировании.
             request["payload"] = payload
         }
         guard let data = try? JSONSerialization.data(withJSONObject: request),
               let text = String(data: data, encoding: .utf8) else {
             throw Failure.core("не собрал запрос к ядру")
         }
-        let reply = LibXrayInvoke(text)
+        let reply = LibXrayCore.invoke(text)
         guard let replyData = reply.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: replyData) as? [String: Any] else {
             throw Failure.core("ядро ответило не JSON")
@@ -61,8 +82,17 @@ struct XrayBridge: DelayMeasuring {
         return object["data"] as? [String: Any] ?? [:]
     }
 
+    /// Запуск ядра конфигом.
+    ///
+    /// Имя поля тоже разное между сборками: старые ждут `configJSON` у метода
+    /// `runXrayFromJson`, новые — `xrayJson` у `runXray`. Пробуем оба, иначе
+    /// обновление фреймворка молча ломает подключение.
     static func start(configJSON: String) throws {
-        try invoke("runXray", payload: ["xrayJson": configJSON])
+        do {
+            try invoke("runXray", payload: ["xrayJson": configJSON])
+        } catch {
+            try invoke("runXrayFromJson", payload: ["configJSON": configJSON])
+        }
     }
 
     static func stop() {
@@ -74,7 +104,13 @@ struct XrayBridge: DelayMeasuring {
     }
 
     static var version: String {
-        ((try? invoke("xrayVersion"))?["version"] as? String) ?? ""
+        do {
+            return (try invoke("xrayVersion")["version"] as? String) ?? "ответ без версии"
+        } catch {
+            // Причину видно только здесь: молчаливое «не отвечает» на экране
+            // отлаживать нечем.
+            return "\(error)"
+        }
     }
 
     /// Задержка в мс или -1.
@@ -82,8 +118,18 @@ struct XrayBridge: DelayMeasuring {
     /// `pingBatch` поднимает ядро и гасит его внутри вызова — ровно то, что
     /// нужно для замера: собственный туннель при этом не трогается.
     static func measureDelay(configJSON: String, url: String) -> Int {
+        // Замер принимает только путь к файлу, поэтому конфиг кладётся во
+        // временную папку и удаляется сразу после.
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("probe-\(UUID().uuidString).json")
+        guard (try? configJSON.write(to: file, atomically: true, encoding: .utf8)) != nil
+        else { return -1 }
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        // Оба поколения полей разом: лишний ключ сборка просто игнорирует.
         let payload: [String: Any] = [
-            "configs": [["xrayJson": configJSON, "outboundTag": "proxy"]],
+            "configs": [["configPath": file.path, "xrayJson": configJSON,
+                         "outboundTag": "proxy"]],
             "timeout": 5,
             "url": url,
         ]

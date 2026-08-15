@@ -20,6 +20,44 @@ packages:
     branch: main
 
 targets:
+  # Ядро Xray, завёрнутое в свой динамический фреймворк.
+  #
+  # Зачем обёртка: LibXray.xcframework — статическая библиотека с модульной
+  # картой, и каждый таргет, который её линкует, копирует заголовки в общий
+  # каталог include. Два таргета дают «Multiple commands produce
+  # .../include/module.modulemap». Здесь ядро обрабатывается один раз, а
+  # приложение и расширение зависят уже от обёртки — заодно ядро лежит в
+  # бандле в единственном экземпляре.
+  LibXrayKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: LibXrayKit/Sources/LibXrayKit
+      - path: LibXrayKit/Sources/LibXrayKit/include
+        headerVisibility: public
+    dependencies:
+      # Go-runtime внутри ядра зовёт res_9_ninit — резолвер BSD.
+      - sdk: libresolv.tbd
+    # Без своего Info.plist бандл фреймворка собирается без него, и система
+    # отказывается ставить приложение: «Info.plist missing».
+    info:
+      path: LibXrayKit/Info.plist
+      properties:
+        CFBundleShortVersionString: "26.7.28"
+        CFBundleVersion: "1"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.scvpn.ios.LibXrayKit
+        DEFINES_MODULE: "YES"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+        # Библиотека линкуется флагами, а не зависимостью: так её заголовки не
+        # попадают в общий include и не спорят с hev-socks5-tunnel.
+        OTHER_LDFLAGS: -lXray
+        SWIFT_OBJC_INTERFACE_HEADER_NAME: LibXrayKit-Swift.h
+        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": $(SRCROOT)/Frameworks/LibXray.xcframework/ios-arm64
+        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": $(SRCROOT)/Frameworks/LibXray.xcframework/ios-arm64_x86_64-simulator
+
   SCVPN:
     type: application
     platform: iOS
@@ -32,9 +70,8 @@ targets:
       - target: PacketTunnel
       # Ядро нужно и приложению: подбор отпечатка и замер задержки идут здесь,
       # у приложения нет лимита памяти расширения.
-      - framework: Frameworks/LibXray.xcframework
+      - target: LibXrayKit
         embed: true
-      - sdk: libresolv.tbd
     info:
       path: SCVPN/Info.plist
       properties:
@@ -70,9 +107,9 @@ targets:
       - package: Tun2SocksKit
         product: Tun2SocksKit
       # Внутри бандла приложения фреймворк уже есть — второй копии не нужно.
-      - framework: Frameworks/LibXray.xcframework
+      # Фреймворк уже лежит в бандле приложения — второй копии не нужно.
+      - target: LibXrayKit
         embed: false
-      - sdk: libresolv.tbd
     info:
       path: PacketTunnel/Info.plist
       properties:

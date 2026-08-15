@@ -43,6 +43,12 @@ struct SettingsSheet: View {
                     }
                 }
 
+                Section("Ядро") {
+                    LabeledContent("Xray", value: XrayBridge.available ? XrayBridge.version
+                                                                        : "нет в сборке")
+                        .font(.scvpnUI(12))
+                }
+
                 Section("Устройство") {
                     LabeledContent("HWID", value: deviceID())
                         .font(.scvpnMono(11))

@@ -21,6 +21,36 @@ open SCVPN.xcodeproj
 cd core-swift && xcodebuild test -scheme SCVPNCore -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
 ```
 
+## Ядро Xray
+
+Ядро в репозиторий не кладётся — это 312 МБ сторонних бинарников. Скачать
+готовую сборку (Go для этого не нужен):
+
+```bash
+curl -sSL -o /tmp/libxray.zip \
+  https://github.com/XTLS/libXray/releases/latest/download/libxray-apple-cgo.zip
+unzip -q /tmp/libxray.zip -d /tmp/libxray
+cp -R /tmp/libxray/libxray-apple-cgo/LibXray.xcframework ios/Frameworks/
+```
+
+Три вещи, которые стоит знать до того, как что-то сломается:
+
+- **Берётся вариант `cgo`, а не `gomobile`.** У gomobile-сборки в релизах нет,
+  её пришлось бы собирать самому, а для этого нужен Go. У cgo-сборки API — две
+  функции C (`CGoInvoke`, `CGoFree`), и этого достаточно.
+- **Ядро завёрнуто в свой фреймворк `LibXrayKit`.** Иначе Xcode копирует
+  заголовки статической библиотеки в общий каталог `include`, туда же кладёт
+  свои `hev-socks5-tunnel`, и сборка падает на «Multiple commands produce
+  .../include/module.modulemap». Обёртка объявляет две C-функции сама и
+  линкует библиотеку флагами, так что чужие заголовки в сборку не попадают.
+- **Номер версии API libXray меняется от сборки к сборке.** `XrayBridge`
+  определяет её при первом вызове перебором и пробует оба поколения имён полей
+  (`xrayJson` / `configJSON`). Проверить, что ядро отвечает, можно на экране
+  настроек: строка «Xray» показывает его версию или причину отказа.
+
+Без фреймворка приложение собирается и работает, но туннель честно
+отказывается подниматься, а автоподбор отпечатка недоступен.
+
 ## Что уже работает
 
 - добавление сервера ссылкой (`vless://`, `vmess://`, `trojan://`, `ss://`),
@@ -32,24 +62,6 @@ cd core-swift && xcodebuild test -scheme SCVPNCore -destination 'platform=iOS Si
 - HWID: источник в Keychain, поэтому он переживает переустановку приложения.
 
 ## Чего ещё нет
-
-**Туннель не поднимается.** Не хватает двух сторонних кусков, которые в
-репозиторий не кладутся:
-
-1. `LibXray.xcframework` — само ядро. Собирается из
-   [XTLS/libXray](https://github.com/XTLS/libXray):
-
-   ```bash
-   git clone https://github.com/XTLS/libXray && cd libXray
-   python3 build/main.py apple gomobile     # нужен Go
-   ```
-
-   Результат положить в `ios/Frameworks/LibXray.xcframework` и добавить в
-   `project.yml`. Пока фреймворка нет, `XrayBridge` честно отказывается
-   запускать ядро, а не делает вид, что туннель поднят.
-
-2. `Tun2SocksKit` — обёртка над `hev-socks5-tunnel` (та же библиотека, что на
-   Android). Добавляется пакетом в `project.yml` к таргету `PacketTunnel`.
 
 **В симуляторе туннель не проверить вообще.** NetworkExtension там не работает —
 это ограничение платформы, а не сборки. Всё, что касается туннеля, проверяется
