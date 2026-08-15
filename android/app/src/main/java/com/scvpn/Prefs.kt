@@ -2,13 +2,15 @@ package com.scvpn
 
 import android.content.Context
 import org.json.JSONArray
+import org.json.JSONObject
 
 /** Хранение серверов и настроек в SharedPreferences (видно в открытом виде). */
 object Prefs {
     private const val FILE = "scvpn"
     private const val KEY_SERVERS = "servers"
     private const val KEY_SELECTED = "selected"
-    private const val KEY_SUB_URL = "sub_url"
+    private const val KEY_SUB_URL = "sub_url"          // прежняя единственная подписка
+    private const val KEY_SUBS = "subs"                // список подписок: [{url, info, added}]
     private const val KEY_PINGS = "pings"
     private const val KEY_HWID = "hwid"
     private const val KEY_SPLIT_MODE = "split_mode"
@@ -34,6 +36,56 @@ object Prefs {
 
     fun subUrl(ctx: Context): String = sp(ctx).getString(KEY_SUB_URL, "") ?: ""
     fun setSubUrl(ctx: Context, url: String) = sp(ctx).edit().putString(KEY_SUB_URL, url).apply()
+
+    // --- подписки: их может быть несколько, как на десктопе ---
+
+    /**
+     * Одна подписка: ссылка, последний ответ панели и когда добавлена.
+     */
+    data class Sub(val url: String, val info: SubInfo = SubInfo(), val added: String = "") {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("url", url); put("info", info.toJson()); put("added", added)
+        }
+
+        companion object {
+            fun fromJson(o: JSONObject): Sub = Sub(
+                url = o.optString("url"),
+                info = runCatching { SubInfo.fromJson(o.getJSONObject("info")) }.getOrDefault(SubInfo()),
+                added = o.optString("added"),
+            )
+        }
+    }
+
+    /**
+     * Список подписок.
+     *
+     * Первое чтение поднимает старую единственную подписку в список: у людей
+     * на руках уже стоят сборки, где она хранилась одной строкой, и терять её
+     * при обновлении приложения нельзя.
+     */
+    fun subs(ctx: Context): MutableList<Sub> {
+        val raw = sp(ctx).getString(KEY_SUBS, "") ?: ""
+        if (raw.isBlank()) {
+            val legacy = subUrl(ctx)
+            if (legacy.isBlank()) return mutableListOf()
+            val migrated = mutableListOf(Sub(legacy, subInfo(ctx), subAdded(ctx)))
+            saveSubs(ctx, migrated)
+            return migrated
+        }
+        val arr = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
+        return MutableList(arr.length()) { Sub.fromJson(arr.getJSONObject(it)) }
+    }
+
+    fun saveSubs(ctx: Context, subs: List<Sub>) {
+        val arr = JSONArray()
+        subs.forEach { arr.put(it.toJson()) }
+        sp(ctx).edit()
+            .putString(KEY_SUBS, arr.toString())
+            // Старый ключ держим в согласии со списком: на него смотрит код,
+            // который ещё не перевели, и пустой список обязан его гасить.
+            .putString(KEY_SUB_URL, subs.firstOrNull()?.url ?: "")
+            .apply()
+    }
 
     /** HWID считается один раз (см. Hwid.kt) и дальше не меняется. */
     fun hwid(ctx: Context): String = sp(ctx).getString(KEY_HWID, "") ?: ""

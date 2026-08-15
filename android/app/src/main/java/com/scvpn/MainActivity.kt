@@ -325,14 +325,19 @@ class MainActivity : AppCompatActivity() {
     private fun addSubscription(url: String) {
         val u = url.trim()
         if (u.isEmpty()) { toast("Введи URL подписки"); return }
-        Prefs.setSubUrl(this, u)
+        val subs = Prefs.subs(this)
+        if (subs.none { it.url == u }) {
+            subs.add(Prefs.Sub(u, SubInfo(), SubInfo.nowStamp()))
+            Prefs.saveSubs(this, subs)
+        }
         fetchSub(u)
     }
 
+    /** Обновить все подписки по очереди. */
     private fun updateSubscription() {
-        val url = Prefs.subUrl(this)
-        if (url.isEmpty()) { toast("Сначала добавь подписку"); return }
-        fetchSub(url)
+        val subs = Prefs.subs(this)
+        if (subs.isEmpty()) { toast("Сначала добавь подписку"); return }
+        subs.forEach { fetchSub(it.url) }
     }
 
     // ------------------------------------------------------------------
@@ -421,17 +426,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun confirmDeleteSubscription() {
-        if (Prefs.subUrl(this).isBlank() && servers.isEmpty()) { toast("Подписки нет"); return }
+        val subs = Prefs.subs(this)
+        if (subs.isEmpty()) { toast("Подписки нет"); return }
+        if (subs.size == 1) { confirmDeleteSubscription(subs[0].url); return }
+        // Подписок несколько — сначала спрашиваем, какую.
+        AlertDialog.Builder(this)
+            .setTitle(R.string.delete_subscription)
+            .setItems(subs.map { it.info.title.ifBlank { it.url } }.toTypedArray()) { _, which ->
+                confirmDeleteSubscription(subs[which].url)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmDeleteSubscription(url: String) {
         AlertDialog.Builder(this)
             .setTitle(R.string.delete_subscription)
             .setMessage("Удалить подписку и все её серверы?")
             .setPositiveButton(R.string.delete) { _, _ ->
-                Prefs.setSubUrl(this, "")
-                Prefs.setSubInfo(this, SubInfo())   // и статистику прошлой подписки тоже
-                Prefs.setSubAdded(this, "")
-                servers = mutableListOf()
+                val subs = Prefs.subs(this).filterNot { it.url == url }
+                Prefs.saveSubs(this, subs)
+                Prefs.setSubInfo(this, subs.firstOrNull()?.info ?: SubInfo())
+                Prefs.setSubAdded(this, subs.firstOrNull()?.added ?: "")
+
+                // Уходят только серверы этой подписки: добавленные вручную и
+                // чужие остаются на месте.
+                val gone = servers.filter { it.sub == url }
+                servers = Subscriptions.remove(servers, url).toMutableList()
                 Prefs.saveServers(this, servers)
-                pings.clear()
+                gone.forEach { pings.remove(it.key()) }
                 Prefs.savePings(this, pings)
                 Prefs.setSelectedIndex(this, 0)
                 reloadServers()
@@ -469,17 +492,30 @@ class MainActivity : AppCompatActivity() {
             ui.post {
                 result.onSuccess { (fetched, info) ->
                     if (fetched.isEmpty()) { toast("В подписке не нашлось серверов"); return@post }
-                    servers = fetched.toMutableList()
+
+                    // Серверы этой подписки заменяются целиком, чужие остаются:
+                    // раньше обновление сносило и вставленные вручную ссылки.
+                    val selectedKey = Prefs.selectedServer(this)?.key()
+                    servers = Subscriptions.merge(servers, fetched, url).toMutableList()
                     Prefs.saveServers(this, servers)
-                    // Пинги сбрасываем: за тем же именем может стоять уже
-                    // другой сервер, и старое число врало бы.
-                    pings.clear()
+
+                    // Пинги этой подписки сбрасываем: за тем же именем может
+                    // стоять уже другой сервер, и старое число врало бы.
+                    fetched.forEach { pings.remove(it.key()) }
                     Prefs.savePings(this, pings)
+
+                    val subs = Prefs.subs(this)
+                    val at = subs.indexOfFirst { it.url == url }
+                    val added = subs.getOrNull(at)?.added?.ifBlank { SubInfo.nowStamp() }
+                        ?: SubInfo.nowStamp()
+                    val updated = Prefs.Sub(url, info, added)
+                    if (at >= 0) subs[at] = updated else subs.add(updated)
+                    Prefs.saveSubs(this, subs)
                     Prefs.setSubInfo(this, info)
-                    if (Prefs.subAdded(this).isBlank()) {
-                        Prefs.setSubAdded(this, SubInfo.nowStamp())
-                    }
-                    Prefs.setSelectedIndex(this, 0)
+
+                    // Выбор сохраняем по ключу: индекс после пересборки списка
+                    // указывал бы на чужой сервер.
+                    Prefs.setSelectedIndex(this, Subscriptions.selectionAfterMerge(servers, selectedKey))
                     reloadServers()
                     toast("Подписка: ${fetched.size} серверов")
                 }.onFailure { e ->

@@ -27,7 +27,15 @@ data class Server(
     var wsPath: String = "/",
     var wsHost: String = "",
     var grpcService: String = "",
-    var allowInsecure: Boolean = false
+    var allowInsecure: Boolean = false,
+    /**
+     * Ссылка подписки, из которой пришёл сервер; пусто — добавлен вручную.
+     *
+     * Без этого поля обновление подписки затирало **весь** список, вместе с
+     * серверами, вставленными ссылкой: они пропадали молча. Теперь обновление
+     * заменяет только свои.
+     */
+    var sub: String = ""
 ) {
     val title: String get() = if (name.isNotBlank()) name else "$address:$port"
 
@@ -48,6 +56,7 @@ data class Server(
         put("fingerprint", fingerprint); put("alpn", alpn); put("publicKey", publicKey)
         put("shortId", shortId); put("spiderX", spiderX); put("wsPath", wsPath); put("wsHost", wsHost)
         put("grpcService", grpcService); put("allowInsecure", allowInsecure)
+        put("sub", sub)
     }
 
     companion object {
@@ -72,7 +81,11 @@ data class Server(
             wsPath = o.optString("wsPath", "/"),
             wsHost = o.optString("wsHost"),
             grpcService = o.optString("grpcService"),
-            allowInsecure = o.optBoolean("allowInsecure", false)
+            allowInsecure = o.optBoolean("allowInsecure", false),
+            // Записи прошлых версий поля не знают — для них подписка пустая,
+            // то есть сервер считается добавленным вручную и не удаляется
+            // при обновлении.
+            sub = o.optString("sub")
         )
     }
 }
