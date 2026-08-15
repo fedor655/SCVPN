@@ -8,8 +8,9 @@
 import Foundation
 import ServiceManagement
 
-let label = "com.scvpn.smprobe"
-let service = SMAppService.daemon(plistName: "\(label).plist")
+// Метка приезжает из probe-version.swift: у каждого места проверки своя
+// личность, иначе BTM отвечает памятью о прежнем согласии, а не про папку.
+let service = SMAppService.daemon(plistName: "\(probeLabel).plist")
 
 func statusName(_ s: SMAppService.Status) -> String {
     switch s {
@@ -23,6 +24,7 @@ func statusName(_ s: SMAppService.Status) -> String {
 
 func report() {
     print("бандл:  \(Bundle.main.bundleURL.path)")
+    print("служба: \(probeLabel)")
     print("версия: \(probeVersion)")
     print("статус: \(statusName(service.status)) [rawValue=\(service.status.rawValue)]")
 }
