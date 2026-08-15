@@ -152,3 +152,125 @@ QPushButton {{
 QPushButton:hover  {{ border-color: {DIM}; }}
 QPushButton:default {{ border-color: {ACCENT}; }}
 """
+
+
+# ----------------------------------------------------------------------
+# Значки диалогов и полоса заголовка
+# ----------------------------------------------------------------------
+# Системные значки QMessageBox нарисованы для светлой темы: на чёрном фоне
+# вопросительный знак получается тёмно-серым на чёрном и почти не виден.
+# Рисуем свои — в той же гамме, что и всё остальное: кольцо приглушённое,
+# сам знак белый.
+_MSG_GLYPHS = {
+    "SP_MessageBoxQuestion": "?",
+    "SP_MessageBoxInformation": "i",
+    "SP_MessageBoxWarning": "!",
+    "SP_MessageBoxCritical": "✕",
+}
+
+_ICON_PX = 64
+
+
+def _glyph_icon(glyph: str) -> "QIcon":
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
+
+    # Рисуем вдвое крупнее и говорим Qt, что это ретина: иначе на экране с
+    # масштабом 2 значок размывается.
+    scale = 2
+    pm = QPixmap(_ICON_PX * scale, _ICON_PX * scale)
+    pm.fill(Qt.transparent)
+    pm.setDevicePixelRatio(scale)
+
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    # Рисуем в логических точках, а не в пикселях: QPainter по ретинному
+    # QPixmap сам домножает координаты на devicePixelRatio, и side в пикселях
+    # дал бы круг вчетверо больше холста — от него в кадр попадала бы четверть.
+    side = _ICON_PX
+    inset = side * 0.08
+    ring = QRectF(inset, inset, side - 2 * inset, side - 2 * inset)
+    p.setPen(QPen(QColor(DIM), side * 0.045))
+    p.drawEllipse(ring)
+
+    font = QFont()
+    font.setPixelSize(int(side * 0.56))
+    font.setWeight(QFont.DemiBold)
+    p.setFont(font)
+    p.setPen(QColor(TEXT))
+    p.drawText(ring, Qt.AlignCenter, glyph)
+    p.end()
+    return QIcon(pm)
+
+
+def _icon_style():
+    """Стиль, подменяющий только значки диалогов. Всё прочее — как было."""
+    from PySide6.QtWidgets import QProxyStyle, QStyle
+
+    glyphs = {getattr(QStyle, name): glyph for name, glyph in _MSG_GLYPHS.items()}
+
+    class _MessageIconStyle(QProxyStyle):
+        def standardIcon(self, standard_icon, option=None, widget=None):  # noqa: N802
+            glyph = glyphs.get(standard_icon)
+            if glyph is None:
+                return super().standardIcon(standard_icon, option, widget)
+            return _glyph_icon(glyph)
+
+    return _MessageIconStyle()
+
+
+def _titlebar_filter():
+    """Фильтр, гасящий фон полосы заголовка у диалогов (только macOS).
+
+    Главное окно делает это у себя в __init__ теми же двумя флагами, а
+    диалоги создаёт Qt — до их окон дотянуться можно только по событию показа.
+    Флага мало одного: NoTitleBarBackgroundHint убирает фон полосы, а
+    ExpandedClientAreaHint заводит под неё содержимое окна, и только вместе
+    они дают полосу цвета самого диалога, а не дыру и не системный серый.
+    Раз содержимое уезжает под полосу, ему добавляется верхний отступ — иначе
+    первая строка текста оказалась бы под светофором.
+    """
+    from PySide6.QtCore import QEvent, QObject, Qt
+    from PySide6.QtWidgets import QDialog
+
+    class _TitleBar(QObject):
+        def eventFilter(self, obj, event) -> bool:  # noqa: N802
+            if event.type() == QEvent.Show and isinstance(obj, QDialog):
+                obj.winId()                      # без этого окна ещё нет
+                handle = obj.windowHandle()
+                if handle is not None and not obj.property("_scvpn_chrome"):
+                    obj.setProperty("_scvpn_chrome", True)
+                    handle.setFlags(
+                        handle.flags()
+                        | Qt.ExpandedClientAreaHint
+                        | Qt.NoTitleBarBackgroundHint
+                    )
+                    layout = obj.layout()
+                    if layout is not None:
+                        m = layout.contentsMargins()
+                        layout.setContentsMargins(
+                            m.left(), m.top() + TITLEBAR_H, m.right(), m.bottom()
+                        )
+            return False
+
+    return _TitleBar()
+
+
+# Фильтр живёт здесь, а не родителем у QApplication: приложение приходит в
+# apply() каким угодно (в проверках — заглушкой), а фильтр без ссылки на себя
+# соберётся сборщиком мусора сразу после apply(), и диалоги останутся с
+# системной серой полосой.
+_filters: list = []
+
+
+# Высота системной полосы заголовка, на которую опускается содержимое диалога.
+TITLEBAR_H = 28
+
+
+def apply(app) -> None:
+    """Одна точка входа: палитра, значки диалогов, полоса заголовка."""
+    app.setStyle(_icon_style())
+    app.setStyleSheet(QSS)
+    if sys.platform == "darwin":
+        _filters.append(_titlebar_filter())
+        app.installEventFilter(_filters[-1])

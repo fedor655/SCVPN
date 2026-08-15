@@ -80,6 +80,14 @@ STATE_TEXTS = {
     "tun_stuck": "Туннель не снят",
 }
 
+# Шапка macOS: отступы, высота кнопок, итоговая высота ряда. Светофор
+# опускаем в центр этого ряда и отодвигаем от края (см. native.titlebar.sink).
+MAC_HEADER_TOP = 12
+MAC_HEADER_LEFT = 88
+MAC_BTN = 28
+MAC_HEADER_H = MAC_HEADER_TOP + MAC_BTN + 10
+MAC_LIGHTS_LEFT = 18
+
 TUN_STUCK_TEXT = (
     "sing-box пережил остановку: TUN-адаптер поднят, весь трафик по-прежнему\n"
     "идёт через него, а туннель уже никем не обслуживается.\n\n"
@@ -98,6 +106,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"SCVPN {__version__}")
         self.resize(420, 700)
         self.setMinimumSize(360, 540)
+        if sys.platform == "darwin":
+            # Контент уезжает под заголовок, сама полоса пропадает — светофор
+            # остаётся плавать поверх шапки, слева от логотипа. Нужен Qt 6.9+,
+            # и флаги ставим на нативное окно: QWidget их до создания теряет.
+            self.setWindowTitle("")
+            self.setAttribute(Qt.WA_ContentsMarginsRespectsSafeArea, False)
+            self.winId()
+            handle = self.windowHandle()
+            handle.setFlags(
+                handle.flags() | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
+            )
 
         self.profiles: Profiles = load_profiles()
         self.settings: dict = load_settings()
@@ -142,6 +161,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         central = QWidget()
+        # Иначе Qt сам отодвинет содержимое вниз от «безопасной зоны» заголовка.
+        central.setAttribute(Qt.WA_ContentsMarginsRespectsSafeArea, False)
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -186,25 +207,75 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
-    def _build_header(self) -> QHBoxLayout:
-        header = QHBoxLayout()
-        header.setContentsMargins(22, 16, 12, 10)
-        header.setSpacing(2)
+    def mousePressEvent(self, event) -> None:
+        # Полосы заголовка на macOS больше нет, тащить окно не за что —
+        # отдаём под перетаскивание всю шапку.
+        if sys.platform == "darwin" and event.position().y() < MAC_HEADER_H:
+            self.windowHandle().startSystemMove()
+            return
+        super().mousePressEvent(event)
 
-        badge = QLabel()
-        badge.setPixmap(mark_pixmap(20, QColor(theme.TEXT)))
-        header.addWidget(badge)
+    def _sink_traffic_lights(self) -> None:
+        # AppKit возвращает кнопки на штатную высоту при каждой перекладке
+        # заголовка, поэтому опускаем их снова после показа и после resize.
+        # resize прилетает и из __init__, когда UI ещё не собран, — там нечего
+        # двигать и некуда писать ошибку.
+        if sys.platform != "darwin" or not self.isVisible():
+            return
+        from native.titlebar import sink
+
+        try:
+            sink(int(self.winId()), MAC_HEADER_TOP + MAC_BTN / 2, MAC_LIGHTS_LEFT)
+        except Exception as exc:          # чужая внутренняя кухня AppKit
+            self._append_log(f"[!] Не удалось опустить кнопки окна: {exc}")
+
+    def _schedule_sink(self) -> None:
+        # Двигаем не сразу: AppKit доперекладывает заголовок после события и
+        # вернул бы кнопки на место. Второй заход — ради выхода из полного
+        # экрана, там перекладка приезжает уже после анимации.
+        QTimer.singleShot(0, self._sink_traffic_lights)
+        QTimer.singleShot(400, self._sink_traffic_lights)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._schedule_sink()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._schedule_sink()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        self._schedule_sink()
+
+    def _build_header(self) -> QHBoxLayout:
+        mac = sys.platform == "darwin"
+        header = QHBoxLayout()
+        # На macOS шапка — это и есть полоса заголовка: слева место кнопкам
+        # окна, а ряд ниже (28 против 34) ставит надпись на их высоту.
+        if mac:
+            header.setContentsMargins(MAC_HEADER_LEFT, MAC_HEADER_TOP, 12, 10)
+        else:
+            header.setContentsMargins(22, 16, 12, 10)
+        header.setSpacing(2)
+        btn = QSize(MAC_BTN, MAC_BTN) if mac else QSize(34, 34)
+
+        # Значок рядом с кнопками окна тесно — на macOS оставляем одну надпись.
+        if not mac:
+            badge = QLabel()
+            badge.setPixmap(mark_pixmap(20, QColor(theme.TEXT)))
+            header.addWidget(badge)
 
         title = QLabel("SCVPN")
         title.setObjectName("wordmark")
-        title.setContentsMargins(10, 0, 0, 0)
+        title.setContentsMargins(0 if mac else 10, 0, 0, 0)
         header.addWidget(title, 1)
 
         def tool(text: str, tip: str, slot) -> QToolButton:
             b = QToolButton()
             b.setText(text)
             b.setToolTip(tip)
-            b.setFixedSize(QSize(34, 34))
+            b.setFixedSize(btn)
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(slot)
             header.addWidget(b)
@@ -215,7 +286,7 @@ class MainWindow(QMainWindow):
         ping_btn.setIcon(pulse_icon(theme.DIM))
         ping_btn.setIconSize(QSize(20, 20))
         ping_btn.setToolTip("Измерить пинг серверов")
-        ping_btn.setFixedSize(QSize(34, 34))
+        ping_btn.setFixedSize(btn)
         ping_btn.setCursor(Qt.PointingHandCursor)
         ping_btn.clicked.connect(self._ping_all)
         header.addWidget(ping_btn)
@@ -947,7 +1018,7 @@ def run_app() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("SCVPN")
-    app.setStyleSheet(theme.QSS)
+    theme.apply(app)
     ico = paths.icon_file()
     if ico.exists():
         app.setWindowIcon(QIcon(str(ico)))
