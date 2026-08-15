@@ -21,6 +21,13 @@ final class Stand {
     ///
     /// Спим короткими интервалами, а не одним `sleep 300`: убитая оболочка не
     /// должна оставлять пятиминутного сироту, которого чистящий pkill не ловит.
+    ///
+    /// Цикл **ограничен** двумя минутами, а не бесконечен. Прогон, упавший по
+    /// сигналу (а он падает по сигналу ровно тогда, когда ловит настоящий баг),
+    /// до `tearDown` не доходит, и вечно спящий поддельный sing-box остаётся в
+    /// системе насовсем. Найден именно так: висел сутки и попал в ручную
+    /// проверку dead-man's switch как «выживший туннель». Самой длинной
+    /// проверке хватает 25 секунд, так что 120 — запас впятеро.
     enum Script {
         case normal
         /// Игнорирует SIGTERM, как повёл бы себя зависший sing-box.
@@ -29,12 +36,14 @@ final class Stand {
         /// кем-то ещё. Соединение при этом демон не рвёт.
         case crashing
 
+        private static let bounded = "i=0; while [ $i -lt 120 ]; do sleep 1; i=$((i+1)); done"
+
         func source(ready: String) -> String {
             switch self {
             case .normal:
-                return "#!/bin/sh\necho $$ > \(ready)\nwhile :; do sleep 1; done\n"
+                return "#!/bin/sh\necho $$ > \(ready)\n\(Self.bounded)\n"
             case .stubborn:
-                return "#!/bin/sh\ntrap '' TERM\necho $$ > \(ready)\nwhile :; do sleep 1; done\n"
+                return "#!/bin/sh\ntrap '' TERM\necho $$ > \(ready)\n\(Self.bounded)\n"
             case .crashing:
                 return "#!/bin/sh\necho $$ > \(ready)\nexit 7\n"
             }
