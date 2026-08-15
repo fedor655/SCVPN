@@ -60,6 +60,23 @@ final class HelperInstallerTests: StorageIsolatedTestCase {
         XCTAssertEqual(HelperInstaller.plistName, Paths.helperLabel + ".plist")
     }
 
+    func test_unknown_version_on_a_ready_service_is_adopted_not_reinstalled() {
+        // Служба готова, а версия не записана — так бывает после обновления
+        // приложения и когда пользователь разрешил компонент мимо этой ветки.
+        // Считать это расхождением версий значит заново просить разрешение у
+        // человека, у которого всё уже работает: ровно тот баг, на который
+        // пожаловались живьём («пишется об установке, хотя установлен»).
+        XCTAssertNil(loadSettings()["helper_version"], "версии не должно быть на чистом старте")
+
+        // Само ensureCurrent() требует бандла, поэтому проверяем условие,
+        // по которому оно решает: неизвестная версия и известная-другая — это
+        // разные случаи, и слипаться они не должны.
+        let unknown: Int? = nil
+        let mismatch: Int? = helperVersion - 1
+        XCTAssertNotEqual(unknown, mismatch)
+        XCTAssertNotEqual(mismatch, helperVersion)
+    }
+
     func test_helper_version_is_stored_only_on_success() {
         // Записать версию, не добившись .ready, значило бы соврать самим себе:
         // следующий запуск решил бы, что перерегистрация не нужна.

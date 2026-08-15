@@ -530,6 +530,40 @@ final class AppModel: ObservableObject {
         refreshComponents()
     }
 
+    /// Поставить или переставить системный компонент по явной просьбе.
+    ///
+    /// Отдельный пункт меню нужен потому, что иначе поставить компонент можно
+    /// было только «побочно» — попыткой подключиться или скачать sing-box. Тот,
+    /// кто его снял, оказывался в тупике: пункт «Удалить» исчезал, а пункта
+    /// «Установить» не было вовсе. Текст ошибки в HelperClient при этом
+    /// отправлял ровно сюда — «Меню «⋯» → «Переустановить системный компонент»».
+    func installHelper() {
+        let force = helperInstalled
+        append(force ? "[*] Переустанавливаю системный компонент…"
+                     : "[*] Ставлю системный компонент…")
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await Task.detached {
+                HelperInstaller.ensureCurrent(forceReinstall: force)
+            }.value
+            self.refreshComponents()
+            switch result {
+            case .ready:
+                self.append("[*] Системный компонент готов.")
+            case .awaitingApproval:
+                HelperInstaller.openSettings()
+                self.alert = .init(title: "Нужно разрешение", text: """
+                    Разреши «SCVPN» в System Settings → General → Login Items.
+                    """)
+            case .notInstalled:
+                self.alert = .init(title: "Не вышло",
+                                   text: "Системный компонент не зарегистрировался.")
+            case .failed(let why):
+                self.alert = .init(title: "Не вышло", text: why)
+            }
+        }
+    }
+
     func removeHelper() {
         disconnect()
         do {

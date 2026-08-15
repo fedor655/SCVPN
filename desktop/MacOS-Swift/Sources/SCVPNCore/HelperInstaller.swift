@@ -120,12 +120,28 @@ public enum HelperInstaller {
     /// случая снятия, и служба, живущая со старым значением, получит SIGKILL на
     /// середине снятия, оставив `sing-box` сиротой с маршрутами.
     @discardableResult
-    public static func ensureCurrent() -> HelperState {
+    public static func ensureCurrent(forceReinstall: Bool = false) -> HelperState {
         var settings = loadSettings()
-        let installed = settings["helper_version"]?.intValue ?? 0
+        let known = settings["helper_version"]?.intValue
         let current = state()
 
-        if installed != helperVersion, current != .notInstalled {
+        // Служба готова, а версия просто не записана (первый запуск после
+        // обновления приложения, либо пользователь разрешил её мимо этой
+        // ветки). Это НЕ расхождение версий: перерегистрировать здесь значит
+        // заново просить разрешение у человека, у которого всё уже работает.
+        // Принимаем как есть и запоминаем.
+        if current == .ready, known == nil, !forceReinstall {
+            settings["helper_version"] = .int(helperVersion)
+            saveSettings(settings)
+            return .ready
+        }
+
+        if current == .ready, known == helperVersion, !forceReinstall {
+            return .ready
+        }
+
+        // Версия действительно другая, либо просили переустановить.
+        if current != .notInstalled {
             // Снимаем и ставим заново: подмену на месте система не замечает.
             try? unregister()
             // Даём launchd отпустить службу — иначе register() встанет поверх
@@ -136,14 +152,7 @@ public enum HelperInstaller {
             }
         }
 
-        let result: HelperState
-        switch state() {
-        case .ready where installed == helperVersion:
-            result = .ready
-        default:
-            result = register()
-        }
-
+        let result = register()
         if result == .ready {
             settings["helper_version"] = .int(helperVersion)
             saveSettings(settings)
