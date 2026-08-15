@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Windows** | `desktop/Windows/` — Python + PySide6, ядро `xray.exe` рядом |
-| **macOS** | `desktop/MacOS/` — тот же код, TUN через привилегированный демон (Apple Silicon) |
+| **macOS** | `desktop/MacOS-Swift/` — нативный Swift, TUN через привилегированный демон (Apple Silicon). Прежняя версия на Python — `desktop/MacOS/`, пока рядом |
 | **Android** | `android/` — Kotlin, то же ядро внутри процесса (`libv2ray.aar`) |
 | **iOS** | пока нет, в планах |
 
@@ -167,7 +167,7 @@ Xray к серверу идёт мимо TUN, иначе он заворачив
 
 ## Сборка
 
-Подробности — в `desktop/Windows/README.md`, `desktop/MacOS/README.md` и
+Подробности — в `desktop/Windows/README.md`, `desktop/MacOS-Swift/README.md` и
 `android/README.md`. Коротко:
 
 ```powershell
