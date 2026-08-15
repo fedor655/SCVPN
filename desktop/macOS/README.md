@@ -91,11 +91,11 @@ TUN на macOS требует root. Можно было бы спрашиват�
 
 | Файл | За что отвечает |
 |------|-----------------|
-| `Sources/SCVPNCore/` | вся логика: модели, парсеры, конфиги, хранилище, клиент демона |
-| `Sources/SCVPNCore/SingboxConfig/` | конфиг sing-box и валидация недоверенного ввода |
-| `Sources/SCVPNCore/HelperClient.swift`, `Tun.swift` | клиент демона: поднять и снять туннель |
-| `Sources/SCVPNCore/SystemProxy.swift` | системный прокси через `networksetup`, со снимком для отката |
-| `Sources/SCVPNCore/HelperInstaller.swift` | регистрация демона через `SMAppService` |
+| `../../core-swift/Sources/SCVPNCore/` | вся логика: модели, парсеры, конфиги, хранилище, клиент демона. Отдельный пакет: тот же код линкуется в iOS-приложение |
+| `core-swift/…/SCVPNCore/SingboxConfig/` | конфиг sing-box и валидация недоверенного ввода |
+| `core-swift/…/SCVPNCore/HelperClient.swift`, `Tun.swift` | клиент демона: поднять и снять туннель |
+| `core-swift/…/SCVPNCore/SystemProxy.swift` | системный прокси через `networksetup`, со снимком для отката |
+| `core-swift/…/SCVPNCore/HelperInstaller.swift` | регистрация демона через `SMAppService` |
 | `Sources/SCVPNHelperKit/` | логика демона: сокет, надзор за sing-box, установка sing-box |
 | `Sources/SCVPNHelper/main.swift` | точка входа демона, десяток строк |
 | `Sources/SCVPNApp/` | SwiftUI: окно, меню, диалоги |
@@ -104,6 +104,10 @@ TUN на macOS требует root. Можно было бы спрашиват�
 Логика демона живёт в `SCVPNHelperKit`, а не в исполняемом таргете, потому что
 SwiftPM не даёт тестовому таргету линковать executable. Ровно по той же причине
 платформенный слой приложения лежит в `SCVPNCore`, а не в `SCVPNApp`.
+
+`SCVPNCore` — отдельный SwiftPM-пакет в корне репозитория (`core-swift/`), а не
+таргет этого пакета: его же линкует iOS-версия. Платформенное внутри разделено
+`#if os(macOS)` / `#if os(iOS)`.
 
 ## Проверка
 
@@ -148,8 +152,9 @@ SSH-сессии в неё же**: провальный исход означа�
 ## Общий код с Windows
 
 `../shared/` — парсеры ссылок и подписок, модели, конфиг Xray, хранилище — это
-код Windows-версии на Python. macOS свою половину имеет отдельно, в
-`Sources/SCVPNCore/`, и **каждая правка логики делается дважды**. Иначе
+код Windows-версии на Python. macOS и iOS свою половину имеют отдельно, в
+`core-swift/Sources/SCVPNCore/`, и **каждая правка логики делается дважды**:
+один раз в Python для Windows, один раз в Swift для обеих Apple-платформ. Иначе
 реализации разойдутся молча, и заметит это пользователь.
 
 Форматы, которые обязаны совпадать побайтно — их расхождение не «разные

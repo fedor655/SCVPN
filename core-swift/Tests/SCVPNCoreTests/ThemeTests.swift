@@ -5,10 +5,9 @@ final class ThemeTests: XCTestCase {
 
     private func androidColorsXML() throws -> String {
         let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // SCVPNCoreTests
+            .deletingLastPathComponent()   // ThemeTests.swift -> SCVPNCoreTests
             .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // macOS
-            .deletingLastPathComponent()   // desktop
+            .deletingLastPathComponent()   // core-swift
             .deletingLastPathComponent()   // корень репозитория
         let url = repo.appendingPathComponent("android/app/src/main/res/values/colors.xml")
         return try String(contentsOf: url, encoding: .utf8)

@@ -7,24 +7,29 @@ import PackageDescription
 let package = Package(
     name: "SCVPN",
     platforms: [.macOS(.v13)],
+    dependencies: [
+        // Общая логика: без AppKit, без SwiftUI. Переехала в отдельный пакет,
+        // потому что тот же код линкуется в iOS-приложение и в расширение
+        // туннеля, а копия — это гарантированное расхождение.
+        .package(path: "../../core-swift"),
+    ],
     targets: [
-        // Общая логика: без AppKit, без SwiftUI. Линкуется и в приложение,
-        // и в демона, и в оба тестовых таргета.
-        .target(name: "SCVPNCore"),
-
         // Логика демона живёт здесь, а не в исполняемом таргете: SwiftPM не
         // даёт тестовому таргету линковать executable, а без проверок демона
         // весь план бессмыслен.
-        .target(name: "SCVPNHelperKit", dependencies: ["SCVPNCore"]),
+        .target(name: "SCVPNHelperKit", dependencies: [
+            .product(name: "SCVPNCore", package: "core-swift"),
+        ]),
 
         // Демон. Отдельный исполняемый файл, а не флаг приложения: он обязан
         // подниматься даже когда с приложением что-то не так, и у него нет ни
         // одной причины загружать графические фреймворки под root.
         .executableTarget(name: "SCVPNHelper", dependencies: ["SCVPNHelperKit"]),
 
-        .executableTarget(name: "SCVPNApp", dependencies: ["SCVPNCore"]),
+        .executableTarget(name: "SCVPNApp", dependencies: [
+            .product(name: "SCVPNCore", package: "core-swift"),
+        ]),
 
-        .testTarget(name: "SCVPNCoreTests", dependencies: ["SCVPNCore"]),
         .testTarget(name: "SCVPNHelperTests", dependencies: ["SCVPNHelperKit"]),
     ]
 )
