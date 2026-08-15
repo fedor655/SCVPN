@@ -1,0 +1,113 @@
+import Foundation
+
+/// Локальные порты по умолчанию. Слушают только `127.0.0.1`, наружу не торчат.
+public let defaultSocksPort = 10808
+public let defaultHTTPPort = 10809
+
+/// Режимы маршрутизации.
+public enum RouteMode: String, Sendable {
+    /// Весь трафик через VPN, кроме локалки.
+    case global
+    /// Российские сайты и IP напрямую, остальное в VPN.
+    case bypassRU = "bypass_ru"
+}
+
+/// Полный конфиг Xray из выбранного сервера.
+///
+/// Состоит из: `log` — куда писать логи ядра; `inbounds` — локальные входы
+/// SOCKS и HTTP на `127.0.0.1`, в них ходит системный прокси или TUN-движок;
+/// `outbounds` — наш сервер, прямой выход, чёрная дыра; `routing` — правила;
+/// `dns`.
+///
+/// **Порядок правил маршрутизации значим** и повторён из Python дословно:
+/// блокировка рекламы → приватные адреса и домены → обход РФ → всё остальное в
+/// прокси. Xray берёт первое совпавшее правило, поэтому перестановка меняет
+/// поведение, а не оформление.
+public func buildXrayConfig(
+    server: Server,
+    socksPort: Int = defaultSocksPort,
+    httpPort: Int = defaultHTTPPort,
+    routeMode: RouteMode = .global,
+    blockAds: Bool = false,
+    logPath: String? = nil,
+    logLevel: String = "warning"
+) throws -> [String: Any] {
+    var log: [String: Any] = ["loglevel": logLevel]
+    if let logPath {
+        log["access"] = logPath
+        log["error"] = logPath
+    }
+    return [
+        "log": log,
+        "inbounds": inbounds(socksPort: socksPort, httpPort: httpPort),
+        "outbounds": [
+            try server.toOutbound(tag: "proxy"),
+            ["tag": "direct", "protocol": "freedom", "settings": [:] as [String: Any]] as [String: Any],
+            ["tag": "block", "protocol": "blackhole", "settings": [:] as [String: Any]] as [String: Any],
+        ],
+        "routing": routing(routeMode: routeMode, blockAds: blockAds),
+        "dns": dns(routeMode: routeMode),
+    ]
+}
+
+func inbounds(socksPort: Int, httpPort: Int) -> [[String: Any]] {
+    let sniffing: [String: Any] = ["enabled": true, "destOverride": ["http", "tls", "quic"]]
+    return [
+        [
+            "tag": "socks-in",
+            "listen": "127.0.0.1",
+            "port": socksPort,
+            "protocol": "socks",
+            "settings": ["udp": true, "auth": "noauth"] as [String: Any],
+            "sniffing": sniffing,
+        ],
+        [
+            "tag": "http-in",
+            "listen": "127.0.0.1",
+            "port": httpPort,
+            "protocol": "http",
+            "settings": [:] as [String: Any],
+            "sniffing": sniffing,
+        ],
+    ]
+}
+
+func routing(routeMode: RouteMode, blockAds: Bool) -> [String: Any] {
+    var rules: [[String: Any]] = []
+
+    // 1) реклама в чёрную дыру (по желанию)
+    if blockAds {
+        rules.append(["type": "field", "outboundTag": "block",
+                      "domain": ["geosite:category-ads-all"]])
+    }
+
+    // 2) локальная сеть и приватные адреса — всегда напрямую
+    rules.append(["type": "field", "outboundTag": "direct", "ip": ["geoip:private"]])
+    rules.append(["type": "field", "outboundTag": "direct", "domain": ["geosite:private"]])
+
+    // 3) режим «обход РФ»: российские сайты и IP — напрямую
+    if routeMode == .bypassRU {
+        rules.append(["type": "field", "outboundTag": "direct",
+                      "domain": ["geosite:category-ru", "geosite:yandex",
+                                 "geosite:vk", "geosite:mailru"]])
+        rules.append(["type": "field", "outboundTag": "direct", "ip": ["geoip:ru"]])
+    }
+
+    // 4) всё остальное — в VPN. Явное правило не обязательно (умолчание — первый
+    //    outbound, то есть proxy), но пусть будет видно.
+    rules.append(["type": "field", "outboundTag": "proxy", "network": "tcp,udp"])
+
+    return ["domainStrategy": "IPIfNonMatch", "rules": rules]
+}
+
+func dns(routeMode: RouteMode) -> [String: Any] {
+    // DNS через прокси, чтобы провайдер не видел запросы и не было утечки.
+    var servers: [Any] = ["https://1.1.1.1/dns-query", "8.8.8.8"]
+    if routeMode == .bypassRU {
+        // Российские домены резолвим через российский DNS напрямую — иначе
+        // они уедут в туннель вместе с запросом и обход перестанет быть обходом.
+        servers.insert(["address": "77.88.8.8",              // Yandex DNS
+                        "domains": ["geosite:category-ru"]] as [String: Any], at: 0)
+    }
+    return ["servers": servers, "queryStrategy": "UseIP"]
+}

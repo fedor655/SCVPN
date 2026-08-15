@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Имя файла обязано совпадать с Label: так его ищет SMAppService. -->
+	<key>Label</key><string>com.scvpn.helper</string>
+	<!-- BundleProgram, а не ProgramArguments: путь относительно .app, поэтому
+	     переезд бандла его не ломает. -->
+	<key>BundleProgram</key><string>Contents/MacOS/scvpn-helper</string>
+	<key>RunAtLoad</key><true/>
+	<!-- Демон обязан пережить собственное падение: пока он мёртв, sing-box
+	     остался бы без надзора с чужими маршрутами. -->
+	<key>KeepAlive</key><true/>
+	<!-- Расчёт худшего случая снятия — не украшение. По константам демона:
+	     stop() уже поднятого sing-box внутри start() (STOP_GRACE 7 + KILL_GRACE 3)
+	     + подметание сироты под тем же замком (2 * SWEEP_GRACE 3) + ещё один
+	     stop() после освобождения замка (7 + 3) = 26 секунд. Дефолтных 20
+	     launchd не хватает: после них летит SIGKILL, и sing-box остаётся
+	     сиротой. Проверяется test_bundled_plist_exit_timeout_covers_worst_case_stop. -->
+	<key>ExitTimeOut</key><integer>40</integer>
+	<key>StandardErrorPath</key><string>/var/log/scvpn-helper.log</string>
+	<key>StandardOutPath</key><string>/var/log/scvpn-helper.log</string>
+</dict>
+</plist>
