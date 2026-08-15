@@ -36,21 +36,13 @@ struct SCVPNApplication: App {
     }
 }
 
-/// Каркас главного окна.
-///
-/// Наполнение — Задача 6.2; здесь пока только шапка и фон, на которых
-/// проверяется само оформление: своя полоса заголовка, опущенный светофор,
-/// перетаскивание за шапку.
+/// Корневой вид: модель живёт здесь и переживает перерисовки.
 struct RootView: View {
+    @StateObject private var model = AppModel()
+
     var body: some View {
-        VStack(spacing: 0) {
-            HeaderView(onPing: {}, onAdd: {}, onMenu: {})
-            Divider().overlay(Color.scvpnStroke)
-            Spacer(minLength: 0)
-            BrandmarkView(side: 96, color: nil)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.scvpnBG)
+        MainView(model: model)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.scvpnBG)
     }
 }
