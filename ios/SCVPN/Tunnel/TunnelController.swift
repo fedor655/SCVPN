@@ -85,6 +85,27 @@ final class TunnelController: ObservableObject {
         manager.connection.stopVPNTunnel()
     }
 
+    /// Спросить расширение о состоянии: счётчики и хвост его лога.
+    ///
+    /// `nil` — расширение не запущено или не ответило. Это не ошибка: спросить
+    /// выключенный туннель не о чем.
+    func askStatus() async -> ProviderStatus? {
+        guard let session = manager?.connection as? NETunnelProviderSession,
+              session.status == .connected,
+              let data = try? JSONEncoder().encode(ProviderRequest.status) else { return nil }
+        return await withCheckedContinuation { continuation in
+            do {
+                try session.sendProviderMessage(data) { reply in
+                    continuation.resume(returning: reply.flatMap {
+                        try? JSONDecoder().decode(ProviderStatus.self, from: $0)
+                    })
+                }
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+
     /// Человеческое объяснение отказа NetworkExtension.
     ///
     /// Сырое `NEVPNError` пользователю не говорит ничего, а два случая из трёх

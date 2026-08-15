@@ -29,6 +29,8 @@ final class AppModel: ObservableObject {
     @Published var alert: AlertBox?
     @Published var sheet: Sheet?
     @Published private(set) var busy: String?
+    /// Сколько прошло через туннель, по данным расширения.
+    @Published private(set) var traffic: (up: UInt64, down: UInt64) = (0, 0)
 
     let tunnel = TunnelController()
 
@@ -52,6 +54,10 @@ final class AppModel: ObservableObject {
     private var bag = Set<AnyCancellable>()
     private var connectedSince: Date?
     private var clock: AnyCancellable?
+    /// Сколько строк лога расширения уже забрали: оно отдаёт весь свой
+    /// кольцевой буфер целиком, и без этого счётчика журнал дублировался бы
+    /// каждую секунду.
+    private var takenLines = 0
 
     init() {
         settings = loadSettings()
@@ -181,6 +187,8 @@ final class AppModel: ObservableObject {
             connectedSince = nil
             clock = nil
             uptime = 0
+            traffic = (0, 0)
+            takenLines = 0
         }
     }
 
@@ -190,7 +198,17 @@ final class AppModel: ObservableObject {
             .sink { [weak self] _ in
                 guard let self, let since = self.connectedSince else { return }
                 self.uptime = Int(Date().timeIntervalSince(since))
+                Task { await self.pollExtension() }
             }
+    }
+
+    /// Забрать у расширения счётчики и новые строки лога.
+    private func pollExtension() async {
+        guard let status = await tunnel.askStatus() else { return }
+        traffic = (status.up, status.down)
+        if status.lines.count < takenLines { takenLines = 0 }   // расширение перезапустилось
+        for line in status.lines.dropFirst(takenLines) { append(line) }
+        takenLines = status.lines.count
     }
 
     // ------------------------------------------------------------------
@@ -303,6 +321,20 @@ final class AppModel: ObservableObject {
 
     /// Свои серверы — те, что добавлены ссылкой, а не пришли подпиской.
     var ownServers: [Server] { profiles.servers }
+
+    /// Сервер добавлен вручную, а не пришёл подпиской.
+    ///
+    /// Удалять можно только свои: сервер подписки вернётся при первом же
+    /// обновлении, и кнопка «Удалить» на нём была бы обманом.
+    func isOwn(_ server: Server) -> Bool {
+        profiles.servers.contains { $0.key() == server.key() }
+    }
+
+    func remove(_ server: Server) {
+        profiles.servers.removeAll { $0.key() == server.key() }
+        persistProfiles()
+        append("[*] Удалён сервер: \(server.title)")
+    }
 
     private func persistProfiles() {
         saveProfiles(profiles)

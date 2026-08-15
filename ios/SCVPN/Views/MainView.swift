@@ -94,7 +94,12 @@ struct MainView: View {
         switch model.state {
         case .connected:
             let name = model.selectedServer?.title ?? ""
-            return "\(name) · \(formatUptime(model.uptime))"
+            // humanBytes считает в Int — он же используется для трафика
+            // подписки, и разнобой в единицах на одном экране был бы хуже
+            // потери точности на числах такого размера.
+            let up = Int(clamping: model.traffic.up), down = Int(clamping: model.traffic.down)
+            let counters = up + down > 0 ? " · ↑\(humanBytes(up)) ↓\(humanBytes(down))" : ""
+            return "\(name) · \(formatUptime(model.uptime))\(counters)"
         case .connecting: return "Поднимаю туннель…"
         case .error: return "Смотри журнал: меню «⋯» → «Журнал»"
         default:
@@ -155,6 +160,15 @@ struct MainView: View {
                               ping: model.ping(for: server),
                               selected: server.key() == model.selectedKey)
                         .onTapGesture { model.select(server) }
+                        .contextMenu {
+                            if model.isOwn(server) {
+                                Button("Удалить", role: .destructive) { model.remove(server) }
+                            } else {
+                                // Сервер подписки вернётся при первом же
+                                // обновлении — удалять его поштучно бессмысленно.
+                                Text("Из подписки — удаляется вместе с ней")
+                            }
+                        }
                 }
             }
         }
