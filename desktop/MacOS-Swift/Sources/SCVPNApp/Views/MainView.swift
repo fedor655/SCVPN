@@ -9,7 +9,7 @@ struct MainView: View {
         VStack(spacing: 0) {
             HeaderView(onPing: model.pingAll,
                        onAdd: { model.sheet = .add },
-                       onRefresh: { /* Задача 6.5 */ }) {
+                       onRefresh: { Task { await model.refreshAllSubscriptions() } }) {
                 MainMenu(model: model)
             }
 
@@ -42,6 +42,13 @@ struct MainView: View {
             set: { _ in }   // закрывается только по завершении, отмены нет
         )) { box in
             ProgressSheet(download: box.download)
+        }
+        .sheet(item: $model.sheet) { which in
+            switch which {
+            case .add:          AddSheet(model: model)
+            case .splitTunnel:  SplitTunnelSheet(model: model)
+            case .subscriptions: SubscriptionSheet(model: model)
+            }
         }
         .alert(item: $model.alert) { box in
             Alert(title: Text(box.title), message: Text(box.text),

@@ -339,9 +339,86 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var subscriptions: [SCVPNCore.Subscription] { profiles.subscriptions }
+
     func reloadProfiles() {
         profiles = loadProfiles()
         servers = profiles.allServers()
+    }
+
+    // ------------------------------------------------------------------
+    // Профили и подписки
+    // ------------------------------------------------------------------
+
+    /// Добавить одиночный сервер, добавленный ссылкой вручную.
+    func addServer(_ server: Server) {
+        // Дубликаты отсекаем по тому же ключу, что и обновление подписки:
+        // человек вставляет одну и ту же ссылку чаще, чем кажется.
+        guard !profiles.allServers().contains(where: { $0.key() == server.key() }) else {
+            append("[i] Такой сервер уже есть: \(server.title)")
+            return
+        }
+        profiles.servers.append(server)
+        persistProfiles()
+        append("[*] Добавлен сервер: \(server.title)")
+        if selectedKey.isEmpty { select(server) }
+    }
+
+    func addSubscription(url: String) async throws {
+        append("[*] Читаю подписку…")
+        let (fetched, info) = try await fetchSubscription(url: url)
+        var sub = SCVPNCore.Subscription(name: info.title.isEmpty ? (URL(string: url)?.host ?? url) : info.title,
+                               url: url, updated: nowISO(), added: nowISO(),
+                               info: info, servers: fetched)
+        sub.servers = fetched
+        profiles.subscriptions.append(sub)
+        persistProfiles()
+        append("[*] Подписка добавлена: серверов \(fetched.count)")
+        if selectedKey.isEmpty, let first = fetched.first { select(first) }
+    }
+
+    func removeSubscription(at index: Int) {
+        guard profiles.subscriptions.indices.contains(index) else { return }
+        let sub = profiles.subscriptions.remove(at: index)
+        persistProfiles()
+        append("[*] Подписка удалена: \(sub.name)")
+    }
+
+    func refreshSubscription(at index: Int) async {
+        guard profiles.subscriptions.indices.contains(index) else { return }
+        let sub = profiles.subscriptions[index]
+        do {
+            let (fetched, info) = try await fetchSubscription(url: sub.url)
+            // Индекс перечитываем: пока ходили в сеть, список могли поправить.
+            guard let now = profiles.subscriptions.firstIndex(where: { $0.url == sub.url }) else { return }
+            profiles.subscriptions[now].servers = fetched
+            profiles.subscriptions[now].info = info
+            profiles.subscriptions[now].updated = nowISO()
+            persistProfiles()
+            append("[*] \(sub.name): серверов \(fetched.count)")
+        } catch {
+            append("[!] \(sub.name): \(error)")
+            alert = .init(title: "Подписка не обновилась", text: "\(error)")
+        }
+    }
+
+    func refreshAllSubscriptions() async {
+        for index in profiles.subscriptions.indices {
+            await refreshSubscription(at: index)
+        }
+    }
+
+    /// Записать профили и пересобрать список так, чтобы выбор не потерялся.
+    private func persistProfiles() {
+        saveProfiles(profiles)
+        servers = profiles.allServers()
+        // Выбранный сервер мог уехать вместе с подпиской: молча оставить
+        // ключ, которому ничего не соответствует, значит подключаться потом
+        // к первому попавшемуся, ничего не сказав.
+        if !servers.contains(where: { $0.key() == selectedKey }) {
+            selectedKey = servers.first?.key() ?? ""
+            set("selected_key", .string(selectedKey))
+        }
     }
 
     func refreshComponents() {
