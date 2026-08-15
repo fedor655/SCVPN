@@ -5,6 +5,7 @@
   спокойном состоянии на экране были только статус и список.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -27,7 +28,7 @@
             android:layout_height="22dp"
             android:src="@drawable/ic_scvpn_mark"
             android:contentDescription="@string/app_name"
-            android:tint="@color/text" />
+            app:tint="@color/text" />
 
         <TextView
             android:layout_width="0dp"

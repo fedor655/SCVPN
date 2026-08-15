@@ -228,7 +228,10 @@ class MainActivity : AppCompatActivity() {
         val h = totalSeconds / 3600
         val m = (totalSeconds % 3600) / 60
         val s = totalSeconds % 60
-        return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+        // Локаль задаётся явно: иначе счётчик времени в части локалей
+        // печатается их цифрами и превращается в кашу.
+        return if (h > 0) String.format(java.util.Locale.ROOT, "%d:%02d:%02d", h, m, s)
+               else String.format(java.util.Locale.ROOT, "%02d:%02d", m, s)
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

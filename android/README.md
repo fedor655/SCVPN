@@ -24,13 +24,34 @@ sdk.dir=C:/Users/<ты>/AppData/Local/Android/Sdk
 
 ## Сборка
 
+Windows:
+
 ```powershell
 build_apk.bat
 # APK: app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Скрипт берёт JDK от Android Studio (JBR 21) и Gradle с `D:\gradle`. Если у тебя
-пути другие — поправь их в `build_apk.bat` или собери из Android Studio.
+macOS и Linux:
+
+```bash
+./build_apk.sh
+# APK: app/build/outputs/apk/debug/app-debug.apk
+```
+
+Что нужно на macOS (всё ставится один раз):
+
+```bash
+brew install gradle openjdk@21
+brew install --cask android-commandlinetools
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+```
+
+**Нужен именно JDK 21**: AGP 8.6 на JDK 25 не работает, а он в системе может
+быть по умолчанию. Скрипт ищет 21-й сам и отказывается, если не нашёл.
+
+Windows-скрипт берёт JDK от Android Studio (JBR 21) и Gradle с `D:\gradle`;
+если пути другие — поправь их в `build_apk.bat` или собери из Android Studio.
 
 ### Релизная сборка
 
