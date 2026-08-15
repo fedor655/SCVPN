@@ -39,9 +39,19 @@ def latest_asset_url() -> tuple[str, str]:
     raise RuntimeError(f"В релизе {tag} не найден ассет {ASSET_NAME}")
 
 
-def download_core(progress: Optional[Callable[[str], None]] = None) -> str:
-    """Скачать и распаковать ядро. Вернуть строку с версией."""
+def download_core(
+    progress: Optional[Callable[[str], None]] = None,
+    on_bytes: Optional[Callable[[int, int], None]] = None,
+) -> str:
+    """Скачать и распаковать ядро. Вернуть строку с версией.
+
+    on_bytes(скачано, всего) — для полоски загрузки. Отдельным колбэком, а не
+    строкой в log: раньше каждый кусок в 64 КБ уезжал в лог отдельной строкой,
+    и на пятнадцатимегабайтном архиве это две с лишним сотни строк «Скачано
+    X / Y КБ», в которых тонет всё остальное.
+    """
     log = progress or (lambda s: None)
+    tick = on_bytes or (lambda got, total: None)
     paths.ensure_dirs()
 
     log("Узнаю последнюю версию Xray-core…")
@@ -56,8 +66,7 @@ def download_core(progress: Optional[Callable[[str], None]] = None) -> str:
     for chunk in r.iter_content(chunk_size=64 * 1024):
         buf.write(chunk)
         got += len(chunk)
-        if total:
-            log(f"Скачано {got // 1024} / {total // 1024} КБ")
+        tick(got, total)
     buf.seek(0)
 
     log("Распаковываю…")
@@ -106,12 +115,33 @@ def tun_present() -> bool:
     return paths.singbox_exe().exists()
 
 
-def download_tun(progress: Optional[Callable[[str], None]] = None) -> str:
+def download_tun(
+    progress: Optional[Callable[[str], None]] = None,
+    on_bytes: Optional[Callable[[int, int], None]] = None,
+) -> str:
     """Попросить демона скачать sing-box себе. Вернуть версию.
 
     Сами не качаем намеренно: sing-box запускает root, и лежать он обязан там,
     куда пользователь писать не может.
+
+    on_bytes здесь не зовётся никогда, и это не забывчивость: качает демон, а
+    по сокету от него приходят только строки лога — байтов мы не видим и
+    придумывать их не станем. Аргумент есть ради общего с Windows контракта
+    (там download_tun качает сам и считает честно), а полоска на это отвечает
+    бегущим режимом вместо процентов, которых нет.
     """
     from . import tun
 
     return tun.install_singbox(progress)
+
+
+def remove_tun(progress: Optional[Callable[[str], None]] = None) -> bool:
+    """Удалить компоненты TUN. True — было что удалять.
+
+    Как и скачивание, руками демона: sing-box лежит в его root-овой папке.
+    Системный компонент при этом остаётся стоять — он нужен и для того, чтобы
+    скачать sing-box обратно. Сносит демона отдельный пункт меню.
+    """
+    from . import tun
+
+    return tun.remove_singbox(progress)

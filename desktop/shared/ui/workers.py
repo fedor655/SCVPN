@@ -18,6 +18,11 @@ class Worker(QThread):
     done = Signal(object)   # успешный результат
     failed = Signal(str)    # текст ошибки
     log = Signal(str)       # промежуточные сообщения
+    # Скачано/всего в байтах. Отдельно от log намеренно: полоске нужны числа, а
+    # выковыривать их обратно из русской строки лога — гадание. Кто не умеет
+    # считать байты (на macOS sing-box качает демон у себя), просто молчит, и
+    # полоска остаётся бегущей.
+    progress = Signal(int, int)
 
     def __init__(self, fn: Callable[[Callable[[str], None]], object]) -> None:
         super().__init__()

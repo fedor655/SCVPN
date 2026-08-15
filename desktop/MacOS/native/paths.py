@@ -53,6 +53,9 @@ XRAY_CONFIG_FILE = DATA_DIR / "xray_running.json"   # активный конф�
 # Эту папку заводит и наполняет сам демон (root:wheel, 0755).
 HELPER_DIR = Path("/Library/Application Support/SCVPN")
 HELPER_BIN_DIR = HELPER_DIR / "bin"
+# Код демона при запуске из исходников: root не может читать ~/Documents,
+# поэтому launchd запускает копию, лежащую здесь (см. helper/install.py).
+HELPER_CODE_DIR = HELPER_DIR / "code"
 HELPER_SOCKET = Path("/var/run/scvpn-helper.sock")
 HELPER_PLIST = Path("/Library/LaunchDaemons/com.scvpn.helper.plist")
 HELPER_LABEL = "com.scvpn.helper"

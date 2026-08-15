@@ -239,19 +239,36 @@ class _Connection:
             pass
 
 
-def install_singbox(progress: Optional[Callable[[str], None]] = None) -> str:
-    """Попросить демона скачать sing-box себе. Вернуть версию."""
-    say = progress or (lambda s: None)
+def _ask_daemon(cmd: str, say: Callable[[str], None], what: str) -> dict:
+    """Разовая команда демону на отдельном соединении. Ответ — наружу."""
     if not helper_installed():
         raise HelperError("Сначала установи системный компонент (включи TUN-режим).")
     conn = _Connection(say)
     try:
-        reply = conn.request({"cmd": "install_singbox"})
+        reply = conn.request({"cmd": cmd})
     finally:
         conn.close()
     if not reply.get("ok"):
-        raise HelperError(reply.get("error", "не удалось установить sing-box"))
+        raise HelperError(reply.get("error", what))
+    return reply
+
+
+def install_singbox(progress: Optional[Callable[[str], None]] = None) -> str:
+    """Попросить демона скачать sing-box себе. Вернуть версию."""
+    say = progress or (lambda s: None)
+    reply = _ask_daemon("install_singbox", say, "не удалось установить sing-box")
     return reply.get("version", "?")
+
+
+def remove_singbox(progress: Optional[Callable[[str], None]] = None) -> bool:
+    """Попросить демона удалить sing-box у себя. True — файл был и удалён.
+
+    Удаляет тоже демон: файл лежит в его root-овой папке, и пользователю она
+    доступна только на чтение. Демон откажет, пока туннель поднят.
+    """
+    say = progress or (lambda s: None)
+    reply = _ask_daemon("remove_singbox", say, "не удалось удалить sing-box")
+    return bool(reply.get("removed"))
 
 
 # ----------------------------------------------------------------------

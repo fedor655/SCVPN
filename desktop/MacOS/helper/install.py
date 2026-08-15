@@ -9,10 +9,13 @@
 """
 from __future__ import annotations
 
+import hashlib
+import os
 import plistlib
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 from native import paths
 
@@ -29,16 +32,48 @@ from native import paths
 _EXIT_TIMEOUT_SEC = 40
 
 
+# Файлы, из которых состоит демон при запуске из исходников. Список короткий
+# намеренно: демон обходится стандартной библиотекой и ничего из shared/ и
+# native/ не импортирует, поэтому копировать весь проект незачем.
+_DAEMON_FILES = ("run.py", "helper/__init__.py", "helper/config.py", "helper/daemon.py")
+
+
+def _base_python() -> str:
+    """Интерпретатор для демона: базовый, а не venv-овский.
+
+    venv лежит внутри проекта, а проект вполне может лежать в ~/Documents —
+    оттуда root не прочитает даже pyvenv.cfg (см. install()). Демону venv и не
+    нужен: сторонних пакетов он не требует.
+    """
+    return getattr(sys, "_base_executable", None) or sys.executable
+
+
 def program_arguments() -> list[str]:
     """Чем launchd будет запускать демона.
 
     В собранном .app это сам исполняемый файл бандла с флагом --helper —
     отдельный интерпретатор Python в системе поэтому не нужен. При запуске из
-    исходников это python из venv и тот же run.py.
+    исходников это базовый python и копия run.py в root-овой папке демона: на
+    сами исходники указывать нельзя, см. install().
     """
     if paths.FROZEN:
         return [sys.executable, "--helper"]
-    return [sys.executable, str(paths.ROOT / "run.py"), "--helper"]
+    return [_base_python(), str(paths.HELPER_CODE_DIR / "run.py"), "--helper"]
+
+
+def _code_fingerprint() -> str:
+    """Отпечаток исходников демона — чтобы installed() видел устаревшую копию.
+
+    Копия в root-овой папке живёт своей жизнью: правка daemon.py в проекте её
+    не меняет, а plist остаётся прежним — и приложение считало бы, что стоит
+    та версия, которую мы только что написали, пока launchd крутит старую.
+    Отпечаток едет в plist, поэтому проверка «стоит ли демон под ЭТУ сборку»
+    ловит и это, тем же сравнением содержимого, что и переезд .app.
+    """
+    h = hashlib.sha256()
+    for rel in _DAEMON_FILES:
+        h.update((paths.ROOT / rel).read_bytes())
+    return h.hexdigest()[:16]
 
 
 def plist_text() -> str:
@@ -56,6 +91,10 @@ def plist_text() -> str:
         "StandardErrorPath": "/var/log/scvpn-helper.log",
         "StandardOutPath": "/var/log/scvpn-helper.log",
     }
+    if not paths.FROZEN:
+        # Демон её не читает — она здесь только затем, чтобы installed()
+        # отличил копию кода от нынешних исходников (см. _code_fingerprint).
+        data["EnvironmentVariables"] = {"SCVPN_HELPER_CODE": _code_fingerprint()}
     return plistlib.dumps(data).decode()
 
 

@@ -685,6 +685,73 @@ def test_daemon_refuses_user_writable_binary():
 
 
 @check
+def test_daemon_refuses_to_remove_singbox_under_live_tunnel():
+    """Удаление sing-box при поднятом туннеле обязано быть отказом.
+
+    unlink убрал бы имя, а работающий процесс остался бы держать маршруты — и
+    снять его стало бы нечем: kill_stale_singbox ищет сироту по командной
+    строке с путём к бинарнику, которого на диске уже нет. Это ровно та
+    мёртвая сеть, ради ухода от которой написан весь демон.
+    """
+    import tempfile
+    from pathlib import Path
+    from unittest import mock
+
+    from helper import daemon
+
+    with tempfile.TemporaryDirectory() as d:
+        bin_dir = Path(d)
+        target = bin_dir / "sing-box"
+        target.write_bytes(b"")
+        with mock.patch.object(daemon, "BIN_DIR", bin_dir), \
+             mock.patch.object(type(daemon.SUPERVISOR), "running",
+                               property(lambda self: True)):
+            reply = daemon.handle_line('{"cmd": "remove_singbox"}', {})
+            assert reply["ok"] is False, reply
+            assert "туннель поднят" in reply["error"], reply
+        assert target.exists(), "файл удалили из-под работающего туннеля"
+
+        # Туннеля нет — удаляем; повторное удаление отвечает «нечего было».
+        with mock.patch.object(daemon, "BIN_DIR", bin_dir):
+            assert daemon.handle_line('{"cmd": "remove_singbox"}', {}) == {
+                "ok": True, "removed": True}
+            assert not target.exists()
+            assert daemon.handle_line('{"cmd": "remove_singbox"}', {}) == {
+                "ok": True, "removed": False}
+
+
+@check
+def test_remove_tun_disconnects_before_deleting():
+    """Пункт «Удалить компоненты TUN» обязан сперва отключиться.
+
+    Удалять файлы из-под работающего туннеля нельзя ни на одной платформе: на
+    macOS демон на это отвечает отказом, на Windows система не даст удалить
+    занятый sing-box.exe. Порядок «сначала disconnect, потом remove» — то
+    единственное, что делает пункт меню рабочим, а не источником ошибки.
+    """
+    import shared.ui.main_window as mw
+
+    win = _bare_window("tun")
+    order: list[str] = []
+    win.disconnect_vpn = lambda: order.append("disconnect")
+
+    with mock.patch.object(mw.QMessageBox, "question",
+                           return_value=mw.QMessageBox.Yes), \
+         mock.patch.object(mw, "remove_tun",
+                           side_effect=lambda progress=None: order.append("remove") or True):
+        win._remove_tun()
+    assert order == ["disconnect", "remove"], order
+
+    # Отказ в диалоге не должен ни отключать, ни удалять.
+    order.clear()
+    with mock.patch.object(mw.QMessageBox, "question",
+                           return_value=mw.QMessageBox.No), \
+         mock.patch.object(mw, "remove_tun") as remove_mock:
+        win._remove_tun()
+    assert not order and not remove_mock.called, (order, remove_mock.called)
+
+
+@check
 def test_daemon_singbox_asset_is_darwin_arm64():
     from helper.daemon import pick_singbox_asset
 
@@ -1372,6 +1439,33 @@ def test_program_arguments_use_bundle_exe_when_frozen():
     with mock.patch.object(paths, "FROZEN", True):
         args = program_arguments()
     assert args == [sys.executable, "--helper"], args
+
+
+@check
+def test_daemon_runs_from_root_copy_not_from_sources():
+    """Из исходников демон обязан запускаться копией в root-овой папке.
+
+    launchd поднимает демона от root, а root не читает ~/Documents (TCC даёт
+    EPERM). Путь в plist, указывающий в проект, означал бы вечный цикл
+    перезапусков python, падающего на pyvenv.cfg, и сокет, которого никогда
+    нет, — при installed() == True. Заодно проверяем, что отпечаток кода
+    попал в plist: без него правка daemon.py оставляла бы установленной
+    старую копию, а installed() сказал бы, что стоит нынешняя сборка.
+    """
+    import plistlib
+    from unittest import mock
+
+    from helper import install
+    from native import paths
+
+    with mock.patch.object(paths, "FROZEN", False):
+        args = install.program_arguments()
+        data = plistlib.loads(install.plist_text().encode())
+
+    assert args[1] == str(paths.HELPER_CODE_DIR / "run.py"), args
+    assert not args[1].startswith(str(paths.ROOT)), args
+    assert not args[0].startswith(str(paths.ROOT)), ("интерпретатор из venv", args)
+    assert data["EnvironmentVariables"]["SCVPN_HELPER_CODE"] == install._code_fingerprint()
 
 
 @check
@@ -2477,6 +2571,88 @@ def test_connect_vpn_tun_keeps_windows_order_components_before_privilege():
     shown_title = warn_mock.call_args.args[1]
     assert "компонент" in shown_title.lower(), shown_title
     assert win._want_connected is False
+
+
+@check
+def test_download_shows_progress_window_with_real_percentage():
+    """Скачивание обязано показывать окно с полоской, а не только строки в логе.
+
+    Две вещи разом. Первая: _run_download отдаёт качающей функции колбэк
+    on_bytes — без него полоска никогда не узнает про байты и останется
+    бегущей даже там, где проценты известны. Вторая: числа доезжают до
+    полоски в КБ, а не в байтах — Qt меряет прогресс int32, и на архиве
+    больше двух гигабайт байты в него не влезли бы.
+    """
+    import shared.ui.main_window as mw
+
+    win = _bare_window("proxy")
+
+    class _FakeDialog:
+        """Окно загрузки без Qt: настоящее требует QApplication, которого в
+        проверках нет (см. _bare_window — окно тоже создаётся без него)."""
+
+        def __init__(self) -> None:
+            self.label = ""
+            self.maximum = 0
+            self.value = 0
+            self.closed = False
+
+        def setLabelText(self, text: str) -> None:  # noqa: N802 — имя от Qt
+            self.label = text
+
+        def setMaximum(self, v: int) -> None:  # noqa: N802
+            self.maximum = v
+
+        def setValue(self, v: int) -> None:  # noqa: N802
+            self.value = v
+
+        def close(self) -> None:
+            self.closed = True
+
+    dlg = _FakeDialog()
+    win._progress_dialog = lambda text: dlg
+
+    got_kwargs: dict = {}
+
+    class _Sig:
+        def __init__(self) -> None:
+            self.slots: list = []
+
+        def connect(self, slot) -> None:
+            self.slots.append(slot)
+
+        def emit(self, *args) -> None:
+            for slot in self.slots:
+                slot(*args)
+
+    class _FakeWorker:
+        def __init__(self, fn) -> None:
+            self._fn = fn
+            self.log = _Sig()
+            self.progress = _Sig()
+            self.failed = _Sig()
+            self.done = _Sig()
+
+        def start(self) -> None:
+            # Как настоящий Worker.run: выполнить и доложить результат.
+            self.done.emit(self._fn(self.log.emit))
+
+    def fake_download(progress=None, on_bytes=None):
+        got_kwargs["on_bytes"] = on_bytes
+        progress("Скачиваю…")
+        on_bytes(3 * 1024 * 1024, 12 * 1024 * 1024)   # четверть двенадцати МБ
+        return "v1.2.3"
+
+    win._workers = []
+    with mock.patch.object(mw, "Worker", _FakeWorker), \
+         mock.patch.object(mw.QMessageBox, "information"):
+        win._run_download(fake_download, "готово {tag}", "ядро")
+
+    assert got_kwargs.get("on_bytes") is not None, "качающей функции не дали колбэк прогресса"
+    assert dlg.label == "Скачиваю…", dlg.label
+    assert dlg.maximum == 12 * 1024, dlg.maximum
+    assert dlg.value == 3 * 1024, dlg.value
+    assert dlg.closed, "окно загрузки осталось висеть после успешного конца"
 
 
 @check

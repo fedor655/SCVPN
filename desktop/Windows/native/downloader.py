@@ -31,9 +31,19 @@ def latest_asset_url() -> tuple[str, str]:
     raise RuntimeError(f"В релизе {tag} не найден ассет {ASSET_NAME}")
 
 
-def download_core(progress: Optional[Callable[[str], None]] = None) -> str:
-    """Скачать и распаковать ядро. Вернуть строку с версией."""
+def download_core(
+    progress: Optional[Callable[[str], None]] = None,
+    on_bytes: Optional[Callable[[int, int], None]] = None,
+) -> str:
+    """Скачать и распаковать ядро. Вернуть строку с версией.
+
+    on_bytes(скачано, всего) — для полоски загрузки. Отдельным колбэком, а не
+    строкой в log: раньше каждый кусок в 64 КБ уезжал в лог отдельной строкой,
+    и на пятнадцатимегабайтном архиве это две с лишним сотни строк «Скачано
+    X / Y КБ», в которых тонет всё остальное.
+    """
     log = progress or (lambda s: None)
+    tick = on_bytes or (lambda got, total: None)
     paths.ensure_dirs()
 
     log("Узнаю последнюю версию Xray-core…")
@@ -48,8 +58,7 @@ def download_core(progress: Optional[Callable[[str], None]] = None) -> str:
     for chunk in r.iter_content(chunk_size=64 * 1024):
         buf.write(chunk)
         got += len(chunk)
-        if total:
-            log(f"Скачано {got // 1024} / {total // 1024} КБ")
+        tick(got, total)
     buf.seek(0)
 
     log("Распаковываю…")
@@ -93,9 +102,13 @@ def _singbox_asset_url() -> tuple[str, str]:
     raise RuntimeError(f"В релизе sing-box {tag} не найден архив windows-amd64.zip")
 
 
-def download_singbox(progress: Optional[Callable[[str], None]] = None) -> str:
+def download_singbox(
+    progress: Optional[Callable[[str], None]] = None,
+    on_bytes: Optional[Callable[[int, int], None]] = None,
+) -> str:
     """Скачать sing-box.exe и wintun.dll в bin/. Вернуть версию sing-box."""
     log = progress or (lambda s: None)
+    tick = on_bytes or (lambda got, total: None)
     paths.ensure_dirs()
 
     log("Узнаю последнюю версию sing-box…")
@@ -104,8 +117,12 @@ def download_singbox(progress: Optional[Callable[[str], None]] = None) -> str:
     r = requests.get(url, timeout=180, stream=True)
     r.raise_for_status()
     buf = io.BytesIO()
+    total = int(r.headers.get("Content-Length", 0))
+    got = 0
     for chunk in r.iter_content(chunk_size=64 * 1024):
         buf.write(chunk)
+        got += len(chunk)
+        tick(got, total)
     buf.seek(0)
 
     log("Распаковываю sing-box.exe…")
@@ -148,6 +165,26 @@ def _download_wintun(log: Callable[[str], None]) -> None:
 
 def tun_present() -> bool:
     return paths.singbox_exe().exists() and paths.wintun_dll().exists()
+
+
+def remove_tun(progress: Optional[Callable[[str], None]] = None) -> bool:
+    """Удалить компоненты TUN. True — было что удалять.
+
+    Проверять, поднят ли туннель, здесь не нужно так, как на macOS: там
+    удаляет root-овый демон и обязан отказать живому туннелю, а тут файлы
+    лежат рядом с приложением, и sing-box держит их открытыми — Windows не
+    даст удалить занятый exe и вернёт PermissionError. Вызывающая сторона
+    всё равно отключается первой (см. _remove_tun в main_window).
+    """
+    log = progress or (lambda s: None)
+    removed = False
+    for f in (paths.singbox_exe(), paths.wintun_dll()):
+        if f.exists():
+            f.unlink()
+            log(f"  удалён {f.name}")
+            removed = True
+    log("Компоненты TUN удалены." if removed else "Компоненты TUN и так не установлены.")
+    return removed
 
 
 # Имена контракта native: на Windows компоненты TUN — это sing-box плюс wintun.

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPlainTextEdit,
+    QProgressDialog,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -45,7 +46,13 @@ from shared.storage import (
 from shared.subscription import SubscriptionError, fetch_subscription_full, parse_link
 from shared.xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
 from native import sysproxy
-from native.downloader import core_present, download_core, download_tun, tun_present
+from native.downloader import (
+    core_present,
+    download_core,
+    download_tun,
+    remove_tun,
+    tun_present,
+)
 from native.tun import (
     PRIVILEGE_QUESTION,
     SPLIT_OFF,
@@ -370,6 +377,10 @@ class MainWindow(QMainWindow):
         menu.addAction("Измерить пинг", self._ping_all)
         menu.addAction("Скачать ядро Xray", self._download_core)
         menu.addAction("Скачать компоненты TUN", self._download_tun)
+        # Показываем, только когда есть что удалять: пункт «удалить» над пустым
+        # местом — обещание действия, которое ничего не сделает.
+        if tun_present():
+            menu.addAction("Удалить компоненты TUN…", self._remove_tun)
         if sys.platform == "darwin":
             menu.addAction("Удалить системный компонент…", self._remove_helper)
 
@@ -948,19 +959,88 @@ class MainWindow(QMainWindow):
         self._append_log(f"[*] Скачиваю {what} (для TUN-режима)…")
         self._run_download(download_tun, "TUN-компоненты установлены (sing-box {tag}).", "TUN")
 
+    def _remove_tun(self) -> None:
+        """Удалить sing-box (и wintun на Windows). Системный компонент остаётся.
+
+        Отключаемся первыми и на обеих платформах: удалять файлы из-под
+        работающего туннеля нельзя. На macOS демон и сам откажет живому
+        туннелю, но полагаться на его отказ значило бы показать пользователю
+        ошибку вместо действия; на Windows отказала бы уже сама система —
+        занятый sing-box.exe не удаляется.
+        """
+        r = QMessageBox.question(
+            self, "Удалить компоненты TUN",
+            "TUN-режим перестанет работать, пока компоненты не скачают заново.\n"
+            "Удалить?",
+        )
+        if r != QMessageBox.Yes:
+            return
+        self.disconnect_vpn()
+        try:
+            removed = remove_tun(progress=self._append_log)
+        except Exception as e:  # noqa: BLE001
+            self._append_log(f"[!] Не удалось удалить компоненты TUN: {e}")
+            QMessageBox.warning(self, "Не вышло", str(e))
+            return
+        self._append_log(
+            "[*] Компоненты TUN удалены." if removed
+            else "[i] Компоненты TUN и так не были установлены."
+        )
+
     def _run_download(self, fn, success_text: str, what: str) -> None:
-        w = Worker(lambda log: fn(progress=log))
+        dlg = self._progress_dialog(f"Скачиваю {what}…")
+        # Ссылка на воркер нужна внутри лямбды, которая создаётся раньше самого
+        # воркера. Так можно: тело лямбды выполняется уже во время загрузки,
+        # когда w давно присвоен.
+        w = Worker(lambda log: fn(progress=log, on_bytes=lambda got, total: w.progress.emit(got, total)))
         w.log.connect(self._append_log)
+        w.log.connect(dlg.setLabelText)
+        w.progress.connect(lambda got, total: self._show_progress(dlg, got, total))
         w.failed.connect(lambda err: (
+            dlg.close(),
             self._append_log(f"[!] Не удалось скачать {what}: {err.splitlines()[0]}"),
             self._workers.remove(w),
         ))
         w.done.connect(lambda tag: (
+            dlg.close(),
             QMessageBox.information(self, "Готово", success_text.format(tag=tag)),
             self._workers.remove(w),
         ))
         self._workers.append(w)
         w.start()
+
+    def _progress_dialog(self, text: str) -> QProgressDialog:
+        """Окно загрузки: полоска и текущий шаг. Без кнопки отмены.
+
+        Отмены нет намеренно: прервать можно было бы только сам поток, а он
+        сидит в чтении сокета — на macOS вдобавок в чужом, демоновом, где
+        качает root. Кнопка, которая закрывает окно, но не останавливает
+        загрузку, врёт про то, что она делает.
+
+        Полоска стартует бегущей (максимум 0). Кто умеет считать байты,
+        переведёт её в проценты первым же on_bytes; кто не умеет (sing-box на
+        macOS качает демон) — оставит бегущей до конца, и это честно.
+        """
+        dlg = QProgressDialog(text, None, 0, 0, self)
+        dlg.setWindowTitle("Загрузка")
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        # Иначе Qt держит окно скрытым первые 4 секунды — ровно те, ради
+        # которых окно и заводили: на быстром канале ядро успевает скачаться,
+        # и пользователь не видит вообще ничего.
+        dlg.setMinimumDuration(0)
+        dlg.show()
+        return dlg
+
+    @staticmethod
+    def _show_progress(dlg: QProgressDialog, got: int, total: int) -> None:
+        """Перевести полоску в проценты. Считаем в КБ: байты переполняют int32,
+        которым Qt меряет прогресс, уже на двух гигабайтах."""
+        if total <= 0:                     # сервер не прислал Content-Length
+            return
+        dlg.setMaximum(total // 1024)
+        dlg.setValue(got // 1024)
 
     def _remove_helper(self) -> None:
         """Снять привилегированный демон TUN (только macOS)."""

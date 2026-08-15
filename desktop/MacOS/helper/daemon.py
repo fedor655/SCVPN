@@ -261,6 +261,26 @@ def install_singbox(say: Callable[[str], None]) -> str:
     return tag
 
 
+def remove_singbox(say: Callable[[str], None]) -> bool:
+    """Удалить sing-box из своей папки. True — файла больше нет.
+
+    Живой туннель — отказ, а не «удалю, а там разберёмся»: unlink уберёт имя,
+    но работающий процесс останется держать маршруты, и снять его будет уже
+    нечем — бинарника, по командной строке которого его ищет
+    kill_stale_singbox, на диске не будет. Поэтому сначала стоп, потом
+    удаление, и оба шага — по явной команде пользователя.
+    """
+    if SUPERVISOR.running:
+        raise RuntimeError("туннель поднят — сначала отключитесь")
+    target = BIN_DIR / "sing-box"
+    if not target.exists():
+        say("sing-box и так не установлен.")
+        return False
+    target.unlink()
+    say("sing-box удалён.")
+    return True
+
+
 # ----------------------------------------------------------------------
 # Надзор за sing-box
 # ----------------------------------------------------------------------
@@ -527,6 +547,9 @@ def handle_line(line: str, state: dict[str, Any]) -> dict:
         if cmd == "install_singbox":
             tag = install_singbox(say)
             return {"ok": True, "version": tag}
+
+        if cmd == "remove_singbox":
+            return {"ok": True, "removed": remove_singbox(say)}
 
         return {"ok": False, "error": f"неизвестная команда: {cmd!r}"}
 
