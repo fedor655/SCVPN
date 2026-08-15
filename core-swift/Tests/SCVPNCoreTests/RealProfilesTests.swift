@@ -1,3 +1,4 @@
+#if os(macOS)
 import XCTest
 @testable import SCVPNCore
 
@@ -66,3 +67,4 @@ final class RealProfilesTests: StorageIsolatedTestCase {
         }
     }
 }
+#endif

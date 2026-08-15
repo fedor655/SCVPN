@@ -23,6 +23,7 @@ final class DialogRulesTests: StorageIsolatedTestCase {
         }
     }
 
+    #if os(macOS)
     // ---- раздельное туннелирование ----
 
     func test_auto_is_a_routing_mode_not_an_app_split() {
@@ -61,6 +62,7 @@ final class DialogRulesTests: StorageIsolatedTestCase {
         XCTAssertThrowsError(try validate(["socks_port": 10808,
                                            "split_apps": ["/Applications/Telegram.app"]]))
     }
+    #endif
 
     // ---- подписки ----
 

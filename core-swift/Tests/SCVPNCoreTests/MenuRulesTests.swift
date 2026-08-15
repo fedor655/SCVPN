@@ -8,6 +8,7 @@ import XCTest
 /// а ответ на вопрос «есть ли что удалять» и «в каком порядке спрашивать».
 final class MenuRulesTests: StorageIsolatedTestCase {
 
+    #if os(macOS)
     func test_remove_tun_is_offered_only_when_there_is_something_to_remove() throws {
         // Пункт «удалить» над пустым местом — обещание действия, которое ничего
         // не сделает. Ответ зависит ровно от одного файла на диске.
@@ -31,6 +32,7 @@ final class MenuRulesTests: StorageIsolatedTestCase {
         // privileged() не обязан совпадать с наличием файла ни в одну сторону.
         _ = HelperInstaller.privileged()
     }
+    #endif
 
     func test_every_menu_setting_has_a_default() {
         // Меню читает настройки со значением по умолчанию. Ключ, которого нет

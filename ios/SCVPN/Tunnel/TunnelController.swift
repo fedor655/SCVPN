@@ -1,0 +1,116 @@
+import Foundation
+import NetworkExtension
+import SCVPNCore
+
+/// Профиль VPN и управление туннелем.
+///
+/// Состояние берётся у системы (`NEVPNStatusDidChange`), а не считается по
+/// таймеру: кнопка обязана показывать то, что есть на самом деле, — свойство
+/// Android-версии, которое здесь сохраняется.
+@MainActor
+final class TunnelController: ObservableObject {
+
+    @Published private(set) var state: ConnectionState = .idle
+    /// Последняя причина отказа — её показывает экран, а не молчаливый лог.
+    @Published private(set) var lastError: String?
+
+    private var manager: NETunnelProviderManager?
+    private var observer: NSObjectProtocol?
+
+    init() {
+        observer = NotificationCenter.default.addObserver(
+            forName: .NEVPNStatusDidChange, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let connection = note.object as? NEVPNConnection else { return }
+            let status = connection.status
+            Task { @MainActor in self?.state = ConnectionState(status) }
+        }
+    }
+
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    /// Уже поставленный профиль, если он есть. Побочный эффект — обновление
+    /// состояния: приложение могли открыть при уже поднятом туннеле.
+    func refresh() async {
+        guard let manager = try? await loadManager() else { return }
+        state = ConnectionState(manager.connection.status)
+    }
+
+    private func loadManager() async throws -> NETunnelProviderManager {
+        if let manager { return manager }
+        let all = try await NETunnelProviderManager.loadAllFromPreferences()
+        // Профиль ровно один. Лишние — мусор прошлых сборок: он мешает
+        // пользователю в Настройках, поэтому удаляется, а не игнорируется.
+        for extra in all.dropFirst() { try? await extra.removeFromPreferences() }
+        let found = all.first ?? NETunnelProviderManager()
+        manager = found
+        return found
+    }
+
+    /// Поставить или обновить профиль. Первый вызов показывает системный
+    /// запрос разрешения — это штатный шаг, а не ошибка.
+    func install(config: TunnelConfig) async throws {
+        let manager = try await loadManager()
+        let proto = NETunnelProviderProtocol()
+        // Поле обязательное, но адрес настоящего сервера живёт внутри конфига
+        // ядра — сюда идёт имя, которое человек увидит в Настройках.
+        proto.serverAddress = config.serverName.isEmpty ? "SCVPN" : config.serverName
+        proto.providerBundleIdentifier = "com.scvpn.ios.PacketTunnel"
+        proto.providerConfiguration = config.asProviderConfiguration()
+        manager.protocolConfiguration = proto
+        manager.localizedDescription = "SCVPN"
+        manager.isEnabled = true
+        try await manager.saveToPreferences()
+        // Перечитать обязательно: сохранённый объект система помечает
+        // устаревшим, и startVPNTunnel на нём отвечает configuration invalid.
+        try await manager.loadFromPreferences()
+    }
+
+    func start(config: TunnelConfig) async throws {
+        try await install(config: config)
+        let manager = try await loadManager()
+        do {
+            try manager.connection.startVPNTunnel()
+            lastError = nil
+        } catch {
+            lastError = Self.explain(error)
+            throw error
+        }
+    }
+
+    func stop() async {
+        guard let manager = try? await loadManager() else { return }
+        manager.connection.stopVPNTunnel()
+    }
+
+    /// Человеческое объяснение отказа NetworkExtension.
+    ///
+    /// Сырое `NEVPNError` пользователю не говорит ничего, а два случая из трёх
+    /// — не поломка, а среда: симулятор туннели не поднимает вообще, и профиль
+    /// без разрешения не ставится.
+    static func explain(_ error: Error) -> String {
+        #if targetEnvironment(simulator)
+        return """
+            В симуляторе VPN-туннель не поднимается: NetworkExtension там не \
+            работает. Проверять туннель можно только на устройстве.
+            """
+        #else
+        let nsError = error as NSError
+        if nsError.domain == NEVPNErrorDomain,
+           let code = NEVPNError.Code(rawValue: nsError.code) {
+            switch code {
+            case .configurationDisabled: return "Профиль VPN выключен в Настройках."
+            case .configurationReadWriteFailed:
+                return "Система не дала записать профиль VPN — разреши его в диалоге."
+            case .configurationInvalid: return "Профиль VPN собран неверно."
+            case .configurationStale: return "Профиль VPN устарел, попробуй ещё раз."
+            case .connectionFailed: return "Туннель не поднялся."
+            default: break
+            }
+        }
+        return "\(error.localizedDescription)"
+        #endif
+    }
+}
