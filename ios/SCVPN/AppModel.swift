@@ -7,6 +7,16 @@ import SwiftUI
 /// Устройство то же, что у macOS-версии: поля обновляются на главном потоке,
 /// фоновые задачи уходят в `Task`. Разница одна — туннель здесь не наш процесс,
 /// а расширение под управлением системы, поэтому «подключено» приходит от неё.
+/// Приёмник строк лога из фонового потока.
+///
+/// `findWorkingFingerprint` зовёт лог с чужого потока, а `append` живёт на
+/// главном. Обёртка нужна, чтобы замыкание было `Sendable` и не тащило за собой
+/// саму модель.
+private struct LogSink: Sendable {
+    let write: @Sendable (String) -> Void
+    init(_ write: @escaping @Sendable (String) -> Void) { self.write = write }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
 
@@ -117,11 +127,19 @@ final class AppModel: ObservableObject {
         if needsFingerprint && override != "auto" {
             server.fingerprint = override
         } else if needsFingerprint && XrayBridge.available {
-            server.fingerprint = findWorkingFingerprint(server, override: "auto",
-                                                        using: XrayBridge(),
-                                                        log: { [weak self] line in
+            // Перебор ходит в сеть по разу на кандидата — на главном потоке это
+            // выглядит как зависшее приложение.
+            // Перебор молчал по полминуты: каждый кандидат — свой таймаут.
+            // Строки подбора уходят в журнал по ходу, а не пачкой в конце.
+            let candidate = server
+            let sink = LogSink { [weak self] line in
                 Task { @MainActor in self?.append(line) }
-            })
+            }
+            server.fingerprint = await Task.detached(priority: .userInitiated) {
+                findWorkingFingerprint(candidate, override: "auto",
+                                       using: XrayBridge(), log: sink.write)
+            }.value
+            append("[*] Отпечаток: \(server.fingerprint)")
         }
 
         do {

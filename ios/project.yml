@@ -13,6 +13,11 @@ options:
 packages:
   SCVPNCore:
     path: ../core-swift
+  # Мост TUN <-> SOCKS: обёртка над hev-socks5-tunnel, та же библиотека, что на
+  # Android. Лицензия MIT.
+  Tun2SocksKit:
+    url: https://github.com/EbrahimTahernejad/Tun2SocksKit
+    branch: main
 
 targets:
   SCVPN:
@@ -25,6 +30,11 @@ targets:
       - package: SCVPNCore
         product: SCVPNCore
       - target: PacketTunnel
+      # Ядро нужно и приложению: подбор отпечатка и замер задержки идут здесь,
+      # у приложения нет лимита памяти расширения.
+      - framework: Frameworks/LibXray.xcframework
+        embed: true
+      - sdk: libresolv.tbd
     info:
       path: SCVPN/Info.plist
       properties:
@@ -57,6 +67,12 @@ targets:
     dependencies:
       - package: SCVPNCore
         product: SCVPNCore
+      - package: Tun2SocksKit
+        product: Tun2SocksKit
+      # Внутри бандла приложения фреймворк уже есть — второй копии не нужно.
+      - framework: Frameworks/LibXray.xcframework
+        embed: false
+      - sdk: libresolv.tbd
     info:
       path: PacketTunnel/Info.plist
       properties:
