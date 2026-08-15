@@ -1,7 +1,36 @@
 import Foundation
+import XCTest
 @testable import SCVPNCore
 
-/// Временный корень данных на время проверки.
+/// Базовый класс для проверок, которые могут дотянуться до диска.
+///
+/// Заведён по факту: `test_bad_url_is_refused_before_the_network` через
+/// `deviceHeaders()` -> `deviceID()` записал настоящий
+/// `~/Library/Application Support/SCVPN/settings.json` пользователя. Пути к
+/// записи прячутся глубоко, и полагаться на то, что каждый автор проверки о них
+/// вспомнит, нельзя — поэтому подмена корня стоит в `setUp`, а не в теле
+/// проверки. `withTempDataDir` для асинхронных проверок не годится: он
+/// восстанавливает путь по выходу из синхронного замыкания.
+class StorageIsolatedTestCase: XCTestCase {
+    private var savedDataDir: URL!
+    private var tmp: URL!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        savedDataDir = Paths.dataDir
+        tmp = URL(fileURLWithPath: "/tmp/scvpn-core-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        Paths.dataDir = tmp
+    }
+
+    override func tearDownWithError() throws {
+        Paths.dataDir = savedDataDir
+        try? FileManager.default.removeItem(at: tmp)
+        try super.tearDownWithError()
+    }
+}
+
+/// Временный корень данных на время синхронного замыкания.
 ///
 /// `Paths.dataDir` — переменная именно ради этого: без подмены проверки писали
 /// бы в настоящие `profiles.json` и `settings.json` пользователя, то есть

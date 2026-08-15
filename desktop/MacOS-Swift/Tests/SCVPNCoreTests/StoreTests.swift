@@ -1,7 +1,7 @@
 import XCTest
 @testable import SCVPNCore
 
-final class StoreTests: XCTestCase {
+final class StoreTests: StorageIsolatedTestCase {
 
     private func write(settingsJSON: String) throws {
         try Data(settingsJSON.utf8).write(to: Paths.settingsFile)
