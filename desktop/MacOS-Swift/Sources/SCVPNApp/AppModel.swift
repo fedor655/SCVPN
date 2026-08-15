@@ -23,6 +23,30 @@ final class AppModel: ObservableObject {
 
     /// Что показать пользователю окном. Ставится моделью, снимается видом.
     @Published var alert: AlertBox?
+    /// Какой диалог открыт.
+    @Published var sheet: Sheet?
+    /// Идёт загрузка: текст шага и доля, если её вообще можно посчитать.
+    @Published var download: Download?
+    /// Пересчитывается по требованию: файлы на диске меняет не только это
+    /// приложение, а SwiftUI перечитывает `body` куда чаще, чем стоит ходить
+    /// на диск.
+    @Published private(set) var tunPresent = CoreDownloader.tunPresent()
+    @Published private(set) var helperInstalled = HelperInstaller.privileged()
+
+    enum Sheet: String, Identifiable {
+        case add, splitTunnel, subscriptions
+        var id: String { rawValue }
+    }
+
+    struct Download {
+        var what: String
+        var step: String
+        /// `nil` — считать нечего, полоска остаётся бегущей.
+        ///
+        /// Так и задумано: sing-box качает демон, по сокету от него приходят
+        /// только строки лога. Байтов мы не видим и выдумывать их не станем.
+        var fraction: Double?
+    }
 
     struct AlertBox: Identifiable {
         let id = UUID()
@@ -319,6 +343,122 @@ final class AppModel: ObservableObject {
         profiles = loadProfiles()
         servers = profiles.allServers()
     }
+
+    func refreshComponents() {
+        tunPresent = CoreDownloader.tunPresent()
+        helperInstalled = HelperInstaller.privileged()
+    }
+
+    // ------------------------------------------------------------------
+    // Компоненты
+    // ------------------------------------------------------------------
+
+    func downloadCore() {
+        download = Download(what: "ядро Xray", step: "Начинаю…", fraction: nil)
+        let box = WeakModel(self)
+        Task.detached {
+            do {
+                let tag = try await CoreDownloader.downloadCore(
+                    progress: { line in box.step(line) },
+                    onBytes: { got, total in box.bytes(got, total) })
+                await MainActor.run {
+                    box.model?.download = nil
+                    box.model?.refreshComponents()
+                    box.model?.alert = .init(title: "Готово",
+                                             text: "Ядро Xray-core \(tag) установлено.")
+                }
+            } catch {
+                await MainActor.run {
+                    box.model?.download = nil
+                    box.model?.append("[!] Не удалось скачать ядро: \(error)")
+                    box.model?.alert = .init(title: "Не вышло", text: "\(error)")
+                }
+            }
+        }
+    }
+
+    /// Компоненты TUN качает демон: sing-box запускает root, и лежать он обязан
+    /// там, куда пользователь писать не может.
+    func downloadTun() {
+        guard ensureHelper() else { return }
+        // Долю не показываем: качает демон, байтов мы не видим.
+        download = Download(what: "компоненты TUN", step: "Начинаю…", fraction: nil)
+        let box = WeakModel(self)
+        Task.detached {
+            do {
+                let tag = try installSingboxViaHelper(progress: { line in box.step(line) })
+                await MainActor.run {
+                    box.model?.download = nil
+                    box.model?.refreshComponents()
+                    box.model?.alert = .init(title: "Готово",
+                                             text: "TUN-компоненты установлены (sing-box \(tag)).")
+                }
+            } catch {
+                await MainActor.run {
+                    box.model?.download = nil
+                    box.model?.append("[!] Не удалось скачать компоненты TUN: \(error)")
+                    box.model?.alert = .init(title: "Не вышло", text: "\(error)")
+                }
+            }
+        }
+    }
+
+    /// Удалить sing-box. Системный компонент при этом остаётся: он нужен и для
+    /// того, чтобы скачать sing-box обратно.
+    ///
+    /// Отключаемся первыми: демон и сам откажет живому туннелю, но полагаться
+    /// на его отказ значило бы показать пользователю ошибку вместо действия.
+    func removeTun() {
+        disconnect()
+        do {
+            let removed = try removeSingboxViaHelper(progress: { [weak self] line in
+                Task { @MainActor in self?.append(line) }
+            })
+            append(removed ? "[*] Компоненты TUN удалены."
+                           : "[i] Компоненты TUN и так не были установлены.")
+        } catch {
+            append("[!] Не удалось удалить компоненты TUN: \(error)")
+            alert = .init(title: "Не вышло", text: "\(error)")
+        }
+        refreshComponents()
+    }
+
+    func removeHelper() {
+        disconnect()
+        do {
+            try HelperInstaller.unregister()
+            set("helper_version", .int(0))
+            append("[*] Системный компонент снят.")
+        } catch {
+            append("[!] Не удалось снять системный компонент: \(error)")
+            alert = .init(title: "Не вышло", text: "\(error)")
+        }
+        refreshComponents()
+    }
+
+    /// Убедиться, что демон стоит. Компоненты качает он, поэтому без него
+    /// «Скачать компоненты TUN» упирается в пустоту.
+    private func ensureHelper() -> Bool {
+        if HelperInstaller.privileged() { return true }
+        switch HelperInstaller.ensureCurrent() {
+        case .ready:
+            refreshComponents()
+            return true
+        case .awaitingApproval:
+            HelperInstaller.openSettings()
+            alert = .init(title: "Нужно разрешение", text: """
+                Разреши «SCVPN» в System Settings → General → Login Items \
+                и повтори.
+                """)
+            return false
+        case .notInstalled:
+            alert = .init(title: "Не вышло", text: "Системный компонент не зарегистрировался.")
+            return false
+        case .failed(let why):
+            alert = .init(title: "Не вышло", text: why)
+            return false
+        }
+    }
 }
 
 /// Слабая ссылка на модель, которую можно передать в чужой поток.
@@ -334,5 +474,19 @@ final class WeakModel: @unchecked Sendable {
 
     func append(_ line: String) {
         Task { @MainActor [model] in model?.append(line) }
+    }
+
+    func step(_ line: String) {
+        Task { @MainActor [model] in
+            model?.append(line)
+            model?.download?.step = line
+        }
+    }
+
+    func bytes(_ got: Int, _ total: Int) {
+        guard total > 0 else { return }
+        Task { @MainActor [model] in
+            model?.download?.fraction = min(1, Double(got) / Double(total))
+        }
     }
 }

@@ -8,8 +8,10 @@ struct MainView: View {
     var body: some View {
         VStack(spacing: 0) {
             HeaderView(onPing: model.pingAll,
-                       onAdd: { /* Задача 6.5 */ },
-                       onMenu: { /* Задача 6.4 */ })
+                       onAdd: { model.sheet = .add },
+                       onRefresh: { /* Задача 6.5 */ }) {
+                MainMenu(model: model)
+            }
 
             powerBlock
 
@@ -35,6 +37,12 @@ struct MainView: View {
             if model.showLog { logView }
         }
         .background(Color.scvpnBG)
+        .sheet(item: Binding(
+            get: { model.download.map { DownloadBox(download: $0) } },
+            set: { _ in }   // закрывается только по завершении, отмены нет
+        )) { box in
+            ProgressSheet(download: box.download)
+        }
         .alert(item: $model.alert) { box in
             Alert(title: Text(box.title), message: Text(box.text),
                   dismissButton: .default(Text("Ясно")))
@@ -128,4 +136,12 @@ struct MainView: View {
 /// отсеиваются дубликаты подписки.
 extension Server {
     var key: String { key() }
+}
+
+/// Обёртка, чтобы окно загрузки можно было показать через `sheet(item:)`.
+///
+/// Идентификатор постоянный: смена шага не должна пересоздавать окно.
+struct DownloadBox: Identifiable {
+    let id = "download"
+    let download: AppModel.Download
 }
