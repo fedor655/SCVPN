@@ -39,11 +39,15 @@ final class HelperInstallerTests: StorageIsolatedTestCase {
     }
 
     func test_register_error_without_approval_is_a_real_failure() {
-        // Фаза 0, /Users/Shared с переиспользованной личностью: code=1 и
-        // notRegistered — вот это уже настоящий отказ.
-        XCTAssertEqual(
-            HelperInstaller.interpret(registerError: dummyError(code: 1), status: .notRegistered),
-            .failed("Operation not permitted"))
+        // code=1 и notRegistered — отказ. Но текст обязан быть человеческим:
+        // сырое «The operation couldn't be completed. Operation not permitted»
+        // не говорит пользователю ничего, а живьём он увидел именно его.
+        guard case .failed(let why) = HelperInstaller.interpret(
+            registerError: dummyError(code: 1), status: .notRegistered) else {
+            return XCTFail("ожидался отказ")
+        }
+        XCTAssertTrue(why.contains("Login Items"), why)
+        XCTAssertTrue(why.contains("Operation not permitted"), "подробность системы потерялась")
     }
 
     func test_clean_register_follows_the_status() {

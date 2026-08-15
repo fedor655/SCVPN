@@ -69,7 +69,18 @@ public enum HelperInstaller {
         if let registerError {
             if status == .requiresApproval { return .awaitingApproval }
             if status == .enabled { return .ready }
-            return .failed(registerError.localizedDescription)
+            // Сырой localizedDescription — это «The operation couldn't be
+            // completed. Operation not permitted», из чего пользователю
+            // непонятно ничего. Объясняем по-русски и говорим, что делать.
+            return .failed("""
+                Система не приняла регистрацию системного компонента.
+
+                Открой System Settings → General → Login Items, найди «SCVPN» \
+                в разделе «Allow in the Background» и выключи, если он там \
+                есть. Потом попробуй «Установить системный компонент…» ещё раз.
+
+                Подробность системы: \(registerError.localizedDescription)
+                """)
         }
         return HelperState(from: status)
     }
@@ -83,7 +94,23 @@ public enum HelperInstaller {
         } catch {
             thrown = error
         }
-        return interpret(registerError: thrown, status: svc.status)
+
+        // Статус, прочитанный сразу после броска, врёт. BTM записывает запись
+        // о службе не мгновенно, и в этот зазор `status` отдаёт
+        // `notRegistered` вместо `requiresApproval` — то есть штатный шаг
+        // сценария выглядит как отказ «Operation not permitted». Поймано
+        // живьём при переустановке: unregister() отработал, register() бросил
+        // code=1, а пользователь увидел сырую английскую фразу вместо
+        // приглашения разрешить компонент.
+        var status = svc.status
+        if thrown != nil && status == .notRegistered {
+            for _ in 0..<10 {
+                Thread.sleep(forTimeInterval: 0.3)
+                status = svc.status
+                if status != .notRegistered { break }
+            }
+        }
+        return interpret(registerError: thrown, status: status)
     }
 
     public static func unregister() throws {
@@ -150,6 +177,9 @@ public enum HelperInstaller {
                 if state() == .notInstalled { break }
                 Thread.sleep(forTimeInterval: 0.25)
             }
+            // Дать BTM дописать снятие: register() сразу следом попадает в
+            // ещё не закрытую транзакцию и получает «Operation not permitted».
+            Thread.sleep(forTimeInterval: 1.5)
         }
 
         let result = register()
