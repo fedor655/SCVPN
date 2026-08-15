@@ -12,7 +12,9 @@ struct PowerButton: View {
     var action: () -> Void
 
     @State private var hovering = false
-    @State private var spin: Double = 0
+
+    /// Сколько секунд на оборот бегущей дуги.
+    private let turn: Double = 1.4
 
     var body: some View {
         let ring = state.ring
@@ -32,11 +34,7 @@ struct PowerButton: View {
                     Circle()
                         .stroke(color.opacity(0.22), lineWidth: ring.width)
                         .padding(inset)
-                    Circle()
-                        .trim(from: 0, to: 100.0 / 360.0)
-                        .stroke(color, style: StrokeStyle(lineWidth: ring.width, lineCap: .round))
-                        .padding(inset)
-                        .rotationEffect(.degrees(spin))
+                    spinningArc(color: color, width: ring.width, inset: inset)
                 } else {
                     Circle()
                         .stroke(color, style: StrokeStyle(
@@ -53,19 +51,32 @@ struct PowerButton: View {
                               color: state == .connected ? nil : color)
             }
             .frame(width: side, height: side)
-            .contentShape(Circle())
+            // Кликается ровно круг, а не квадрат вокруг него: без inset
+            // чувствительная область выходила за кольцо на его толщину, и
+            // кнопка срабатывала мимо видимой границы.
+            .contentShape(Circle().inset(by: inset))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .onAppear { restartSpin() }
-        .onChange(of: state) { _ in restartSpin() }
     }
 
-    private func restartSpin() {
-        spin = 0
-        guard state == .connecting else { return }
-        withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
-            spin = 360
+    /// Бегущая дуга.
+    ///
+    /// Через `TimelineView`, а не `withAnimation(.repeatForever)`. Второй здесь
+    /// не работает: сброс угла и запуск анимации попадают в один такт, SwiftUI
+    /// их склеивает, и дуга просто стоит — ровно то, что было видно на экране.
+    /// `TimelineView` считает угол от времени и не зависит от того, когда
+    /// пересобрался вид. По сути это тот же таймер на 16 мс, которым крутил
+    /// Qt-вариант, только без ручного управления им.
+    private func spinningArc(color: Color, width: Double, inset: Double) -> some View {
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: turn) / turn
+            Circle()
+                .trim(from: 0, to: 100.0 / 360.0)
+                .stroke(color, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                .padding(inset)
+                .rotationEffect(.degrees(t * 360))
         }
     }
 }

@@ -70,6 +70,7 @@ struct WindowChrome: NSViewRepresentable {
 
     final class Coordinator {
         private var observed: NSWindow?
+        private var pending: DispatchWorkItem?
 
         func observe(_ window: NSWindow) {
             guard observed !== window else { return }
@@ -83,17 +84,33 @@ struct WindowChrome: NSViewRepresentable {
             }
         }
 
-        /// Двигаем не сразу: AppKit доперекладывает заголовок после события и
-        /// вернул бы кнопки на место. Второй заход — ради выхода из полного
-        /// экрана, там перекладка приезжает уже после анимации.
+        /// Сдвинуть сейчас же и ещё раз, когда AppKit доперекладывает заголовок.
+        ///
+        /// Немедленный вызов — **синхронный**, а не через очередь: при живом
+        /// изменении размера уведомления сыплются десятками, и каждое,
+        /// поставленное в очередь, приезжало на кадр позже своего resize.
+        /// Кнопки от этого дёргались.
+        ///
+        /// Отложенный вызов **схлопывается**: нужен ровно один, после того как
+        /// размер устоялся. Прежняя версия ставила по два на каждое
+        /// уведомление, и они добивали дрожание уже после того, как
+        /// пользователь отпустил край окна.
         func scheduleSink(_ window: NSWindow) {
-            DispatchQueue.main.async { sinkTrafficLights(window) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            sinkTrafficLights(window)
+
+            pending?.cancel()
+            let work = DispatchWorkItem { [weak window] in
+                guard let window else { return }
                 sinkTrafficLights(window)
             }
+            pending = work
+            // 0.35 с — после анимации выхода из полного экрана, там перекладка
+            // приезжает позже всего.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
 
         deinit {
+            pending?.cancel()
             NotificationCenter.default.removeObserver(self)
         }
     }

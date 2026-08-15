@@ -142,8 +142,23 @@ final class AppModel: ObservableObject {
             alert = .init(title: "Нет ядра", text: "Меню «⋯» → «Скачать ядро Xray».")
             return
         }
-        if mode == .tun, !tunPreflight() { return }
+        // Регистрация демона показывает системный диалог и ждёт согласия
+        // пользователя — минуты, если он ушёл в System Settings. На главном
+        // потоке это выглядит как зависшее приложение, поэтому TUN-ветка
+        // уходит в фон целиком, а экран сразу переключается на «Подключение…».
+        if mode == .tun {
+            state = .connecting
+            append("[*] Проверяю системный компонент…")
+            Task { [weak self] in
+                guard let self, await self.tunPreflight() else { return }
+                self.beginConnect(server)
+            }
+            return
+        }
+        beginConnect(server)
+    }
 
+    private func beginConnect(_ server: Server) {
         wantConnected = true
         state = .connecting
         append("[*] Подключаюсь к: \(server.title)")
@@ -287,12 +302,17 @@ final class AppModel: ObservableObject {
     ///
     /// Обратный порядок даёт неснимаемый круг на чистой машине: компоненты
     /// кладёт демон, а демона ставит только эта ветка.
-    private func tunPreflight() -> Bool {
+    ///
+    /// `async` не для красоты: `SMAppService.register()` показывает системный
+    /// диалог, а сверка версии ждёт, пока launchd отпустит прежнюю службу — до
+    /// десяти секунд. На главном потоке это ровно то зависание, которое
+    /// пользователь видит как «приложение повисло».
+    private func tunPreflight() async -> Bool {
         if !HelperInstaller.privileged() {
-            let result = HelperInstaller.ensureCurrent()
+            let result = await Task.detached { HelperInstaller.ensureCurrent() }.value
             switch result {
             case .ready:
-                break
+                refreshComponents()
             case .awaitingApproval:
                 alert = .init(title: "Нужно разрешение", text: """
                     Разреши «SCVPN» в System Settings → General → Login Items \
@@ -457,9 +477,19 @@ final class AppModel: ObservableObject {
     /// Компоненты TUN качает демон: sing-box запускает root, и лежать он обязан
     /// там, куда пользователь писать не может.
     func downloadTun() {
-        guard ensureHelper() else { return }
         // Долю не показываем: качает демон, байтов мы не видим.
-        download = Download(what: "компоненты TUN", step: "Начинаю…", fraction: nil)
+        download = Download(what: "компоненты TUN", step: "Проверяю системный компонент…", fraction: nil)
+        Task { [weak self] in
+            guard let self else { return }
+            guard await self.ensureHelper() else {
+                self.download = nil
+                return
+            }
+            self.startSingboxDownload()
+        }
+    }
+
+    private func startSingboxDownload() {
         let box = WeakModel(self)
         Task.detached {
             do {
@@ -515,9 +545,9 @@ final class AppModel: ObservableObject {
 
     /// Убедиться, что демон стоит. Компоненты качает он, поэтому без него
     /// «Скачать компоненты TUN» упирается в пустоту.
-    private func ensureHelper() -> Bool {
+    private func ensureHelper() async -> Bool {
         if HelperInstaller.privileged() { return true }
-        switch HelperInstaller.ensureCurrent() {
+        switch await Task.detached(operation: { HelperInstaller.ensureCurrent() }).value {
         case .ready:
             refreshComponents()
             return true
