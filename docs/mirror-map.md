@@ -9,7 +9,7 @@
 Правило простое:
 
 > Правка в `desktop/shared/` требует парной правки в
-> `desktop/MacOS-Swift/Sources/SCVPNCore/`. Правка в `desktop/MacOS/helper/` —
+> `desktop/macOS/Sources/SCVPNCore/`. Правка в `desktop/macOS-python/helper/` —
 > парной в `Sources/SCVPNHelperKit/`.
 
 Ниже — что чему соответствует. Если файла нет в паре, это отмечено явно: значит
@@ -27,15 +27,15 @@
 | `shared/core_runner.py` | `SCVPNCore/XrayRunner.swift`, `TCPPing.swift` | |
 | `shared/ping.py` | `SCVPNCore/TCPPing.swift` | неблокирующий `connect` + `poll` вместо `settimeout` |
 | `shared/connect.py` | `SCVPNCore/FingerprintProbe.swift` | проба через `/usr/bin/curl -x`, не `URLSession` |
-| `MacOS/native/paths.py` | `SCVPNCore/Paths.swift` | нет вилки «из исходников / собранное» |
-| `MacOS/native/hwid.py` | `SCVPNCore/HWID.swift` | IOKit напрямую вместо разбора `ioreg` |
-| `MacOS/native/sysproxy.py` | `SCVPNCore/SystemProxy.swift` | |
-| `MacOS/native/downloader.py` | `SCVPNCore/CoreDownloader.swift` | распаковка `/usr/bin/unzip` |
-| `MacOS/native/tun.py` | `SCVPNCore/HelperClient.swift`, `Tun.swift` | |
-| `MacOS/native/apps.py` | `SCVPNCore/RunningApps.swift` | `NSWorkspace` вместо разбора `ps` |
-| `MacOS/helper/config.py` | `SCVPNCore/SingboxConfig/Validation.swift`, `Builder.swift` | |
-| `MacOS/helper/daemon.py` | `SCVPNHelperKit/` целиком | разнесён по файлам по ответственностям |
-| `MacOS/helper/install.py` | `SCVPNCore/HelperInstaller.swift`, `LegacyHelper.swift` | `SMAppService` вместо osascript |
+| `macOS-python/native/paths.py` | `SCVPNCore/Paths.swift` | нет вилки «из исходников / собранное» |
+| `macOS-python/native/hwid.py` | `SCVPNCore/HWID.swift` | IOKit напрямую вместо разбора `ioreg` |
+| `macOS-python/native/sysproxy.py` | `SCVPNCore/SystemProxy.swift` | |
+| `macOS-python/native/downloader.py` | `SCVPNCore/CoreDownloader.swift` | распаковка `/usr/bin/unzip` |
+| `macOS-python/native/tun.py` | `SCVPNCore/HelperClient.swift`, `Tun.swift` | |
+| `macOS-python/native/apps.py` | `SCVPNCore/RunningApps.swift` | `NSWorkspace` вместо разбора `ps` |
+| `macOS-python/helper/config.py` | `SCVPNCore/SingboxConfig/Validation.swift`, `Builder.swift` | |
+| `macOS-python/helper/daemon.py` | `SCVPNHelperKit/` целиком | разнесён по файлам по ответственностям |
+| `macOS-python/helper/install.py` | `SCVPNCore/HelperInstaller.swift`, `LegacyHelper.swift` | `SMAppService` вместо osascript |
 
 ## Интерфейс
 
@@ -50,7 +50,7 @@
 | `shared/ui/subscription_dialog.py` | `SCVPNApp/Views/SubscriptionSheet.swift` | |
 | `shared/ui/qr_scanner.py` | `SCVPNApp/Views/QRScannerView.swift` | `AVCaptureMetadataOutput`, opencv не нужен |
 | `shared/ui/workers.py` | — | `Task` и `@Published`, отдельного типа нет |
-| `MacOS/native/titlebar.py` | `SCVPNApp/Views/WindowAccessor.swift` | AppKit напрямую вместо `ctypes` |
+| `macOS-python/native/titlebar.py` | `SCVPNApp/Views/WindowAccessor.swift` | AppKit напрямую вместо `ctypes` |
 
 ## Чего в Swift-версии нет намеренно
 

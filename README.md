@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Windows** | `desktop/Windows/` — Python + PySide6, ядро `xray.exe` рядом |
-| **macOS** | `desktop/MacOS-Swift/` — нативный Swift, TUN через привилегированный демон (Apple Silicon). Прежняя версия на Python — `desktop/MacOS/`, пока рядом |
+| **macOS** | `desktop/macOS/` — нативный Swift, TUN через привилегированный демон (Apple Silicon) |
 | **Android** | `android/` — Kotlin, то же ядро внутри процесса (`libv2ray.aar`) |
 | **iOS** | пока нет, в планах |
 
@@ -17,7 +17,7 @@
    Вместе с запросом уходит идентификатор устройства (`x-hwid`, ОС, её версия и
    модель) — этого требуют панели с лимитом устройств, иначе они отдают заглушку
    вместо серверов. Сам идентификатор машины наружу не уходит: шлём его SHA-256
-   с солью, см. `desktop/Windows/native/hwid.py`, `desktop/MacOS/native/hwid.py`
+   с солью, см. `desktop/Windows/native/hwid.py`, `desktop/macOS/Sources/SCVPNCore/HWID.swift`
    и `android/.../Hwid.kt`.
 2. **VPN-трафик** — через выбранный тобой сервер; этим занимается ядро Xray.
 3. **Скачивание ядра** (Windows и macOS) — один раз тянет `xray` + гео-базы с
@@ -48,7 +48,7 @@
 ### Общие слои
 
 Десктопные версии делят один и тот же код: он лежит в `desktop/shared/`, а в
-`desktop/Windows/native/` и `desktop/MacOS/native/` — только то, чем платформы
+`desktop/Windows/native/` и `desktop/macOS/Sources/SCVPNCore/` — только то, чем платформы
 действительно отличаются. Набор имён в обеих папках одинаков, поэтому общий код
 не догадывается, на чём работает.
 
@@ -96,7 +96,7 @@
 Важное свойство: и системный прокси, и TUN откатываются при закрытии окна и при
 падении ядра (`closeEvent`, `_on_state`), чтобы не остаться без интернета.
 
-**macOS** (`desktop/MacOS/`) — тот же Xray отдельным процессом, те же два способа:
+**macOS** (`desktop/macOS/`) — тот же Xray отдельным процессом, те же два способа:
 
 ```
                     ┌── режим «прокси» ──────────────────────────┐
@@ -167,7 +167,7 @@ Xray к серверу идёт мимо TUN, иначе он заворачив
 
 ## Сборка
 
-Подробности — в `desktop/Windows/README.md`, `desktop/MacOS-Swift/README.md` и
+Подробности — в `desktop/Windows/README.md`, `desktop/macOS/README.md` и
 `android/README.md`. Коротко:
 
 ```powershell
@@ -181,9 +181,7 @@ build_installer.bat  # dist_installer\SCVPN-Setup-*.exe
 
 ```bash
 # macOS (Apple Silicon): SCVPN.app
-cd desktop/MacOS
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
+cd desktop/macOS
 ./build.sh           # dist/SCVPN.app
 ```
 
@@ -207,7 +205,7 @@ build_apk.bat        # app\build\outputs\apk\debug\app-debug.apk
 тот же знак рисуется Qt (`desktop/shared/ui/brandmark.py`).
 
 `.icns` для macOS нарисован один раз и лежит в git готовым — при сборке он не
-пересоздаётся; как его перерисовать, написано в `desktop/MacOS/setup/README.md`.
+пересоздаётся; как его перерисовать, написано в `desktop/macOS-python/setup/README.md`.
 Отличие от Windows-иконки одно: плашка занимает 80 % холста, вокруг прозрачное
 поле — иначе иконка в доке выглядит крупнее соседних.
 

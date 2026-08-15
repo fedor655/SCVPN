@@ -53,7 +53,7 @@ AppKit, AVFoundation, CoreImage, IOKit, CryptoKit, ServiceManagement. Ноль
   `_MAX_LINE = 1 << 20`, `_OUTBOX_LIMIT = 256`, `_MAX_SPLIT_APPS = 256`,
   `_MAX_EXCLUDE_IPS = 1024`, `_MAX_APP_NAME = 64`.
 - **Старый Python-код не удаляется** до конца Фазы 8. Обе реализации живут
-  рядом; `desktop/MacOS/` трогаем только в двух местах, оговорённых явно.
+  рядом; `desktop/macOS-python/` трогаем только в двух местах, оговорённых явно.
 
 ---
 
@@ -115,7 +115,7 @@ Python-приложение ставит демона через `helper/install
 plist с точно тем же содержимым, которое вернёт `plist_text()`… — нет, не
 получится, там `ProgramArguments` другой. Поэтому проще и честнее: в
 Фазе 2 Python-приложение запускается с переменной окружения
-`SCVPN_ASSUME_HELPER=1`, а в `desktop/MacOS/helper/install.py::installed()`
+`SCVPN_ASSUME_HELPER=1`, а в `desktop/macOS-python/helper/install.py::installed()`
 добавляется одна строка:
 
 ```python
@@ -149,8 +149,8 @@ if os.environ.get("SCVPN_ASSUME_HELPER"):
 ### Задача −1.1: Починить латентный TCC-баг текущей сборки
 
 **Файлы:**
-- Modify: `desktop/MacOS/helper/install.py:193` (функция `install`)
-- Test: `desktop/MacOS/test_native.py`
+- Modify: `desktop/macOS-python/helper/install.py:193` (функция `install`)
+- Test: `desktop/macOS-python/test_native.py`
 
 Спецификация, раздел 4.3-bis: собранное `.app` в `~/Downloads` даёт демона,
 которого root не может прочитать, при том что `installed()` отвечает `True`.
@@ -158,7 +158,7 @@ if os.environ.get("SCVPN_ASSUME_HELPER"):
 - [x] **Шаг 1: Подтвердить баг экспериментально**
 
 ```bash
-cd desktop/MacOS && ./build.sh
+cd desktop/macOS-python && ./build.sh
 cp -R dist/SCVPN.app ~/Downloads/
 open ~/Downloads/SCVPN.app
 # включить TUN, ввести пароль, затем:
@@ -228,7 +228,7 @@ Run: `./test.sh` — Expected: PASS.
 **Результат:** `test_install_refuses_bundle_in_tcc_protected_folder` — ok.
 Из 90 проверок падает одна, `test_native_contract_covers_both_platforms`, и
 падает она не из-за этой задачи: в рабочем дереве лежит незакоммиченный
-`desktop/MacOS/native/titlebar.py`, парного модуля для Windows нет. Это чужая
+`desktop/macOS-python/native/titlebar.py`, парного модуля для Windows нет. Это чужая
 недоделанная правка, к Фазе −1 отношения не имеет.
 
 - [ ] **Шаг 6: Коммит**
@@ -246,7 +246,7 @@ git add desktop/MacOS/helper/install.py desktop/MacOS/test_native.py && git comm
 
 **Файлы:**
 - Modify: `desktop/shared/ui/qr_scanner.py`
-- Modify: `desktop/MacOS/requirements.txt`
+- Modify: `desktop/macOS-python/requirements.txt`
 
 `qr_scanner.py::_open_camera` использует `cv2.CAP_DSHOW` — Windows-only бэкенд,
 на macOS всегда падает в запасную ветку. Сама зависимость
@@ -293,7 +293,7 @@ Python-бандла на время переходного периода. За�
 ### Задача −1.3: Прикинуть `SMAppService` из Python (решение о переписывании)
 
 **Файлы:**
-- Create: `desktop/MacOS/tools/smappservice_probe.py`
+- Create: `desktop/macOS-python/tools/smappservice_probe.py`
 
 Спецификация, вопрос 10.7: `SMAppService` доступен и Python-версии через
 pyobjc, то есть избавиться от osascript и копирования кода можно **не
@@ -665,7 +665,7 @@ POSIX: он поднимается от root под launchd, и лишний ф�
 Вопрос 10.8 спецификации: инварианты собраны чтением комментариев, возможно,
 что-то держится на структуре кода и нигде не описано.
 
-- [ ] **Шаг 1:** Прочитать `desktop/MacOS/test_native.py` целиком (2927 строк),
+- [ ] **Шаг 1:** Прочитать `desktop/macOS-python/test_native.py` целиком (2927 строк),
   выписать имя каждой проверки и одну строку о том, какое свойство она держит.
 - [ ] **Шаг 2:** Сверить со списком раздела 7 спецификации и разделом 2.4.
 - [ ] **Шаг 3:** Дописать найденное в таблицу «Инварианты → проверки» этого
@@ -700,11 +700,11 @@ Swift оказались непокрыты, — дописаны (`TunGuarantee
 ### Задача 1.1: Пакет SwiftPM с тремя таргетами
 
 **Файлы:**
-- Create: `desktop/MacOS-Swift/Package.swift`
-- Create: `desktop/MacOS-Swift/Sources/SCVPNCore/Placeholder.swift`
-- Create: `desktop/MacOS-Swift/Sources/SCVPNHelper/main.swift`
-- Create: `desktop/MacOS-Swift/Sources/SCVPNApp/main.swift`
-- Test: `desktop/MacOS-Swift/Tests/SCVPNCoreTests/PlaceholderTests.swift`
+- Create: `desktop/macOS/Package.swift`
+- Create: `desktop/macOS/Sources/SCVPNCore/Placeholder.swift`
+- Create: `desktop/macOS/Sources/SCVPNHelper/main.swift`
+- Create: `desktop/macOS/Sources/SCVPNApp/main.swift`
+- Test: `desktop/macOS/Tests/SCVPNCoreTests/PlaceholderTests.swift`
 
 **Interfaces:**
 - Produces: таргеты `SCVPNCore` (library), `SCVPNHelper` (executable),
@@ -760,7 +760,7 @@ final class PlaceholderTests: XCTestCase {
 
 - [x] **Шаг 3: Запустить, убедиться, что падает**
 
-Run: `cd desktop/MacOS-Swift && swift test`
+Run: `cd desktop/macOS && swift test`
 Expected: FAIL, «cannot find 'SCVPNCore' in scope».
 
 - [x] **Шаг 4: Реализовать минимум**
@@ -779,15 +779,15 @@ Run: `swift test` — Expected: PASS.
 - [x] **Шаг 6: Коммит**
 
 ```bash
-git add desktop/MacOS-Swift && git commit -m "feat: каркас пакета SwiftPM для macOS-клиента на Swift"
+git add desktop/macOS && git commit -m "feat: каркас пакета SwiftPM для macOS-клиента на Swift"
 ```
 
 ### Задача 1.2: Сборка бандла и ad-hoc подпись
 
 **Файлы:**
-- Create: `desktop/MacOS-Swift/build.sh`
-- Create: `desktop/MacOS-Swift/Resources/Info.plist`
-- Create: `desktop/MacOS-Swift/Resources/com.scvpn.helper.plist`
+- Create: `desktop/macOS/build.sh`
+- Create: `desktop/macOS/Resources/Info.plist`
+- Create: `desktop/macOS/Resources/com.scvpn.helper.plist`
 
 **Interfaces:**
 - Produces: `dist/SCVPN.app` с раскладкой
@@ -874,7 +874,7 @@ echo "Готово: $APP"
 - [x] **Шаг 4: Проверить, что бандл собирается и запускается**
 
 ```bash
-chmod +x desktop/MacOS-Swift/build.sh && desktop/MacOS-Swift/build.sh && open desktop/MacOS-Swift/dist/SCVPN.app
+chmod +x desktop/macOS/build.sh && desktop/macOS/build.sh && open desktop/macOS/dist/SCVPN.app
 ```
 
 Expected: пустое окно, иконка в Dock, приложение не падает.
@@ -882,7 +882,7 @@ Expected: пустое окно, иконка в Dock, приложение не
 - [x] **Шаг 5: Коммит**
 
 ```bash
-git add desktop/MacOS-Swift && git commit -m "feat: сборка бандла и ad-hoc подпись"
+git add desktop/macOS && git commit -m "feat: сборка бандла и ad-hoc подпись"
 ```
 
 ---
@@ -1835,8 +1835,8 @@ func test_fails_loudly_when_no_darwin_asset() {
 ### Задача 2.14: Приёмка Фазы 2 — Python-приложение со Swift-демоном
 
 **Файлы:**
-- Create: `desktop/MacOS-Swift/Tools/install-helper-dev.sh`
-- Modify: `desktop/MacOS/helper/install.py` (одна строка, см. раздел 0.3)
+- Create: `desktop/macOS/Tools/install-helper-dev.sh`
+- Modify: `desktop/macOS-python/helper/install.py` (одна строка, см. раздел 0.3)
 
 - [x] **Шаг 1: Скрипт ручной установки**
 
@@ -1868,8 +1868,8 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.scvpn.helper.plist
 - [ ] **Шаг 2: Прогнать Python-приложение против Swift-демона**
 
 ```bash
-desktop/MacOS-Swift/Tools/install-helper-dev.sh
-cd desktop/MacOS && SCVPN_ASSUME_HELPER=1 venv/bin/python run.py
+desktop/macOS/Tools/install-helper-dev.sh
+cd desktop/macOS-python && SCVPN_ASSUME_HELPER=1 venv/bin/python run.py
 ```
 
 Проверить в этом порядке: подключение в режиме TUN, `pgrep -f "sing-box run -c"`
@@ -2227,7 +2227,7 @@ func test_unknown_protocol_throws() {
 
 - [x] **Шаг 1: Падающие проверки**
 
-Набор ссылок берётся из `desktop/MacOS/smoke_test.py` — там уже собраны формы,
+Набор ссылок берётся из `desktop/macOS-python/smoke_test.py` — там уже собраны формы,
 которые встречались живьём. Скопировать их в фикстуру и покрыть каждую.
 
 ```swift
@@ -2433,7 +2433,7 @@ func test_server_fingerprint_goes_first_but_randomized_does_not() {
 потерянное поле обнаружилось бы не сегодня, а когда пользователь не сможет
 подключиться.
 
-Настоящий `desktop/MacOS/data/profiles.json` (1 подписка, 11 серверов) читается
+Настоящий `desktop/macOS-python/data/profiles.json` (1 подписка, 11 серверов) читается
 Swift-моделями, пишется обратно и совпадает с исходником при сравнении
 разобранных объектов — то же, что `diff <(jq -S .) <(jq -S .)`, только внутри
 прогона и на каждом запуске. Каждый из 11 серверов собирает конфиг Xray и даёт
@@ -2441,7 +2441,7 @@ Swift-моделями, пишется обратно и совпадает с �
 молча.
 
 **Отклонение от плана по Шагу 1.** Набор ссылок предлагалось взять из
-`desktop/MacOS/smoke_test.py`. Литералов ссылок там нет — скрипт читает
+`desktop/macOS-python/smoke_test.py`. Литералов ссылок там нет — скрипт читает
 настоящий `profiles.json`. Фикстура собрана по формам, которые разбирает
 `shared/subscription.py`, включая те, ради которых там стоят отдельные ветки:
 русское имя в `#fragment`, проценты внутри `path`, IPv6 в скобках,
@@ -2704,7 +2704,7 @@ func test_stop_reply_is_not_eaten_by_the_log_reader() throws { }
 ## Фаза 6. Интерфейс (1.5–2 недели)
 
 Переписывается заново, но поведение и тексты — те же. Ориентир по составу —
-таблица меню в `desktop/MacOS/README.md`.
+таблица меню в `desktop/macOS-python/README.md`.
 
 > **Оформление окна перенесено с последней Python-версии, а не с
 > закоммиченной ранее.** В рабочем дереве лежала незавершённая переделка
@@ -2903,7 +2903,7 @@ VPN»; и главное — имя, которое диалог сохрани�
 
 > **Закрыта 2026-08-15.** 303 проверки зелёные.
 >
-> `README.md` написан заново в `desktop/MacOS-Swift/`, а не правкой
+> `README.md` написан заново в `desktop/macOS/`, а не правкой
 > Python-овского: тот описывает версию, которая живёт рядом до конца Фазы 8, и
 > переписывать его сейчас значило бы оставить пользователя без документации на
 > то, чем он пользуется сегодня. В корневом README таблица платформ и ссылка на
@@ -2918,7 +2918,7 @@ VPN»; и главное — имя, которое диалог сохрани�
 ### Задача 7.1: README
 
 **Файлы:**
-- Modify: `desktop/MacOS/README.md` (или создать `desktop/MacOS-Swift/README.md`)
+- Modify: `desktop/macOS-python/README.md` (или создать `desktop/macOS/README.md`)
 - Modify: `README.md` (корневой)
 
 Что обязано поменяться:
@@ -3016,8 +3016,8 @@ SSH-сессии в эту же машину**: провальный исход 
 ### Задача 8.3: Уборка
 
 - [x] **Шаг 1:** Удалить строку `SCVPN_ASSUME_HELPER` из
-  `desktop/MacOS/helper/install.py`.
-- [x] **Шаг 2:** Решить судьбу `desktop/MacOS/` (Python-версия): удалить или
+  `desktop/macOS-python/helper/install.py`.
+- [x] **Шаг 2:** Решить судьбу `desktop/macOS-python/` (Python-версия): удалить или
   оставить как справочник. Рекомендация — оставить одним коммитом-архивом и
   удалить в следующем релизе, когда Swift-версия отходит месяц.
 - [x] **Шаг 3:** Завести `docs/mirror-map.md`: какой Swift-файл зеркалит какой

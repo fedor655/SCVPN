@@ -5,17 +5,21 @@ desktop/Windows/.venv/
 desktop/Windows/build/
 desktop/Windows/dist/
 desktop/Windows/dist_installer/
-desktop/MacOS/venv/
-desktop/MacOS/build/
-desktop/MacOS/dist/
+desktop/macOS-python/venv/
+desktop/macOS-python/build/
+desktop/macOS-python/dist/
+desktop/macOS/.build/
+desktop/macOS/dist/
 
 # Профили, настройки и логи: там реальные подписки и ключи серверов.
 desktop/Windows/data/
-desktop/MacOS/data/
+desktop/macOS-python/data/
+desktop/macOS/data/
 
 # Ядро и гео-базы — приложение качает их само при первом запуске.
 desktop/Windows/bin/
-desktop/MacOS/bin/
+desktop/macOS-python/bin/
+desktop/macOS/bin/
 
 # ── Android ─────────────────────────────────────────────────────────
 android/.gradle/
