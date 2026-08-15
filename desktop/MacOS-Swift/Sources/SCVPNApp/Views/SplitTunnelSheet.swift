@@ -58,6 +58,19 @@ struct SplitTunnelSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if choice.picksApps {
+                // Найдено живьём в Фазе 8: выбрать Safari в списке можно, а
+                // толку нет — сам он в сеть не ходит, за него это делает
+                // com.apple.WebKit.Networking. Правило по имени «Safari» не
+                // совпадает ни с одним запросом, и человек решает, что
+                // раздельный туннель сломан.
+                Text("""
+                    Браузеры на WebKit (Safari) ходят в сеть отдельным процессом \
+                    com.apple.WebKit.Networking — выбирать надо его, а не «Safari».
+                    """)
+                    .font(.scvpnUI(11))
+                    .foregroundStyle(Color.scvpnText)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 appPicker
             }
 

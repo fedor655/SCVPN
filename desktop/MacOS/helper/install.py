@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import plistlib
 import shlex
 import subprocess
@@ -108,10 +107,6 @@ def installed() -> bool:
     перезапускал бы несуществующий путь, а приложение считало бы, что всё
     поставлено и работает.
     """
-    # только для стенда Фазы 2 плана переписывания (docs/macos-swift-implementation-plan.md,
-    # раздел 0.3) — удаляется в Задаче 8.3
-    if os.environ.get("SCVPN_ASSUME_HELPER"):
-        return True
     try:
         return paths.HELPER_PLIST.read_text(encoding="utf-8") == plist_text()
     except (OSError, ValueError):
