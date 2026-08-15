@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
 
 /// Конфиг sing-box: TUN -> SOCKS Xray, плюс правила раздельного туннеля.
@@ -71,3 +74,4 @@ public func buildSingboxConfig(_ p: SingboxParams, xrayPath: String) -> [String:
         ] as [String: Any],
     ]
 }
+#endif

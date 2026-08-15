@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
 
 /// Запуск и остановка ядра Xray.
@@ -145,3 +148,4 @@ func pumpXrayLines(from handle: FileHandle, onLine: (String) -> Void) {
         if !line.isEmpty { onLine(line) }
     }
 }
+#endif

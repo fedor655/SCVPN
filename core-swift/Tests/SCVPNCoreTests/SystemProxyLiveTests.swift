@@ -1,3 +1,4 @@
+#if os(macOS)
 import XCTest
 @testable import SCVPNCore
 
@@ -44,3 +45,4 @@ final class SystemProxyLiveTests: StorageIsolatedTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: SystemProxy.snapshotFile.path))
     }
 }
+#endif

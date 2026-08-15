@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
 
 /// Сколько ждать правдивый ответ демона на команду `stop`.
@@ -234,3 +237,4 @@ public func resolveIPs(_ host: String) -> [String] {
     }
     return found.sorted()
 }
+#endif

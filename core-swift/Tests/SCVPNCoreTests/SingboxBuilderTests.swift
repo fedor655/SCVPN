@@ -1,3 +1,4 @@
+#if os(macOS)
 import XCTest
 @testable import SCVPNCore
 
@@ -121,3 +122,4 @@ final class SingboxBuilderTests: XCTestCase {
         XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: cfg))
     }
 }
+#endif

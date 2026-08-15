@@ -1,3 +1,4 @@
+#if os(macOS)
 import XCTest
 @testable import SCVPNCore
 
@@ -113,3 +114,4 @@ final class ValidationTests: XCTestCase {
         XCTAssertEqual(try validate(["socks_port": 10808, "log_level": "debug"]).logLevel, "debug")
     }
 }
+#endif

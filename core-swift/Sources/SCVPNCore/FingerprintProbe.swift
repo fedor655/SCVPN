@@ -28,6 +28,46 @@ public func candidateFingerprints(_ s: Server, override: String) -> [String] {
     return candidates
 }
 
+/// Замерщик задержки: конфиг на вход, миллисекунды или -1 на выход.
+///
+/// Протокол, а не прямой вызов, потому что способ замера у платформ разный:
+/// macOS поднимает `xray` дочерним процессом и ходит через `curl`, iOS зовёт
+/// libXray внутри процесса. Проверкам подсовывается подделка — иначе порядок
+/// кандидатов проверялся бы только руками.
+public protocol DelayMeasuring {
+    func measure(configJSON: String, url: String) -> Int
+}
+
+/// Первый отпечаток, с которым сервер ответил.
+///
+/// Ни один не ответил — первый кандидат, как в `connect.py`: лучше попробовать
+/// подключиться заведомым кандидатом, чем не пробовать вовсе.
+public func findWorkingFingerprint(
+    _ server: Server,
+    override: String = "auto",
+    using measurer: DelayMeasuring,
+    log: @escaping (String) -> Void = { _ in }
+) -> String {
+    let candidates = candidateFingerprints(server, override: override)
+    // Конкретный выбор пользователя не проверяем: он его и просил.
+    if candidates.count == 1 { return candidates[0] }
+
+    log("[*] Подбираю рабочий TLS-отпечаток…")
+    for fp in candidates {
+        var probe = server
+        probe.fingerprint = fp
+        guard let json = try? buildProbeConfig(server: probe) else { continue }
+        if measurer.measure(configJSON: json, url: probeURL) > 0 {
+            log("[+] Рабочий отпечаток: \(fp)")
+            return fp
+        }
+        log("    \(fp) — не подошёл")
+    }
+    log("[!] Ни один отпечаток не прошёл проверку, пробую первый.")
+    return candidates[0]
+}
+
+#if os(macOS)
 /// Проверить один отпечаток на живом сервере.
 ///
 /// Запрос идёт через `/usr/bin/curl -x`, а не через
@@ -90,3 +130,4 @@ public func findWorkingFingerprint(
     log("[!] Ни один отпечаток не прошёл проверку, пробую первый.")
     return candidates[0]
 }
+#endif

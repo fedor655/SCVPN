@@ -1,12 +1,7 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
-
-/// Клиент прислал то, что демон не станет исполнять.
-public struct ValidationError: Error, CustomStringConvertible {
-    public let message: String
-    public init(_ message: String) { self.message = message }
-    public var description: String { message }
-    public var localizedDescription: String { message }
-}
 
 /// Потолок длины имени приложения. Заморожен вместе с протоколом.
 public let maxAppNameBytes = 64
@@ -155,3 +150,4 @@ public func ipVersion(_ text: String) -> Int {
     var v4 = in_addr()
     return inet_pton(AF_INET, text, &v4) == 1 ? 4 : 6
 }
+#endif

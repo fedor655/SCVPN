@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
 import ServiceManagement
 
@@ -195,3 +198,4 @@ public enum HelperInstaller {
         state() == .ready
     }
 }
+#endif

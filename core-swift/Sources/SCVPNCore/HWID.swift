@@ -1,6 +1,10 @@
 import CryptoKit
 import Foundation
+#if os(macOS)
 import IOKit
+#else
+import UIKit
+#endif
 
 /// Соль, чтобы наружу уходил не сам идентификатор платы, а необратимая
 /// производная.
@@ -12,6 +16,7 @@ import IOKit
 /// это верно, это разные устройства.
 private let hwidSalt = "scvpn-hwid-v1"
 
+#if os(macOS)
 /// Что-нибудь стабильное и уникальное для этой машины.
 ///
 /// `IOPlatformUUID` выдаётся плате и переживает переустановку системы — ровно
@@ -62,6 +67,31 @@ private func macAddressHex() -> String {
     }
     return "000000000000"
 }
+#else
+/// Что-нибудь стабильное и уникальное для этого устройства.
+///
+/// `identifierForVendor` обнуляется, когда пользователь удалил все приложения
+/// вендора, поэтому первое же значение кладётся в Keychain и переживает
+/// переустановку. Иначе каждая переустановка занимала бы новый слот устройства
+/// в панели — ровно та проблема, ради которой HWID и появился.
+func machineSource() -> String {
+    if let saved = Keychain.load("hwid-source"), !saved.isEmpty { return saved }
+    let idfv = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+    Keychain.save("hwid-source", idfv)
+    return idfv
+}
+
+/// Машинный идентификатор устройства: `iPhone17,1`, а не «iPhone 16 Pro».
+///
+/// Панели сверяют устройства по нему, маркетинговое имя им ничего не говорит.
+func machineModel() -> String {
+    var info = utsname()
+    guard uname(&info) == 0 else { return "iPhone" }
+    return withUnsafeBytes(of: &info.machine) { raw in
+        String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
+    }
+}
+#endif
 
 /// Стабильный HWID этого устройства. Считается один раз и запоминается.
 ///
@@ -95,6 +125,7 @@ public func deviceHeaders() -> [String: String] {
     // Ровно четыре заголовка, ровно те же имена и источники, что в Python.
     // Лишний заголовок — это изменение того, что видит панель, а панели по
     // набору заголовков решают, отдавать ли серверы вообще.
+    #if os(macOS)
     let host = ProcessInfo.processInfo.hostName
     return [
         "x-hwid": deviceID(),
@@ -103,8 +134,19 @@ public func deviceHeaders() -> [String: String] {
         "x-ver-os": darwinRelease(),
         "x-device-model": host.isEmpty ? "Mac" : host,
     ]
+    #else
+    // Значения как в Android-версии (`Hwid.kt`): панель должна видеть
+    // осмысленную ОС и модель, а не «Darwin 25.6».
+    return [
+        "x-hwid": deviceID(),
+        "x-device-os": "iOS",
+        "x-ver-os": UIDevice.current.systemVersion,
+        "x-device-model": machineModel(),
+    ]
+    #endif
 }
 
+#if os(macOS)
 private func darwinRelease() -> String {
     var info = utsname()
     guard uname(&info) == 0 else { return "" }
@@ -112,3 +154,4 @@ private func darwinRelease() -> String {
         String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 import ServiceManagement
 import XCTest
 @testable import SCVPNCore
@@ -155,3 +156,4 @@ final class LegacyHelperTests: XCTestCase {
         XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("launchctl bootout"))
     }
 }
+#endif

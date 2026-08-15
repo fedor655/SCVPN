@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
 
 /// Управление системным прокси macOS.
@@ -308,3 +311,4 @@ public enum SystemProxy {
         return false
     }
 }
+#endif

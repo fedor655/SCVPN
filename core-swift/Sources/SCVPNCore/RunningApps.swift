@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import AppKit
 
 /// Список запущенных приложений для правил раздельного туннелирования.
@@ -48,3 +51,4 @@ public enum RunningApps {
         return name
     }
 }
+#endif

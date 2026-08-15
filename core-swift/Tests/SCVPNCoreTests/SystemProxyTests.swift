@@ -1,3 +1,4 @@
+#if os(macOS)
 import XCTest
 @testable import SCVPNCore
 
@@ -263,3 +264,4 @@ final class SystemProxyTests: StorageIsolatedTestCase {
         }
     }
 }
+#endif

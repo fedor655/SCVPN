@@ -1,3 +1,4 @@
+#if os(macOS)
 import XCTest
 @testable import SCVPNCore
 
@@ -180,3 +181,4 @@ final class FingerprintTests: XCTestCase {
         XCTAssertGreaterThan(candidateFingerprints(Server(), override: "").count, 1)
     }
 }
+#endif

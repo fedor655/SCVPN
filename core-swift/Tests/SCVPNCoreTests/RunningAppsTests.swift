@@ -1,3 +1,4 @@
+#if os(macOS)
 import XCTest
 @testable import SCVPNCore
 
@@ -144,3 +145,4 @@ final class CoreDownloaderTests: StorageIsolatedTestCase {
         XCTAssertEqual(chmod(url.path, mode), 0)
     }
 }
+#endif

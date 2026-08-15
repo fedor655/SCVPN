@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
 
 /// Разовое скачивание ядра Xray-core с официального GitHub.
@@ -160,3 +163,4 @@ public enum CoreDownloader {
         FileManager.default.fileExists(atPath: Paths.singboxExe.path)
     }
 }
+#endif

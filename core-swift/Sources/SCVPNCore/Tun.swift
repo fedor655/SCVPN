@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
 
 /// TUN-режим: весь трафик устройства идёт через VPN.
@@ -248,3 +251,4 @@ public func removeSingboxViaHelper(socketPath: String = Paths.helperSocket,
                               say: progress, what: "не удалось удалить sing-box")
     return reply["removed"] as? Bool ?? false
 }
+#endif

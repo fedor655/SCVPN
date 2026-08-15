@@ -1,3 +1,6 @@
+// Только macOS: демон, sing-box, системный прокси и дочерние процессы.
+// На iOS ничего этого нет — там туннель поднимает NEPacketTunnelProvider.
+#if os(macOS)
 import Foundation
 
 /// Снятие демона, оставшегося от Python-версии.
@@ -103,3 +106,4 @@ func runAsAdmin(script: String, prompt: String) throws {
     }
     throw ValidationError(text.isEmpty ? "не удалось выполнить операцию" : text)
 }
+#endif
