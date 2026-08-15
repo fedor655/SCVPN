@@ -1,3 +1,7 @@
+// Только macOS: проверка ходит за файлом Android-версии в дерево репозитория,
+// а это про репозиторий, а не про платформу. На iOS-симуляторе то же чтение
+// из-за песочницы стоит семь минут на ровном месте — измерено.
+#if os(macOS)
 import XCTest
 @testable import SCVPNCore
 
@@ -70,3 +74,4 @@ final class ThemeTests: XCTestCase {
         XCTAssertGreaterThan(centre, 0)
     }
 }
+#endif

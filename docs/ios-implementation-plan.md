@@ -27,25 +27,61 @@ CoreImage, CryptoKit, Security (Keychain). Внешние зависимости
 раздел 9 (инварианты) — список того, что менять нельзя, раздел 12 (открытые
 вопросы) закрывается Фазой 0 и Приложением Б.
 
-**Смежный план.** [docs/macos-swift-implementation-plan.md](macos-swift-implementation-plan.md)
-— оттуда берутся тексты интерфейса, палитра, геометрия знака и уже написанные
-проверки `SCVPNCoreTests`. Фаза 1 этого плана физически перемещает код, на
-который тот план ссылается, поэтому она обязана быть выполнена целиком и одним
-куском.
+**Образец для подражания.** Готовая macOS-версия: `desktop/macOS/` (код) и
+`desktop/macOS/README.md` (как это устроено и почему). Планов её переписывания в
+`docs/` больше нет — они выполнены и удалены в коммите `ab91a65`; за
+обоснованиями решений идти в историю коммитов, за правилами общего кода — в
+раздел README «Общий код с Windows». Тексты интерфейса, палитра, геометрия знака
+и уже написанные проверки `SCVPNCoreTests` берутся из кода, а не из документов.
 
 **Состояние репозитория, на которое опирается план:** ветка `main`, коммит
-`7e0bac4`, рабочее дерево чистое (кроме самих документов `docs/ios-*.md`).
-macOS-версия на Swift **закончена**: приложение, демон, интерфейс, README и
-`docs/mirror-map.md` на месте. Проверки:
+`ab91a65`, рабочее дерево чистое (кроме самих документов `docs/ios-*.md`).
+Раскладка на диске:
+
+| Каталог | Что это |
+|---|---|
+| `desktop/macOS/` | Swift-версия, основная. Была `desktop/MacOS-Swift/` |
+| `desktop/macOS-python/` | прежняя реализация на Python. Была `desktop/MacOS/` |
+| `desktop/shared/` | общий Python-код с Windows-версией |
+
+macOS-версия на Swift **закончена**: приложение, демон, интерфейс, README на
+месте. Проверки:
 
 ```bash
-cd desktop/MacOS-Swift && swift test --skip SystemProxyLiveTests
+cd desktop/macOS && swift test --skip SystemProxyLiveTests
 ```
 
-Факт на 2026-08-16: `Executed 302 tests, with 1 test skipped and 0 failures`.
+Факт на 2026-08-16: `Executed 303 tests, with 0 failures`.
 `SystemProxyLiveTests` пропускается намеренно — она правит системный прокси
 настоящей машины. Это число — точка отсчёта для Фазы 1: после переезда пакета
 оно обязано остаться тем же.
+
+---
+
+## Ход работ
+
+Отметки о выполненном — здесь, чтобы следующий исполнитель не начинал с нуля.
+
+| Фаза / задача | Состояние | Чем подтверждено |
+|---|---|---|
+| 1.1 Переезд `SCVPNCore` в `core-swift/` | **сделано** (`44a20f0`) | 197 + 106 = 303 проверки, `build.sh` собирает `.app` |
+| 1.2 Сборка пакета под iOS | **сделано** (`d413109`) | `xcodebuild -destination 'generic/platform=iOS'` — BUILD SUCCEEDED |
+| 2.1–2.2 Проект и таргеты | **сделано** (`689e647`) | `ios/project.yml` + XcodeGen; `.xcodeproj` не коммитится |
+| 2.3 `TunnelController` | **сделано** | статус от `NEVPNStatusDidChange`, отказ объясняется словами |
+| 3.1 Протокол `providerConfiguration` | **сделано** | `TunnelProtocolTests` — 5 проверок на симуляторе |
+| 3.2–3.6 Расширение | **заглушки** | нет `LibXray.xcframework` и `Tun2SocksKit`, см. `ios/README.md` |
+| 4.1 HWID через Keychain | **сделано** | `machineSource()` под `#if os(iOS)` |
+| 4.4 Конфиг без гео-баз | **сделано** | `GeoFreeConfigTests` — 7 проверок |
+| 4.5 Пинг | **частично** | TCP-пинг работает; замер через ядро ждёт libXray |
+| 4.6 Автоподбор отпечатка | **сделано** | `DelayMeasuring` + `FingerprintProbeTests` — 6 проверок |
+| 5.1–5.5 Интерфейс | **сделано** | проверено на iPhone 16 Pro, iOS 26.4 |
+| 0.x Разведка на железе | **не начата** | нужен платный аккаунт и устройство |
+
+Проверено живьём в симуляторе: добавление сервера ссылкой и вставкой, разбор
+`vless://` с REALITY, TCP-пинг, сохранение профилей между запусками, честный
+отказ подключения.
+
+Итого проверок: 210 на macOS, 103 на iOS-симуляторе.
 
 ---
 
@@ -125,7 +161,8 @@ rules.append(["type": "field", "outboundTag": "direct", "domain": ["geosite:priv
 Соблазн — не линковать в расширение ничего, чтобы не тратить память. Но
 расширению нужны разбор `providerConfiguration` и типы протокола сообщений, а
 дублирование этих типов — ровно тот способ, которым расходятся реализации
-(раздел 9 плана macOS про Python и Swift).
+(`desktop/macOS/README.md`, раздел «Общий код с Windows»: правка логики уже
+делается дважды — в `desktop/shared/` и в `SCVPNCore`).
 
 Компромисс: общие типы туннеля живут в `SCVPNCore` в файлах под `#if os(iOS)`,
 Swift-линкер выбрасывает неиспользуемый код, а платформенно-тяжёлое (`Process`,
@@ -339,20 +376,18 @@ git add docs/ios-implementation-plan.md && git commit -m "docs: результа
 ## Фаза 1. Общий пакет `core-swift` (2–3 дня)
 
 Механическая, но обязательная фаза: iOS-таргеты не могут ссылаться на код внутри
-`desktop/MacOS-Swift`, а копия этого кода — гарантированное расхождение. Фаза
+`desktop/macOS`, а копия этого кода — гарантированное расхождение. Фаза
 делается целиком, одним куском, с зелёными macOS-проверками в конце.
 
 ### Задача 1.1: Переезд пакета
 
 **Файлы:**
 - Create: `core-swift/Package.swift`
-- Move: `desktop/MacOS-Swift/Sources/SCVPNCore` → `core-swift/Sources/SCVPNCore`
-- Move: `desktop/MacOS-Swift/Tests/SCVPNCoreTests` → `core-swift/Tests/SCVPNCoreTests`
-- Modify: `desktop/MacOS-Swift/Package.swift`
-- Modify: `core-swift/Tests/SCVPNCoreTests/RealProfilesTests.swift:16-22`
+- Move: `desktop/macOS/Sources/SCVPNCore` → `core-swift/Sources/SCVPNCore`
+- Move: `desktop/macOS/Tests/SCVPNCoreTests` → `core-swift/Tests/SCVPNCoreTests`
+- Modify: `desktop/macOS/Package.swift`
 - Modify: `core-swift/Tests/SCVPNCoreTests/ThemeTests.swift:6-15`
-- Modify: `docs/mirror-map.md`, `docs/macos-swift-implementation-plan.md`,
-  `desktop/MacOS-Swift/README.md`
+- Modify: `desktop/macOS/README.md`
 
 **Interfaces:**
 - Produces: SwiftPM-пакет `SCVPNCore` с продуктом-библиотекой `SCVPNCore`,
@@ -362,8 +397,8 @@ git add docs/ios-implementation-plan.md && git commit -m "docs: результа
 
 ```bash
 mkdir -p core-swift/Sources core-swift/Tests
-git mv desktop/MacOS-Swift/Sources/SCVPNCore core-swift/Sources/SCVPNCore
-git mv desktop/MacOS-Swift/Tests/SCVPNCoreTests core-swift/Tests/SCVPNCoreTests
+git mv desktop/macOS/Sources/SCVPNCore core-swift/Sources/SCVPNCore
+git mv desktop/macOS/Tests/SCVPNCoreTests core-swift/Tests/SCVPNCoreTests
 ```
 
 - [ ] **Шаг 2: Создать `core-swift/Package.swift`**
@@ -388,29 +423,12 @@ let package = Package(
 )
 ```
 
-- [ ] **Шаг 3: Починить путь в `RealProfilesTests`**
+- [ ] **Шаг 3: Починить путь в `ThemeTests`**
 
-Файл поднимался на четыре уровня от `desktop/MacOS-Swift/Tests/SCVPNCoreTests`.
-Из `core-swift/Tests/SCVPNCoreTests` уровней три, и хвост пути другой:
-
-```swift
-    private func realProfilesURL() -> URL? {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // SCVPNCoreTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // core-swift
-        let url = repo.appendingPathComponent("desktop/MacOS/data/profiles.json")
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
-    }
-```
-
-Проверка сама себя пропускает, если файла нет (`XCTSkip`), поэтому неверный путь
-не покраснеет, а тихо перестанет что-либо проверять. Отсюда шаг 5.
-
-- [ ] **Шаг 4: Починить путь в `ThemeTests`**
-
-Вторая и последняя проверка, которая ходит по репозиторию от `#filePath`. Она
-поднималась на **пять** уровней (до корня), из `core-swift` их три:
+Единственная проверка, которая ходит по репозиторию от `#filePath`: она сверяет
+палитру с `android/app/src/main/res/values/colors.xml`. Из
+`desktop/macOS/Tests/SCVPNCoreTests` до корня было **пять** уровней, из
+`core-swift/Tests/SCVPNCoreTests` их три:
 
 ```swift
     private func androidColorsXML() throws -> String {
@@ -423,25 +441,21 @@ let package = Package(
     }
 ```
 
-Эта проверка `XCTSkip` не делает и упадёт громко — но исправлять её всё равно
-надо здесь, а не «когда покраснеет».
+`RealProfilesTests` чинить **не надо**: она читает
+`~/Library/Application Support/SCVPN/profiles.json`, то есть настоящий файл
+пользователя, и от расположения исходников не зависит.
 
-Убедиться, что других таких мест нет:
+- [ ] **Шаг 4: Убедиться, что других таких мест нет**
 
 ```bash
-grep -rn "deletingLastPathComponent" core-swift/Tests | grep -c filePath
+grep -rln "#filePath" core-swift/Tests
 ```
-Ожидается 2 файла: `RealProfilesTests` и `ThemeTests`.
+Ожидается ровно один файл — `ThemeTests.swift`. Появился второй — он тоже ходит
+по репозиторию и тоже сломан переездом.
 
-- [ ] **Шаг 5: Убедиться, что проверка не пропускается**
+- [ ] **Шаг 5: Подключить пакет к macOS-проекту**
 
-Run: `cd core-swift && swift test --filter RealProfilesTests 2>&1 | grep -i skip`
-Expected: пусто (при наличии `desktop/MacOS/data/profiles.json`). Если файла нет
-— создать временный из любого рабочего профиля и повторить.
-
-- [ ] **Шаг 6: Подключить пакет к macOS-проекту**
-
-В `desktop/MacOS-Swift/Package.swift`:
+В `desktop/macOS/Package.swift`:
 
 ```swift
 let package = Package(
@@ -466,13 +480,13 @@ let package = Package(
 Таргет `SCVPNCore` и тестовый `SCVPNCoreTests` из этого пакета исчезают: они
 переехали.
 
-- [ ] **Шаг 7: Прогнать обе стороны**
+- [ ] **Шаг 6: Прогнать обе стороны**
 
 Run: `cd core-swift && swift test --skip SystemProxyLiveTests`
-Run: `cd desktop/MacOS-Swift && swift test --skip SystemProxyLiveTests`
-Run: `cd desktop/MacOS-Swift && ./build.sh` — Expected: `Готово: …/SCVPN.app`.
+Run: `cd desktop/macOS && swift test --skip SystemProxyLiveTests`
+Run: `cd desktop/macOS && ./build.sh` — Expected: `Готово: …/SCVPN.app`.
 
-**Сумма проверок обеих команд обязана дать 302** — столько их было до переезда
+**Сумма проверок обеих команд обязана дать 303** — столько их было до переезда
 (факт от 2026-08-16, см. шапку плана). Меньше — значит тестовый таргет потерял
 файлы; больше — значит какая-то проверка теперь гоняется дважды.
 
@@ -480,25 +494,26 @@ Run: `cd desktop/MacOS-Swift && ./build.sh` — Expected: `Готово: …/SCV
 системный прокси настоящей машины, и падение посреди неё оставляет чужую
 настройку затёртой. Один раз, руками, на своей машине — можно.
 
-- [ ] **Шаг 8: Починить пути в документации**
+- [ ] **Шаг 7: Починить пути в документации**
 
-Ссылок на `desktop/MacOS-Swift/Sources/SCVPNCore` в документах около сорока —
-и все они после переезда врут:
+После переезда всякая ссылка на `Sources/SCVPNCore` внутри `desktop/macOS/`
+врёт. Найти:
 
 ```bash
-grep -rln "MacOS-Swift/Sources/SCVPNCore" docs desktop/MacOS-Swift/README.md README.md
+grep -rln "Sources/SCVPNCore" README.md docs desktop/macOS/README.md
 ```
 
-Обновить: `docs/mirror-map.md` (вся правая колонка таблиц),
-`docs/macos-swift-implementation-plan.md` (пути в задачах),
-`desktop/MacOS-Swift/README.md`. В `mirror-map.md` дополнительно поправить
-формулировку правила парных правок: адрес общего кода теперь
-`core-swift/Sources/SCVPNCore/`, а потребителей у него не два, а три.
+Обновить `desktop/macOS/README.md`: раздел «Структура» (`SCVPNCore` больше не
+лежит в пакете macOS) и раздел «Общий код с Windows» — там сформулировано
+правило парных правок, и адрес общего кода в нём меняется на
+`core-swift/Sources/SCVPNCore/`, а потребителей у него становится три, а не два.
+Это единственное место в репозитории, где правило записано: планы переписывания
+и `mirror-map.md` удалены в коммите `ab91a65`.
 
-- [ ] **Шаг 9: Коммит**
+- [ ] **Шаг 8: Коммит**
 
 ```bash
-git add core-swift desktop/MacOS-Swift docs && git commit -m "refactor: SCVPNCore переезжает в общий пакет core-swift"
+git add core-swift desktop/macOS docs && git commit -m "refactor: SCVPNCore переезжает в общий пакет core-swift"
 ```
 
 ### Задача 1.2: Распил платформенного кода `#if os()`
@@ -1749,18 +1764,24 @@ iOS-версии, а не после:
 
 **Файлы:**
 - Create: `core-swift/Sources/SCVPNCore/UI/PaletteSwiftUI.swift`
-- Move: `BrandmarkShape` из `desktop/MacOS-Swift/Sources/SCVPNApp/Views/Theme+SwiftUI.swift`
+- Move: `BrandmarkShape` из `desktop/macOS/Sources/SCVPNApp/Views/Theme+SwiftUI.swift`
   → `core-swift/Sources/SCVPNCore/UI/BrandmarkShape.swift`
-- Modify: `docs/mirror-map.md`
+- Modify: `desktop/macOS/README.md`
 
 Палитры и геометрии знака писать **не надо**: `Palette` и `Brandmark` уже лежат
 в `SCVPNCore/Theme.swift`, а `ThemeTests.test_palette_matches_android_colors_xml`
 уже сверяет их с Android и работает на обеих платформах (раздел 0.5).
 
-Остаётся два куска SwiftUI, и оба одинаковы для macOS и iOS:
+Остаётся два куска SwiftUI, и оба одинаковы для macOS и iOS — они лежат в
+`desktop/macOS/Sources/SCVPNApp/Views/Theme+SwiftUI.swift`:
 
-- перевод строк палитры в `Color` (`Color(hex:)`);
-- `BrandmarkShape` — две касающиеся дуги, раскрытие 255°, круглые концы.
+- `extension Color` с `init(hex:)` и восемью `scvpn*`-цветами из `Palette`;
+- `BrandmarkShape` (строка 60) — две касающиеся дуги, раскрытие 255°, круглые
+  концы. В комментарии там разобрано, почему углы перевёрнуты относительно Qt;
+  этот комментарий переезжает вместе с кодом, иначе знак снова выйдет зеркальным.
+
+`extension Font` не переезжает: `Menlo` и размеры — про десктопное окно, iOS
+подбирает свои.
 
 Обе кладутся в общий пакет, а не копируются в iOS-таргет: копия знака — это
 знак, который через полгода на двух платформах разный.
@@ -1771,8 +1792,9 @@ iOS-версии, а не после:
 - [ ] **Шаг 2:** Прогнать macOS: `swift test --skip SystemProxyLiveTests` и
   `./build.sh`. Знак в окне обязан выглядеть ровно как раньше — сверять
   скриншотом до и после, а не памятью.
-- [ ] **Шаг 3:** Дописать строку в `docs/mirror-map.md`: `BrandmarkShape` теперь
-  общий для трёх платформ.
+- [ ] **Шаг 3:** Дописать в `desktop/macOS/README.md`, раздел «Общий код с
+  Windows»: `BrandmarkShape` и палитра теперь общие для трёх платформ, и знак
+  правится в одном месте.
 - [ ] **Шаг 4:** Коммит.
 
 ### Задача 5.2: Главный экран
@@ -2017,8 +2039,8 @@ xcodebuild -exportArchive -archivePath build/SCVPN.xcarchive \
 | KVC-доступ к дескриптору отвалился | Задача 0.5 / обновление iOS | Запасной путь — `readPackets`/`writePackets` + сокет-пара. Обёрнуто в одном месте (Задача 3.3) |
 | Петля: трафик ядра идёт в свой же туннель | Задача 0.5, шаг 3 | Нулевая скорость при живом ядре. Проверять до Фазы 3, повторить при включении `includeAllNetworks` (Задача 8.1) |
 | Утечка памяти в libXray при повторных стартах | Задача 3.2, шаг 3 | Не поднимать и не гасить ядро в цикле; при пинге — ограничение параллельности (Задача 4.5) |
-| Расхождение `core-swift` с Python-версиями | постоянный | `docs/mirror-map.md` уже написан (коммит `7e0bac4`) и уже говорит «правка в `desktop/shared/` требует парной». Фаза 1, шаг 8 меняет в нём адрес общего кода и добавляет третьего потребителя |
-| Пути `#filePath` в проверках после переезда | Задача 1.1, шаги 3–5 | Две проверки ходят по репозиторию от своего файла; `RealProfilesTests` при этом молчит (`XCTSkip`), а `ThemeTests` падает громко. Проверять `grep`, а не глазами |
+| Расхождение `core-swift` с Python-версиями | постоянный | Правило парных правок живёт в `desktop/macOS/README.md`, раздел «Общий код с Windows» (карта соответствия удалена в `ab91a65`, суть перенесена туда). Фаза 1, шаг 7 меняет в нём адрес общего кода и добавляет третьего потребителя |
+| Пути `#filePath` в проверках после переезда | Задача 1.1, шаги 3–4 | `ThemeTests` ходит по репозиторию от своего файла и после переезда падает. Проверять `grep`, а не глазами: появится вторая такая проверка — сломается так же |
 | Срок жизни профиля подписи | раздача | Организационная беда. Записать срок в `ios/README.md` (Задача 6.2), чтобы он не выяснялся в день, когда сборка перестала запускаться |
 | Xcode-проект правится руками | любой конфликт в `project.pbxproj` | Все правки таргетов — только через Xcode. Конфликт слияния в `.pbxproj` разрешается повторным добавлением файла, а не редактированием |
 
