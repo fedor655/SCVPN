@@ -108,6 +108,10 @@ def installed() -> bool:
     перезапускал бы несуществующий путь, а приложение считало бы, что всё
     поставлено и работает.
     """
+    # только для стенда Фазы 2 плана переписывания (docs/macos-swift-implementation-plan.md,
+    # раздел 0.3) — удаляется в Задаче 8.3
+    if os.environ.get("SCVPN_ASSUME_HELPER"):
+        return True
     try:
         return paths.HELPER_PLIST.read_text(encoding="utf-8") == plist_text()
     except (OSError, ValueError):
@@ -163,12 +167,72 @@ def _osascript(script: str, prompt: str) -> None:
         raise RuntimeError(err or "не удалось выполнить установку")
 
 
+def _code_steps() -> list[str]:
+    """Шаги установки, кладущие код демона в его root-овую папку.
+
+    Зачем копия вместо запуска прямо из проекта. launchd запускает демона от
+    root, а у root-процессов нет доступа к ~/Documents, ~/Desktop и
+    ~/Downloads: TCC отдаёт EPERM на open(). Проект (вместе с venv внутри)
+    вполне может лежать в такой папке — тогда python падает с
+    `PermissionError: ... venv/pyvenv.cfg` ещё до импорта site, launchd с
+    KeepAlive перезапускает его по кругу, сокет не появляется никогда, а
+    «Скачать компоненты TUN» упирается в «Системный компонент не отвечает» —
+    при том что plist на месте и installed() честно говорит True.
+
+    Содержимое файлов едет прямо в скрипте, как и plist, а не копируется
+    откуда-то с диска: cp читал бы исходники от имени root и споткнулся бы о
+    тот же самый TCC, а промежуточная папка в доступном root месте была бы
+    окном на подмену кода, который root потом запускает (тот же TOCTOU, из-за
+    которого plist пишется printf'ом). Файлов три, все — стандартная
+    библиотека, суммарно десятки килобайт: в командную строку помещаются с
+    запасом.
+    """
+    code = shlex.quote(str(paths.HELPER_CODE_DIR))
+    steps = [f"rm -rf {code}", f"mkdir -p {code}/helper"]
+    for rel in _DAEMON_FILES:
+        text = (paths.ROOT / rel).read_text(encoding="utf-8")
+        steps.append(f"printf %s {shlex.quote(text)} > {shlex.quote(str(paths.HELPER_CODE_DIR / rel))}")
+    steps += [f"chown -R root:wheel {code}", f"chmod -R go-w {code}"]
+    return steps
+
+
+# Папки, к которым TCC не пускает процессы root. Держим кортежем, а не
+# вычисляем на месте: список один и тот же в отказе установщика и в проверке
+# расположения бандла.
+_TCC_DIRS = (Path.home() / "Documents", Path.home() / "Desktop", Path.home() / "Downloads")
+
+
+def _refuse_tcc_location() -> None:
+    """root не читает ~/Documents, ~/Desktop, ~/Downloads — TCC отдаёт EPERM.
+
+    Демон, запущенный launchd из такой папки, не стартует никогда, а
+    installed() при этом честно отвечает True: plist на месте. Получается
+    компонент, который «установлен» и не работает. Отказываем на входе.
+
+    Из исходников это уже закрыто копией кода в root-овой папке
+    (см. _code_steps), поэтому проверка касается только собранного .app: там
+    ProgramArguments указывает внутрь бандла, где бы тот ни лежал.
+    """
+    if not paths.FROZEN:
+        return
+    app = paths.ROOT.parent.parent  # .../SCVPN.app/Contents/MacOS -> .../SCVPN.app
+    for bad in _TCC_DIRS:
+        if app.is_relative_to(bad):
+            raise RuntimeError(
+                "Перенеси SCVPN.app в /Applications и запусти оттуда.\n"
+                "Из этой папки системный компонент не запустится: у процессов "
+                "root нет доступа к Документам, Рабочему столу и Загрузкам."
+            )
+
+
 def install() -> None:
     """Поставить демона. Спросит пароль администратора — один раз."""
+    _refuse_tcc_location()
     script = " && ".join([
         f"mkdir -p {shlex.quote(str(paths.HELPER_DIR))}",
         f"chown root:wheel {shlex.quote(str(paths.HELPER_DIR))}",
         f"chmod 755 {shlex.quote(str(paths.HELPER_DIR))}",
+        *([] if paths.FROZEN else _code_steps()),
         # Содержимое plist едет прямо в скрипте, а не копией файла из
         # пользовательской папки: cp из user-writable пути — это TOCTOU, окно
         # на подмену файла или подсунутый симлинк между записью и cp, ровно

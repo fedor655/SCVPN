@@ -1606,6 +1606,38 @@ def test_installed_handles_corrupted_plist():
 
 
 @check
+def test_install_refuses_bundle_in_tcc_protected_folder():
+    """Из ~/Documents, ~/Desktop и ~/Downloads демона ставить нельзя.
+
+    root не читает эти папки: TCC отдаёт EPERM. launchd поднял бы демона из
+    бандла, лежащего там, и получил бы бесконечный цикл перезапусков, а
+    installed() честно отвечал бы True — plist-то на месте. Компонент
+    «установлен» и не работает; отказываем на входе, пока пользователь ещё
+    смотрит на диалог.
+    """
+    from unittest import mock
+
+    from helper import install
+    from native import paths
+
+    for folder in ("Documents", "Desktop", "Downloads"):
+        fake = Path.home() / folder / "SCVPN.app" / "Contents" / "MacOS"
+        with mock.patch.object(paths, "FROZEN", True), \
+             mock.patch.object(paths, "ROOT", fake):
+            try:
+                install.install()
+            except RuntimeError as e:
+                assert "Applications" in str(e), str(e)
+            else:
+                raise AssertionError(f"установка не отказалась из ~/{folder}")
+
+    # Из /Applications отказа быть не должно: до osascript дело дойти обязано.
+    ok = Path("/Applications/SCVPN.app/Contents/MacOS")
+    with mock.patch.object(paths, "FROZEN", True), mock.patch.object(paths, "ROOT", ok):
+        install._refuse_tcc_location()
+
+
+@check
 def test_tun_contract_matches_windows():
     """Точечная проверка native.tun ЭТОЙ платформы (не Windows, вопреки имени
     — оставлено для обратной совместимости с прежними правками; настоящая
