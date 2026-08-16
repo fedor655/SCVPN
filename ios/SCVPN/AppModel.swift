@@ -272,9 +272,25 @@ final class AppModel: ObservableObject {
         for server in list {
             Task.detached(priority: .utility) {
                 let ms: Int?
-                if throughCore, let cfg = try? buildProbeConfig(server: server) {
-                    let delay = XrayBridge.measureDelay(configJSON: cfg, url: probeURL)
-                    ms = delay > 0 ? delay : nil
+                if throughCore {
+                    // Отпечатки перебираются, потому что у панелей сплошь и
+                    // рядом стоит `randomized` — это «панель не знает», а не
+                    // «сервер просит случайный». Одна проба таким отпечатком
+                    // проваливается, и живой сервер получает «нет ответа».
+                    let needsFingerprint = ["reality", "tls"].contains(server.security)
+                    let candidates = needsFingerprint
+                        ? Array(candidateFingerprints(server, override: "auto")
+                            .prefix(pingFingerprintTries))
+                        : [server.fingerprint]
+                    var measured: Int?
+                    for fp in candidates {
+                        var probe = server
+                        probe.fingerprint = fp
+                        guard let cfg = try? buildProbeConfig(server: probe) else { continue }
+                        let delay = XrayBridge.measureDelay(configJSON: cfg, url: pingURL)
+                        if delay > 0 { measured = delay; break }
+                    }
+                    ms = measured
                 } else {
                     ms = tcpPing(host: server.address, port: server.port)
                 }

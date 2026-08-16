@@ -411,9 +411,12 @@ final class AppModel: ObservableObject {
                 func submit() {
                     guard next < list.count else { return }
                     let server = list[next]
+                    // Своя полоса портов на дорожку: у одновременных проб
+                    // иначе совпадает выбранный свободный порт.
+                    let portBase = 20000 + (next % Self.pingLanes) * 400
                     next += 1
                     group.addTask {
-                        let ms = xrayDelay(server, routeMode: routeMode)
+                        let ms = pingDelay(server, routeMode: routeMode, portBase: portBase)
                         await MainActor.run {
                             box.model?.pings[server.key()] = ms.map(PingResult.ms) ?? .noAnswer
                         }

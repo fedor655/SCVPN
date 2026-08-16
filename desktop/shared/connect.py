@@ -21,6 +21,12 @@ from .models import Server
 from .xray_config import build_config
 
 PROBE_URL = "https://api.ipify.org"
+# Куда ходит замер пинга. Не PROBE_URL: 204-й ответ пустой, и в измеренное
+# время не попадает ни тело, ни его разбор. Тот же адрес у Android — числа на
+# двух платформах сравнимы.
+PING_URL = "https://www.gstatic.com/generate_204"
+# Сколько отпечатков перебирать при замере (при подключении перебор полный).
+PING_FP_TRIES = 3
 # Порядок проверки: сперва без пост-квантовых кривых (самые совместимые).
 FALLBACK_FPS = ["firefox", "chrome", "safari", "edge", "ios", "randomized"]
 
@@ -46,8 +52,35 @@ def _probe(server: Server, fp: str, route_mode: str, block_ads: bool, timeout: f
     return xray_delay(s, route_mode=route_mode, block_ads=block_ads, timeout=timeout) is not None
 
 
+def ping_delay(server: Server, route_mode: str = "global", block_ads: bool = False,
+               timeout: float = 6.0, port_base: int = 20000) -> int | None:
+    """Задержка до сервера с перебором отпечатков — то, что видно в колонке пинга.
+
+    Отдельно от xray_delay, потому что у панелей сплошь и рядом стоит
+    fingerprint=randomized, а это значит «панель не знает», а не «сервер
+    просит случайный». Проба одним таким отпечатком проваливается, и живой
+    сервер получает «нет ответа».
+
+    Отпечатков перебирается меньше, чем при подключении: там перебор идёт один
+    раз ради самого соединения, а здесь — по каждому серверу списка.
+    """
+    cands = candidate_fingerprints(server, "auto")[:PING_FP_TRIES]
+    if server.security not in ("reality", "tls") or len(cands) <= 1:
+        return xray_delay(server, route_mode=route_mode, block_ads=block_ads,
+                          timeout=timeout, port_base=port_base, url=PING_URL)
+    for fp in cands:
+        probe = copy.deepcopy(server)
+        probe.fingerprint = fp
+        ms = xray_delay(probe, route_mode=route_mode, block_ads=block_ads,
+                        timeout=timeout, port_base=port_base, url=PING_URL)
+        if ms is not None:
+            return ms
+    return None
+
+
 def xray_delay(server: Server, route_mode: str = "global", block_ads: bool = False,
-               timeout: float = 6.0) -> int | None:
+               timeout: float = 6.0, port_base: int = 20000,
+               url: str = PROBE_URL) -> int | None:
     """Задержка запроса **через сам сервер**, мс, или None.
 
     Отличие от tcp_ping принципиальное. Тот меряет время установки TCP-
@@ -60,8 +93,11 @@ def xray_delay(server: Server, route_mode: str = "global", block_ads: bool = Fal
     Плата известна: на каждый сервер уходит запуск xray и примерно полторы
     секунды на подъём портов.
     """
-    sp = find_free_port(20000)
-    hp = find_free_port(max(20001, sp + 1))
+    # port_base разводит одновременные пробы по разным диапазонам: без него
+    # две пробы выбирают один и тот же свободный порт — find_free_port
+    # закрывает сокет сразу после проверки.
+    sp = find_free_port(port_base)
+    hp = find_free_port(max(port_base + 1, sp + 1))
     cfg = build_config(server, socks_port=sp, http_port=hp, route_mode=route_mode,
                        block_ads=block_ads, log_level="error")
     runner = XrayRunner(on_log=lambda x: None, on_state=lambda x: None)
@@ -72,7 +108,7 @@ def xray_delay(server: Server, route_mode: str = "global", block_ads: bool = Fal
         # Время считаем вокруг запроса, а не вокруг всей пробы: подъём ядра —
         # плата за честность, к задержке до сервера отношения не имеет.
         started = time.monotonic()
-        r = requests.get(PROBE_URL, timeout=timeout, proxies=proxies)
+        r = requests.get(url, timeout=timeout, proxies=proxies)
         if not r.ok:
             return None
         return int((time.monotonic() - started) * 1000)

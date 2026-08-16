@@ -12,7 +12,7 @@ from typing import Callable
 from PySide6.QtCore import QThread, Signal
 
 from native import paths
-from shared.connect import xray_delay
+from shared.connect import ping_delay
 from shared.ping import tcp_ping
 
 
@@ -45,7 +45,7 @@ class Worker(QThread):
 class PingWorker(QThread):
     """Меряет задержку до серверов по очереди и шлёт результат по каждому.
 
-    Замер идёт запросом **через сам сервер** (xray_delay), а не установкой
+    Замер идёт запросом **через сам сервер** (ping_delay), а не установкой
     TCP-соединения: второй отвечает на вопрос «порт открыт», а не «сервер
     работает», и мёртвый VLESS на живом 443 показывал честные 42 мс.
 
@@ -70,7 +70,7 @@ class PingWorker(QThread):
             self.log.emit("[!] Ядра нет — меряю пинг по TCP, "
                           "это проверка порта, а не работоспособности сервера.")
         for s in self._servers:
-            ms = (xray_delay(s, route_mode=self._route_mode) if through_core
+            ms = (ping_delay(s, route_mode=self._route_mode) if through_core
                   else tcp_ping(s.address, s.port))
             self.result.emit(s.key(), ms)
         self.done.emit()
