@@ -93,7 +93,9 @@ struct MainView: View {
     private var substatus: String {
         switch model.state {
         case .connected:
-            let name = model.selectedServer?.title ?? ""
+            // Имя того сервера, с которым поднят туннель, а не выбранного в
+            // списке: список мог измениться, туннель — нет.
+            let name = model.activeServerName ?? model.selectedServer?.title ?? ""
             // humanBytes считает в Int — он же используется для трафика
             // подписки, и разнобой в единицах на одном экране был бы хуже
             // потери точности на числах такого размера.

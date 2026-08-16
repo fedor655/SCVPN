@@ -25,9 +25,22 @@ object VpnBus {
     @Volatile var since: Long = 0L
         private set
 
+    /**
+     * Имя сервера, с которым поднят туннель.
+     *
+     * Экран обязан показывать именно его: выбор в списке можно сменить, а
+     * туннель останется на прежнем сервере — конфиг уже у ядра.
+     */
+    @Volatile var serverTitle: String = ""
+        private set
+
     fun publish(ctx: Context, state: VpnState, message: String = "", since: Long = 0L) {
         current = state
         this.since = since
+        // Сообщение при CONNECTED/CONNECTING — это имя сервера; при ошибке там
+        // текст отказа, и запоминать его как имя нельзя.
+        if (state == VpnState.CONNECTED || state == VpnState.CONNECTING) serverTitle = message
+        if (state == VpnState.IDLE) serverTitle = ""
         val i = Intent(ACTION_STATE)
             .setPackage(ctx.packageName)
             .putExtra(EXTRA_STATE, state.name)

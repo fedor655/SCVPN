@@ -234,7 +234,9 @@ class MainActivity : AppCompatActivity() {
         subtitleText.text = when {
             state == VpnState.ERROR && message.isNotBlank() -> message
             state == VpnState.CONNECTED -> {
-                val name = selected?.title ?: ""
+                // Имя от сервиса, а не из списка: выбор мог смениться, а
+                // туннель остался на прежнем сервере.
+                val name = VpnBus.serverTitle.ifBlank { selected?.title ?: "" }
                 val secs = if (VpnBus.since > 0)
                     (SystemClock.elapsedRealtime() - VpnBus.since) / 1000 else 0
                 if (name.isBlank()) elapsed(secs) else "$name  ·  ${elapsed(secs)}"

@@ -31,6 +31,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var busy: String?
     /// Сколько прошло через туннель, по данным расширения.
     @Published private(set) var traffic: (up: UInt64, down: UInt64) = (0, 0)
+    /// Имя сервера, с которым поднят туннель.
+    ///
+    /// Экран показывает именно его: выбор в списке можно сменить, сервер
+    /// удалить, подписку обновить — туннель от этого не переедет, конфиг уже
+    /// у расширения.
+    @Published private(set) var activeServerName: String?
 
     let tunnel = TunnelController()
 
@@ -180,6 +186,7 @@ final class AppModel: ObservableObject {
             let config = TunnelConfig(xrayConfigJSON: json,
                                       socksPort: defaultSocksPort,
                                       serverName: server.title)
+            activeServerName = server.title
             try await tunnel.start(config: config)
         } catch {
             let text = tunnel.lastError ?? TunnelController.explain(error)
@@ -207,6 +214,7 @@ final class AppModel: ObservableObject {
             uptime = 0
             traffic = (0, 0)
             takenLines = 0
+            activeServerName = nil
         }
     }
 
