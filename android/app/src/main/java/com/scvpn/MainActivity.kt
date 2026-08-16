@@ -346,11 +346,9 @@ class MainActivity : AppCompatActivity() {
     private fun addSubscription(url: String) {
         val u = url.trim()
         if (u.isEmpty()) { toast("Введи URL подписки"); return }
-        val subs = Prefs.subs(this)
-        if (subs.none { it.url == u }) {
-            subs.add(Prefs.Sub(u, SubInfo(), SubInfo.nowStamp()))
-            Prefs.saveSubs(this, subs)
-        }
+        // В список подписка попадает только после успешной загрузки — это
+        // делает fetchSub. Иначе опечатка в адресе оставляла в списке мёртвую
+        // запись навсегда, и удалять её приходилось руками.
         fetchSub(u)
     }
 
