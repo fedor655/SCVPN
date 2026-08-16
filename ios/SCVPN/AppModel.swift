@@ -336,6 +336,53 @@ final class AppModel: ObservableObject {
         append("[*] Удалён сервер: \(server.title)")
     }
 
+    // ------------------------------------------------------------------
+    // Перенос профилей
+    // ------------------------------------------------------------------
+
+    /// Файл для «Поделиться». Формат общий с Windows, macOS и Android.
+    ///
+    /// Копия во временной папке, а не сам файл контейнера: лист «Поделиться»
+    /// держит ссылку неопределённо долго, а править профиль в это время
+    /// приложение имеет полное право.
+    func exportFile() -> URL? {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("profiles.json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys]
+        guard let data = try? encoder.encode(profiles), (try? data.write(to: url)) != nil else {
+            alert = .init(title: "Не вышло", text: "Не удалось собрать файл профилей.")
+            return nil
+        }
+        return url
+    }
+
+    func importProfiles(from url: URL) {
+        // Файл лежит вне песочницы приложения — без этого доступ к нему
+        // закрыт, и чтение вернёт «нет прав» вместо содержимого.
+        let opened = url.startAccessingSecurityScopedResource()
+        defer { if opened { url.stopAccessingSecurityScopedResource() } }
+
+        guard let data = try? Data(contentsOf: url),
+              let incoming = try? JSONDecoder().decode(Profiles.self, from: data) else {
+            alert = .init(title: "Не разобрал файл",
+                          text: "Это не файл профилей SCVPN.")
+            return
+        }
+        guard !incoming.allServers().isEmpty || !incoming.subscriptions.isEmpty else {
+            alert = .init(title: "Файл пуст",
+                          text: "В нём нет ни серверов, ни подписок.")
+            return
+        }
+        let before = profiles.allServers().count
+        profiles = mergeProfiles(profiles, incoming)
+        persistProfiles()
+        let added = profiles.allServers().count - before
+        append("[*] Загружено серверов: \(added)")
+        alert = .init(title: "Готово", text: added > 0
+                      ? "Добавлено серверов: \(added)."
+                      : "Всё из этого файла уже было.")
+    }
+
     private func persistProfiles() {
         saveProfiles(profiles)
         servers = profiles.allServers()

@@ -1,5 +1,6 @@
 import SCVPNCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Настройки. Только то, что на iOS действительно работает.
 ///
@@ -13,6 +14,10 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private let fingerprints = ["auto"] + fallbackFingerprints
+    @State private var importing = false
+    /// Файл готовится при открытии экрана: ShareLink требует ссылку заранее,
+    /// а не в момент нажатия.
+    @State private var exportURL: URL?
 
     var body: some View {
         NavigationStack {
@@ -49,6 +54,17 @@ struct SettingsSheet: View {
                         .font(.scvpnUI(12))
                 }
 
+                Section("Профили") {
+                    if let file = exportURL {
+                        ShareLink(item: file) { Text("Сохранить в файл") }
+                    }
+                    Button("Загрузить из файла") { importing = true }
+                    Text("Формат общий с версиями для Windows, macOS и Android — "
+                         + "файл переносится между ними.")
+                        .font(.scvpnUI(12))
+                        .foregroundStyle(Color.scvpnDim)
+                }
+
                 Section("Устройство") {
                     LabeledContent("HWID", value: deviceID())
                         .font(.scvpnMono(11))
@@ -69,6 +85,18 @@ struct SettingsSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } }
+            }
+            .onAppear { exportURL = model.exportFile() }
+            // Диалог перекрывает главный экран, поэтому его alert не виден:
+            // сообщение об импорте показываем здесь же, иначе загрузка файла
+            // выглядит как «ничего не произошло».
+            .alert(item: $model.alert) { box in
+                Alert(title: Text(box.title), message: Text(box.text),
+                      dismissButton: .default(Text("Понятно")))
+            }
+            .fileImporter(isPresented: $importing,
+                          allowedContentTypes: [.json, .plainText]) { result in
+                if case .success(let url) = result { model.importProfiles(from: url) }
             }
         }
     }
