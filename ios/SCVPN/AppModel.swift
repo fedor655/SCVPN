@@ -241,20 +241,45 @@ final class AppModel: ObservableObject {
     // Пинг
     // ------------------------------------------------------------------
 
-    /// Пинг — время установки TCP-соединения, как на десктопе.
+    /// Пинг — задержка запроса **через сам сервер**.
     ///
-    /// Замер через ядро (`measureOutboundDelay`) честнее — он проверяет и
-    /// рукопожатие, — но требует собранного libXray. Пока его нет, TCP-пинг
-    /// работает и показывает правду про доступность порта.
+    /// `pingBatch` поднимает ядро внутри вызова и гасит его там же, свой
+    /// туннель при этом не трогается. Это отвечает на вопрос «сервер
+    /// работает», а не «порт открыт»: мёртвый VLESS на живом 443 при
+    /// TCP-замере показывался честными сорока двумя миллисекундами.
+    ///
+    /// Без собранного libXray ядра в сборке нет вовсе (см. `ios/README.md`),
+    /// и замерять нечем — тогда откатываемся на TCP. Приложение остаётся
+    /// полезным, но числа означают меньше, и об этом сказано в логе.
     func pingAll() {
         let list = servers
         guard !list.isEmpty else { return }
-        append("[*] Меряю пинг \(list.count) серверов…")
+        // При поднятом туннеле замер пошёл бы через сам туннель: дорога до
+        // сервера через сервер. Цифры выглядели бы настоящими.
+        guard state == .idle || state == .error else {
+            alert = .init(title: "Сначала отключись",
+                          text: "При живом подключении замер идёт через сам туннель, "
+                              + "и цифры окажутся выдумкой.")
+            return
+        }
+
+        let throughCore = XrayBridge.available
+        append(throughCore
+               ? "[*] Меряю пинг \(list.count) серверов…"
+               : "[*] Меряю пинг \(list.count) серверов по TCP: в этой сборке нет ядра.")
+        for server in list { pings[server.key()] = .unknown }
+
         for server in list {
             Task.detached(priority: .utility) {
-                let result = tcpPing(host: server.address, port: server.port)
+                let ms: Int?
+                if throughCore, let cfg = try? buildProbeConfig(server: server) {
+                    let delay = XrayBridge.measureDelay(configJSON: cfg, url: probeURL)
+                    ms = delay > 0 ? delay : nil
+                } else {
+                    ms = tcpPing(host: server.address, port: server.port)
+                }
                 await MainActor.run { [weak self] in
-                    self?.pings[server.key()] = result.map(PingResult.ms) ?? .noAnswer
+                    self?.pings[server.key()] = ms.map(PingResult.ms) ?? .noAnswer
                 }
             }
         }

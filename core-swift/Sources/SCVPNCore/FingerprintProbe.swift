@@ -79,14 +79,38 @@ func probeFingerprint(_ server: Server, fp: String, routeMode: RouteMode,
                       blockAds: Bool, timeout: TimeInterval) -> Bool {
     var s = server
     s.fingerprint = fp
+    return xrayDelay(s, routeMode: routeMode, blockAds: blockAds, timeout: timeout) != nil
+}
+
+/// Задержка запроса **через сам сервер**, в миллисекундах, или `nil`.
+///
+/// Отличие от `tcpPing` принципиальное. Тот меряет время установки TCP-
+/// соединения, то есть отвечает на вопрос «порт открыт», а не «сервер
+/// работает»: мёртвый VLESS на живом 443 показывался как честные 42 мс.
+/// Здесь поднимается временное ядро с конфигом этого сервера, и через него
+/// делается настоящий запрос — с рукопожатием протокола, TLS и всем, из-за
+/// чего сервер и может не работать.
+///
+/// Плата известна: на каждый сервер уходит запуск `xray` и примерно полторы
+/// секунды на подъём портов. Поэтому замер списка идёт с ограничением по
+/// числу одновременных проб, а не веером.
+///
+/// Запрос идёт через `/usr/bin/curl -x`, а не через
+/// `URLSessionConfiguration.connectionProxyDictionary`. Причина в риске,
+/// записанном в плане (Задача 4.7): у связки HTTPS-через-CFNetwork-прокси
+/// известны странности, а curl есть в macOS всегда и делает ровно то, что
+/// написано.
+public func xrayDelay(_ server: Server, routeMode: RouteMode = .global,
+                      blockAds: Bool = false, timeout: TimeInterval = 6.0) -> Int? {
+    let s = server
     let socksPort = findFreePort(preferred: 20000)
     let httpPort = findFreePort(preferred: max(20001, socksPort + 1))
 
     guard let cfg = try? buildXrayConfig(server: s, socksPort: socksPort, httpPort: httpPort,
                                          routeMode: routeMode, blockAds: blockAds,
-                                         logLevel: "error") else { return false }
+                                         logLevel: "error") else { return nil }
     let runner = XrayRunner()
-    guard (try? runner.start(cfg)) != nil else { return false }
+    guard (try? runner.start(cfg)) != nil else { return nil }
     defer {
         runner.stop()
         Thread.sleep(forTimeInterval: 0.3)
@@ -100,9 +124,14 @@ func probeFingerprint(_ server: Server, fp: String, routeMode: RouteMode,
                       "-x", "http://127.0.0.1:\(httpPort)", probeURL]
     proc.standardOutput = FileHandle.nullDevice
     proc.standardError = FileHandle.nullDevice
-    guard (try? proc.run()) != nil else { return false }
+    // Время считаем вокруг запроса, а не вокруг всей пробы: подъём ядра —
+    // наша плата за честность, к задержке до сервера она отношения не имеет.
+    let start = DispatchTime.now()
+    guard (try? proc.run()) != nil else { return nil }
     proc.waitUntilExit()
-    return proc.terminationStatus == 0
+    guard proc.terminationStatus == 0 else { return nil }
+    let ns = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
+    return Int(ns / 1_000_000)
 }
 
 /// Первый рабочий отпечаток. Если ни один не прошёл — первый кандидат.

@@ -368,17 +368,63 @@ final class AppModel: ObservableObject {
     // Пинг
     // ------------------------------------------------------------------
 
+    /// Сколько серверов меряем одновременно.
+    ///
+    /// Каждая проба поднимает своё ядро, поэтому веером пускать нельзя:
+    /// десяток `xray` разом — это десяток процессов и десяток пар портов.
+    /// Три — компромисс между временем ожидания и нагрузкой.
+    ///
+    /// `nonisolated`, потому что читается из фоновой задачи замера: значение
+    /// постоянное, и запирать его на главном потоке незачем.
+    nonisolated private static let pingLanes = 3
+
     func pingAll() {
+        // При живом подключении замер уходит в сам туннель и меряет дорогу до
+        // сервера через сервер. Числа получились бы выдуманные, но выглядели
+        // бы как настоящие — молчаливого отказа тут мало, нужно объяснение.
+        guard state == .idle || state == .error else {
+            alert = .init(title: "Сначала отключись",
+                          text: "При живом подключении замер идёт через сам туннель, "
+                              + "и цифры окажутся выдумкой.")
+            return
+        }
         let list = servers
+        guard !list.isEmpty else {
+            alert = .init(title: "Нечего мерить", text: "Сначала добавь серверы.")
+            return
+        }
+        guard CoreDownloader.corePresent() else {
+            alert = .init(title: "Нет ядра",
+                          text: "Пинг меряется запросом через сам сервер, для этого нужно "
+                              + "ядро. Меню «⋯» → «Скачать ядро Xray».")
+            return
+        }
+
         append("[*] Меряю пинг \(list.count) серверов…")
+        for server in list { pings[server.key()] = .unknown }
+
+        let routeMode = RouteMode(rawValue: settings["route_mode"]?.stringValue ?? "global") ?? .global
         let box = WeakModel(self)
-        for server in list {
-            Task.detached(priority: .utility) {
-                let result = tcpPing(host: server.address, port: server.port)
-                await MainActor.run {
-                    box.model?.pings[server.key()] = result.map(PingResult.ms) ?? .noAnswer
+        Task.detached(priority: .utility) {
+            await withTaskGroup(of: Void.self) { group in
+                var next = 0
+                func submit() {
+                    guard next < list.count else { return }
+                    let server = list[next]
+                    next += 1
+                    group.addTask {
+                        let ms = xrayDelay(server, routeMode: routeMode)
+                        await MainActor.run {
+                            box.model?.pings[server.key()] = ms.map(PingResult.ms) ?? .noAnswer
+                        }
+                    }
                 }
+                for _ in 0..<min(Self.pingLanes, list.count) { submit() }
+                // Освободилась дорожка — сразу занимаем её следующим сервером,
+                // а не ждём, пока домерит вся тройка.
+                while await group.next() != nil { submit() }
             }
+            await MainActor.run { box.model?.append("[*] Пинг завершён.") }
         }
     }
 

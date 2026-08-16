@@ -50,7 +50,7 @@ python -m venv .venv
 | `../shared/core_runner.py`  | запуск/остановка `xray.exe` |
 | `native/sysproxy.py`        | системный прокси Windows (реестр) |
 | `native/hwid.py`            | идентификатор устройства из реестра Windows |
-| `../shared/ping.py`         | TCP-пинг серверов |
+| `../shared/ping.py`         | TCP-замер, запасной путь без ядра |
 | `../shared/storage.py`      | хранение профилей и настроек (JSON в `data/`) |
 | `native/downloader.py`      | разовое скачивание Xray-core и sing-box+wintun |
 | `../shared/connect.py`      | автоподбор рабочего TLS-отпечатка |

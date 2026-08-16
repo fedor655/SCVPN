@@ -43,19 +43,41 @@ def _probe(server: Server, fp: str, route_mode: str, block_ads: bool, timeout: f
     """Запустить временное ядро с данным отпечатком и проверить выход в сеть."""
     s = copy.deepcopy(server)
     s.fingerprint = fp
+    return xray_delay(s, route_mode=route_mode, block_ads=block_ads, timeout=timeout) is not None
+
+
+def xray_delay(server: Server, route_mode: str = "global", block_ads: bool = False,
+               timeout: float = 6.0) -> int | None:
+    """Задержка запроса **через сам сервер**, мс, или None.
+
+    Отличие от tcp_ping принципиальное. Тот меряет время установки TCP-
+    соединения, то есть отвечает на вопрос «порт открыт», а не «сервер
+    работает»: мёртвый VLESS на живом 443 показывался честными 42 мс.
+    Здесь поднимается временное ядро с конфигом этого сервера, и через него
+    делается настоящий запрос — с рукопожатием протокола, TLS и всем, из-за
+    чего сервер и может не работать.
+
+    Плата известна: на каждый сервер уходит запуск xray и примерно полторы
+    секунды на подъём портов.
+    """
     sp = find_free_port(20000)
     hp = find_free_port(max(20001, sp + 1))
-    cfg = build_config(s, socks_port=sp, http_port=hp, route_mode=route_mode,
+    cfg = build_config(server, socks_port=sp, http_port=hp, route_mode=route_mode,
                        block_ads=block_ads, log_level="error")
     runner = XrayRunner(on_log=lambda x: None, on_state=lambda x: None)
     runner.start(cfg)
     try:
         time.sleep(1.3)  # дать ядру поднять порты
         proxies = {"http": f"http://127.0.0.1:{hp}", "https": f"http://127.0.0.1:{hp}"}
+        # Время считаем вокруг запроса, а не вокруг всей пробы: подъём ядра —
+        # плата за честность, к задержке до сервера отношения не имеет.
+        started = time.monotonic()
         r = requests.get(PROBE_URL, timeout=timeout, proxies=proxies)
-        return r.ok
+        if not r.ok:
+            return None
+        return int((time.monotonic() - started) * 1000)
     except Exception:
-        return False
+        return None
     finally:
         runner.stop()
         time.sleep(0.3)

@@ -946,8 +946,16 @@ class MainWindow(QMainWindow):
     def _ping_all(self) -> None:
         if not self.row_servers:
             return
+        # При живом подключении замер уходит в сам туннель и меряет дорогу до
+        # сервера через сервер: цифры выглядели бы настоящими, но были бы
+        # выдумкой. Отказ с объяснением, а не молча.
+        if self.runner.running:
+            self._append_log("[!] Отключись, чтобы померить пинг: "
+                             "сейчас замер пойдёт через сам туннель.")
+            return
         self._append_log("[*] Пингую серверы…")
-        w = PingWorker(self.row_servers)
+        w = PingWorker(self.row_servers, route_mode=self.settings.get("route_mode", "global"))
+        w.log.connect(self._append_log)
         w.result.connect(self._on_ping_result)
         w.done.connect(lambda: (self._append_log("[*] Пинг завершён"), self._workers.remove(w)))
         self._workers.append(w)
