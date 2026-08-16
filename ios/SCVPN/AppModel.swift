@@ -396,9 +396,16 @@ final class AppModel: ObservableObject {
     }
 
     func remove(_ server: Server) {
+        // Удаление из списка туннель не гасит: конфиг уже у расширения. Без
+        // этой оговорки человек думал бы, что убрал сервер вместе с
+        // подключением.
+        let active = state == .connected && activeServerName == server.title
         profiles.servers.removeAll { $0.key() == server.key() }
         persistProfiles()
         append("[*] Удалён сервер: \(server.title)")
+        if active {
+            notice("Туннель ещё работает через «\(server.title)»")
+        }
     }
 
     // ------------------------------------------------------------------

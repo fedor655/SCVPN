@@ -565,13 +565,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun deleteServer(pos: Int) {
         val removed = servers.getOrNull(pos) ?: return
+        // Удаление из списка туннель не гасит: конфиг уже у ядра. Без этой
+        // строки человек думал бы, что убрал сервер вместе с подключением.
+        val active = VpnBus.current == VpnState.CONNECTED &&
+            VpnBus.serverTitle == removed.title
         servers.removeAt(pos)
         Prefs.saveServers(this, servers)
         if (Prefs.selectedIndex(this) >= servers.size) {
             Prefs.setSelectedIndex(this, (servers.size - 1).coerceAtLeast(0))
         }
         reloadServers()
-        toast("Удалён: ${removed.title}")
+        if (active) {
+            toast("Туннель ещё работает через «${removed.title}» — отключись, чтобы прекратить")
+        } else {
+            toast("Удалён: ${removed.title}")
+        }
     }
 
     private fun fetchSub(url: String) {
