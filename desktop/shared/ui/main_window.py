@@ -794,8 +794,10 @@ class MainWindow(QMainWindow):
         if not ok:
             return
         sub = Subscription(name=name.strip() or "Подписка", url=text, added=now_iso())
-        self.profiles.subscriptions.append(sub)
-        save_profiles(self.profiles)
+        # В профиль подписка попадает только после успешной загрузки (это
+        # делает _fetch_one_subscription): иначе опечатка в адресе оставляла
+        # мёртвую запись навсегда — она не грузится, но занимает место и
+        # удаляется только руками.
         self._fetch_one_subscription(sub)
 
     def _update_subscriptions(self) -> None:
@@ -885,12 +887,23 @@ class MainWindow(QMainWindow):
 
         def on_done(result):
             servers, info = result
+            if not servers:
+                self._append_log(f"[!] Подписка «{sub.name}»: серверов не нашлось")
+                QMessageBox.warning(
+                    self, f"Подписка «{sub.name}»",
+                    "Панель ответила, но серверов в ответе нет.",
+                )
+                self._workers.remove(w)
+                return
             sub.servers = servers
             sub.info = info
             sub.updated = now_iso()
             # Название от панели точнее того, что пользователь ввёл руками.
             if info.title and sub.name in ("", "Подписка", "Моя подписка"):
                 sub.name = info.title
+            # Новая подписка добавляется здесь, а не до похода в сеть.
+            if all(x.url != sub.url for x in self.profiles.subscriptions):
+                self.profiles.subscriptions.append(sub)
             save_profiles(self.profiles)
             self._refresh_list(keep_pings=False)
             self._append_log(f"[+] Подписка «{sub.name}»: {len(servers)} серверов, пинги сброшены")

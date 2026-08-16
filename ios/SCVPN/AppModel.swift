@@ -276,6 +276,15 @@ final class AppModel: ObservableObject {
         defer { busy = nil }
         do {
             let (fetched, info) = try await fetchSubscription(url: url)
+            // Панель ответила, но серверов не прислала: сохранять такую
+            // подписку незачем — она будет пустой строкой в списке. Android
+            // ведёт себя так же.
+            guard !fetched.isEmpty else {
+                append("[!] В подписке не нашлось серверов")
+                alert = .init(title: "Подписка пуста",
+                              text: "Панель ответила, но серверов в ответе нет.")
+                return
+            }
             let title = info.title.isEmpty ? (URL(string: url)?.host ?? url) : info.title
 
             // Та же ссылка второй раз — это «обновить», а не «добавить ещё
