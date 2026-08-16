@@ -335,7 +335,9 @@ class MainActivity : AppCompatActivity() {
     private fun addLink(text: String) {
         val s = SubscriptionParser.parseLink(text.trim())
         if (s == null) { toast("Не распознал ссылку"); return }
-        servers.add(s)
+        val merged = Subscriptions.addUnique(servers, s)
+        if (merged == null) { toast("Такой сервер уже есть: ${s.title}"); return }
+        servers = merged.toMutableList()
         Prefs.saveServers(this, servers)
         reloadServers()
         toast("Добавлен: ${s.title}")
@@ -544,6 +546,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun showServerActions(pos: Int) {
         val s = servers.getOrNull(pos) ?: return
+        // Сервер подписки вернётся при первом же обновлении, поэтому удалять
+        // его поштучно бессмысленно — вместо кнопки-обманки объясняем, откуда
+        // он взялся. Так же ведёт себя iOS-версия.
+        if (s.sub.isNotBlank()) {
+            AlertDialog.Builder(this)
+                .setTitle(s.title)
+                .setMessage("Сервер из подписки — удаляется вместе с ней.")
+                .setPositiveButton(R.string.close, null)
+                .show()
+            return
+        }
         AlertDialog.Builder(this)
             .setTitle(s.title)
             .setItems(arrayOf(getString(R.string.delete_server))) { _, _ -> deleteServer(pos) }

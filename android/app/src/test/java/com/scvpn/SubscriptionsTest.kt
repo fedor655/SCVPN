@@ -59,3 +59,29 @@ class SubscriptionsTest {
         assertEquals(0, Subscriptions.selectionAfterMerge(listOf(manual), fromA.key()))
     }
 }
+
+/// Дубликаты серверов, добавленных ссылкой.
+class AddUniqueTest {
+
+    private fun server(name: String, uuid: String = "u") =
+        Server(name = name, address = "a.example", uuid = uuid)
+
+    @Test
+    fun `тот же сервер второй раз не добавляется`() {
+        val first = Subscriptions.addUnique(emptyList(), server("дом"))!!
+        assertEquals(null, Subscriptions.addUnique(first, server("дом")))
+    }
+
+    @Test
+    fun `имя в ключ не входит`() {
+        val first = Subscriptions.addUnique(emptyList(), server("дом"))!!
+        assertEquals(null, Subscriptions.addUnique(first, server("работа")))
+    }
+
+    @Test
+    fun `другой сервер добавляется`() {
+        val first = Subscriptions.addUnique(emptyList(), server("дом", uuid = "one"))!!
+        val second = Subscriptions.addUnique(first, server("дача", uuid = "two"))
+        assertEquals(listOf("дом", "дача"), second?.map { it.name })
+    }
+}
