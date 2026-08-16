@@ -4,3 +4,5 @@ DerivedData/
 *.xcodeproj
 xcuserdata/
 ExportOptions.plist
+.project-notunnel.yml
+build-device/

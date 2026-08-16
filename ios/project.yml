@@ -47,10 +47,9 @@ targets:
         CFBundleVersion: "1"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.scvpn.ios.LibXrayKit
+        PRODUCT_BUNDLE_IDENTIFIER: ${SCVPN_BUNDLE_ID}.LibXrayKit
         DEFINES_MODULE: "YES"
-        CODE_SIGNING_REQUIRED: "NO"
-        CODE_SIGNING_ALLOWED: "NO"
+        DEVELOPMENT_TEAM: ${SCVPN_TEAM}
         # Библиотека линкуется флагами, а не зависимостью: так её заголовки не
         # попадают в общий include и не спорят с hev-socks5-tunnel.
         OTHER_LDFLAGS: -lXray
@@ -72,6 +71,10 @@ targets:
       # у приложения нет лимита памяти расширения.
       - target: LibXrayKit
         embed: true
+    entitlements:
+      path: SCVPN/SCVPN.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
     info:
       path: SCVPN/Info.plist
       properties:
@@ -95,12 +98,11 @@ targets:
         UIUserInterfaceStyle: Dark
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.scvpn.ios
+        PRODUCT_BUNDLE_IDENTIFIER: ${SCVPN_BUNDLE_ID}
         CODE_SIGN_STYLE: Automatic
-        # Ad-hoc подписи для симулятора достаточно: NetworkExtension там всё
-        # равно не работает, а команду разработчика подставит Xcode на железе.
-        CODE_SIGNING_REQUIRED: "NO"
-        CODE_SIGNING_ALLOWED: "NO"
+        # Team подставляется переменной: чужой идентификатор в репозитории не
+        # хранится, а для симулятора он и не нужен.
+        DEVELOPMENT_TEAM: ${SCVPN_TEAM}
         ENABLE_USER_SCRIPT_SANDBOXING: "NO"
 
   PacketTunnel:
@@ -118,6 +120,10 @@ targets:
       # Фреймворк уже лежит в бандле приложения — второй копии не нужно.
       - target: LibXrayKit
         embed: false
+    entitlements:
+      path: PacketTunnel/PacketTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
     info:
       path: PacketTunnel/Info.plist
       properties:
@@ -129,10 +135,9 @@ targets:
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.scvpn.ios.PacketTunnel
+        PRODUCT_BUNDLE_IDENTIFIER: ${SCVPN_BUNDLE_ID}.PacketTunnel
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGNING_REQUIRED: "NO"
-        CODE_SIGNING_ALLOWED: "NO"
+        DEVELOPMENT_TEAM: ${SCVPN_TEAM}
 
 schemes:
   SCVPN:

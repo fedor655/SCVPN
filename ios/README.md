@@ -51,6 +51,38 @@ cp -R /tmp/libxray/libxray-apple-cgo/LibXray.xcframework ios/Frameworks/
 Без фреймворка приложение собирается и работает, но туннель честно
 отказывается подниматься, а автоподбор отпечатка недоступен.
 
+## Запуск на своём iPhone
+
+```bash
+export SCVPN_TEAM=XXXXXXXXXX          # см. security find-identity -v -p codesigning
+export SCVPN_BUNDLE_ID=com.example.scvpn
+./run-on-device.sh
+```
+
+Перед первым запуском нужно один раз войти в Xcode под своим Apple ID:
+**Xcode → Settings → Accounts → +**. Без этого подпись не выпустится, даже
+если сертификат уже лежит в связке ключей.
+
+**По умолчанию собирается без расширения туннеля** — и это не лень, а
+ограничение Apple: entitlement `com.apple.developer.networking.networkextension`
+бесплатный Apple ID (Personal Team) не выдаёт, профиль просто не выпустится.
+Приложение при этом ставится и работает целиком, кроме самого подключения:
+серверы, подписки, пинг, настройки, перенос профилей, QR.
+
+С платным Apple Developer Program:
+
+```bash
+./run-on-device.sh --tunnel
+```
+
+После установки: **Настройки → Основные → VPN и управление устройством →
+доверять разработчику**. Сборка от бесплатного аккаунта живёт 7 дней, от
+платного — год.
+
+Каталог сборки — `~/Library/Caches/scvpn-ios`, вне проекта: репозиторий обычно
+лежит в `~/Documents`, а iCloud вешает на файлы расширенные атрибуты, из-за
+которых `codesign` падает с «resource fork… not allowed».
+
 ## Сборка ipa
 
 ```bash

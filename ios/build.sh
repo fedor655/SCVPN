@@ -25,11 +25,15 @@ xcodegen generate
 SAMPLE
   exit 1; }
 
+# Каталог сборки вне проекта: iCloud в ~/Documents вешает на файлы атрибуты,
+# и codesign падает с «resource fork… not allowed».
+OUT="${SCVPN_DERIVED:-$HOME/Library/Caches/scvpn-ios}"
+
 xcodebuild -project SCVPN.xcodeproj -scheme SCVPN \
   -configuration Release -destination 'generic/platform=iOS' \
-  -archivePath build/SCVPN.xcarchive archive
+  -derivedDataPath "$OUT" -archivePath "$OUT/SCVPN.xcarchive" archive
 
-xcodebuild -exportArchive -archivePath build/SCVPN.xcarchive \
-  -exportOptionsPlist ExportOptions.plist -exportPath build/ipa
+xcodebuild -exportArchive -archivePath "$OUT/SCVPN.xcarchive" \
+  -exportOptionsPlist ExportOptions.plist -exportPath "$OUT/ipa"
 
-echo "IPA: ios/build/ipa/SCVPN.ipa"
+echo "IPA: $OUT/ipa/SCVPN.ipa"
