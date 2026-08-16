@@ -5,6 +5,10 @@ import SwiftUI
 struct MainView: View {
     @ObservedObject var model: AppModel
 
+    /// Лог развёрнут. Не в модели и не в настройках: это состояние взгляда, а
+    /// не приложения — разворачивают лог, чтобы посмотреть здесь и сейчас.
+    @State private var logExpanded = false
+
     var body: some View {
         VStack(spacing: 0) {
             HeaderView(onPing: model.pingAll,
@@ -31,12 +35,7 @@ struct MainView: View {
                 .padding(.bottom, Style.sectionBottom)
 
             if model.servers.isEmpty {
-                Text("Серверов пока нет.\nДобавь ссылку или подписку кнопкой  +")
-                    .font(.substatus)
-                    .foregroundStyle(Color.scvpnDim)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(24)
+                emptyList
             } else {
                 serverList
             }
@@ -124,6 +123,27 @@ struct MainView: View {
         return model.mode == .tun ? "ВЕСЬ ТРАФИК" : "СИСТЕМНЫЙ ПРОКСИ"
     }
 
+    /// Пустой список.
+    ///
+    /// Прежде здесь стояла одна серая фраза посреди пустоты, и экран выглядел
+    /// так, будто список не загрузился. Теперь это два разных по весу
+    /// сообщения: что произошло и что с этим делать — второе набрано как
+    /// подпись, чтобы не спорило с первым.
+    private var emptyList: some View {
+        VStack(spacing: Style.emptyGap) {
+            Text("Серверов пока нет")
+                .font(.rowTitle)
+                .foregroundStyle(Color.scvpnDim)
+            Text("ДОБАВЬ ССЫЛКУ ИЛИ ПОДПИСКУ КНОПКОЙ  +")
+                .font(.section)
+                .tracking(Style.sectionTracking)
+                .foregroundStyle(Color.scvpnMuted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(Style.emptyPadding)
+    }
+
     private var serverList: some View {
         ScrollView {
             LazyVStack(spacing: Style.listSpacing) {
@@ -147,7 +167,50 @@ struct MainView: View {
         }
     }
 
+    /// Лог ядра.
+    ///
+    /// Раньше это была коробка в 130 pt, которая занимала низ окна всегда —
+    /// в том числе пустая, пока ядро не запущено. Читают лог ради последней
+    /// строки, поэтому по умолчанию видна ровно она; развернуть можно щелчком.
     private var logView: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color.scvpnStroke)
+                .frame(height: Style.hairline)
+
+            logHeader
+            if logExpanded { logBody }
+        }
+        .background(Color.scvpnSurface)
+        .animation(Style.stateChange, value: logExpanded)
+    }
+
+    /// Свёрнутая полоса: галочка раскрытия и последняя строка лога.
+    private var logHeader: some View {
+        Button {
+            logExpanded.toggle()
+        } label: {
+            HStack(spacing: Style.rowGap) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color.scvpnMuted)
+                    .rotationEffect(.degrees(logExpanded ? 90 : 0))
+                Text(model.logLines.last ?? "Лог ядра пуст")
+                    .font(.scvpnMono(10))
+                    .foregroundStyle(Color.scvpnDim)
+                    .lineLimit(1)
+                    .truncationMode(.head)   // хвост строки важнее её начала
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, Style.listPadding)
+            .frame(height: Style.logStripHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(logExpanded ? "Свернуть лог" : "Развернуть лог")
+    }
+
+    private var logBody: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Style.logLineSpacing) {
@@ -160,13 +223,10 @@ struct MainView: View {
                             .id(i)
                     }
                 }
-                .padding(Style.logPadding)
+                .padding(.horizontal, Style.listPadding)
+                .padding(.bottom, Style.logPadding)
             }
             .frame(height: Style.logHeight)
-            .background(RoundedRectangle(cornerRadius: Style.logCorner).fill(Color.scvpnSurface))
-            .overlay(RoundedRectangle(cornerRadius: Style.logCorner)
-                .stroke(Color.scvpnStroke, lineWidth: Style.stroke))
-            .padding(Style.logInsets)
             .onChange(of: model.logLines.count) { count in
                 // Лог читают ради последней строки — держим её в виду.
                 guard count > 0 else { return }

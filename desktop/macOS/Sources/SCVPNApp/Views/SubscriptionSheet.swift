@@ -42,8 +42,8 @@ struct SubscriptionSheet: View {
             }
             .padding(.top, 14)
         }
-        .padding(EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18))
-        .frame(width: 460)
+        .padding(Style.sheetPadding)
+        .frame(width: Style.sheetWidth)
         .background(Color.scvpnSurface)
     }
 
@@ -88,8 +88,9 @@ struct SubscriptionSheet: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.scvpnBG))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.scvpnStroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: Style.boxCorner).fill(Color.scvpnBG))
+        .overlay(RoundedRectangle(cornerRadius: Style.boxCorner)
+                .stroke(Color.scvpnStroke, lineWidth: Style.stroke))
     }
 
     private func linkBlock(_ sub: SCVPNCore.Subscription) -> some View {
@@ -97,7 +98,7 @@ struct SubscriptionSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Ссылка подписки")
                     .font(.section)
-                    .tracking(1.5)
+                    .tracking(Style.sectionTracking)
                     .foregroundStyle(Color.scvpnDim)
                 Text(sub.url)
                     .font(.scvpnMono(10))

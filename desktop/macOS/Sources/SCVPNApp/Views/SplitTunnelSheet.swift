@@ -31,7 +31,7 @@ struct SplitTunnelSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Style.sheetGap) {
             ForEach(Choice.allCases) { option in
                 Button {
                     choice = option
@@ -81,8 +81,8 @@ struct SplitTunnelSheet: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18))
-        .frame(width: 430)
+        .padding(Style.sheetPadding)
+        .frame(width: Style.sheetWidth)
         .background(Color.scvpnSurface)
         .onAppear(perform: load)
     }
@@ -91,7 +91,7 @@ struct SplitTunnelSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("ПРИЛОЖЕНИЯ")
                 .font(.section)
-                .tracking(1.5)
+                .tracking(Style.sectionTracking)
                 .foregroundStyle(Color.scvpnDim)
 
             ScrollView {
@@ -113,8 +113,9 @@ struct SplitTunnelSheet: View {
                 .padding(6)
             }
             .frame(height: 190)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.scvpnBG))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.scvpnStroke, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: Style.boxCorner).fill(Color.scvpnBG))
+            .overlay(RoundedRectangle(cornerRadius: Style.boxCorner)
+                .stroke(Color.scvpnStroke, lineWidth: Style.stroke))
 
             HStack(spacing: 6) {
                 TextField(RunningApps.manualHint, text: $manual)

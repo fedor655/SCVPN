@@ -46,11 +46,17 @@ struct ServerRow: View {
 
             Spacer(minLength: Style.rowGap)
 
-            if !label.text.isEmpty {
-                Text(label.text)
-                    .font(.rowPing)
-                    .foregroundStyle(Color(hex: label.color))
-            }
+            // Пинг стоит колонкой постоянной ширины: значения выравниваются по
+            // правому краю и читаются столбиком, а не пляшут за именем.
+            // До замера — прочерк, а не пустота: пустое место справа выглядело
+            // так, будто строку не дорисовали.
+            Text(label.text.isEmpty ? "—" : label.text)
+                .font(.rowPing)
+                .foregroundStyle(label.text.isEmpty
+                                 ? Color.scvpnMuted
+                                 : Color(hex: label.color))
+                .lineLimit(1)
+                .frame(width: Style.pingColumn, alignment: .trailing)
         }
         .padding(.horizontal, Style.listPadding)
         .frame(height: Style.rowHeight)

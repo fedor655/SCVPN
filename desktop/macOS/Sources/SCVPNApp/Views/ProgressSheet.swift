@@ -37,8 +37,8 @@ struct ProgressSheet: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(20)
-        .frame(width: 360)
+        .padding(Style.sheetPadding)
+        .frame(width: Style.sheetWidth)
         .background(Color.scvpnSurface)
     }
 }

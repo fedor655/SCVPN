@@ -113,16 +113,40 @@ enum Style {
     static let rowTextSpacing: CGFloat = 3
     /// Между текстом и пингом.
     static let rowGap: CGFloat = 8
+    /// Ширина колонки пинга. Постоянная: иначе правый край значений гуляет от
+    /// строки к строке и колонки не получается вовсе. Считана по самой
+    /// длинной подписи — «нет ответа».
+    static let pingColumn: CGFloat = 72
 
     static let stroke: CGFloat = 1
 
+    // MARK: Окна поверх главного
+    //
+    // Ширина у всех одна. Раньше их было четыре — 360, 430, 440 и 460, — и
+    // окна прыгали по ширине, стоило открыть два подряд.
+
+    static let sheetWidth: CGFloat = 440
+    static let sheetPadding = EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)
+    /// Между блоками внутри окна.
+    static let sheetGap: CGFloat = 10
+    /// Скругление вложенных панелей: поля ввода, списки, карточки подписок.
+    /// Одно на всё — прежде соседние панели скруглялись на 8 и на 10.
+    static let boxCorner: CGFloat = 8
+
+    // MARK: Пустой список
+
+    /// Между «что случилось» и «что делать».
+    static let emptyGap: CGFloat = 8
+    static let emptyPadding: CGFloat = 24
+
     // MARK: Лог
 
+    /// Свёрнутая полоса с последней строкой.
+    static let logStripHeight: CGFloat = 26
+    /// Развёрнутый лог.
     static let logHeight: CGFloat = 130
-    static let logCorner: CGFloat = 8
     static let logPadding: CGFloat = 8
     static let logLineSpacing: CGFloat = 1
-    static let logInsets = EdgeInsets(top: 4, leading: 16, bottom: 16, trailing: 16)
 }
 
 /// Шрифты окна macOS.
