@@ -1,0 +1,1093 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:theme="clr-namespace:SCVPN.Theme"
+                    xmlns:controls="clr-namespace:SCVPN.Controls">
+
+    <!--
+        Порт таблицы стилей из desktop/Windows/ui/theme.py (строка QSS внизу
+        файла). Правило одно: цвета берутся из Palette, размеры — из Metrics,
+        через x:Static. Вписанные руками числа здесь только те, которых в
+        Metrics нет — в QSS они тоже были литералами (поля меню, поля кнопок,
+        толщина полосы прокрутки). Каждое такое число подписано.
+
+        Тёмной темы у WPF нет: стандартные Button, TextBox, CheckBox, ScrollBar
+        и MenuItem нарисованы для светлой, поэтому одним Background/Foreground
+        не обойтись — нужны настоящие ControlTemplate. Ровно та же причина, по
+        которой Qt-версия рисовала индикаторы флажков сама.
+    -->
+
+    <!-- ================================================================
+         Общая геометрия
+         ================================================================
+         Thickness и CornerRadius из одного числа в разметке не собираются:
+         markup-расширение отдаёт double, а свойству нужен свой тип. Поэтому
+         число из Metrics раскладывается по сторонам один раз здесь, а шаблоны
+         ссылаются на готовый ресурс.
+    -->
+    <CornerRadius x:Key="BoxCornerRadius"
+                  TopLeft="{x:Static theme:Metrics.BoxCorner}"
+                  TopRight="{x:Static theme:Metrics.BoxCorner}"
+                  BottomRight="{x:Static theme:Metrics.BoxCorner}"
+                  BottomLeft="{x:Static theme:Metrics.BoxCorner}" />
+
+    <Thickness x:Key="HairlineBorder"
+               Left="{x:Static theme:Metrics.StrokeWidth}"
+               Top="{x:Static theme:Metrics.StrokeWidth}"
+               Right="{x:Static theme:Metrics.StrokeWidth}"
+               Bottom="{x:Static theme:Metrics.StrokeWidth}" />
+
+    <!-- ================================================================
+         Кисти
+         ================================================================
+         Те же самые замороженные кисти, что раздаёт Palette: второй экземпляр
+         того же цвета разошёлся бы с Android незаметно для теста PaletteTests,
+         который сверяет только Palette.
+    -->
+    <x:Static x:Key="BgBrush" Member="theme:Palette.BgBrush" />
+    <x:Static x:Key="SurfaceBrush" Member="theme:Palette.SurfaceBrush" />
+    <x:Static x:Key="SurfaceHiBrush" Member="theme:Palette.SurfaceHiBrush" />
+    <x:Static x:Key="StrokeBrush" Member="theme:Palette.StrokeBrush" />
+    <x:Static x:Key="TextBrush" Member="theme:Palette.TextBrush" />
+    <x:Static x:Key="DimBrush" Member="theme:Palette.DimBrush" />
+    <x:Static x:Key="MutedBrush" Member="theme:Palette.MutedBrush" />
+    <x:Static x:Key="AccentBrush" Member="theme:Palette.AccentBrush" />
+
+    <!-- ================================================================
+         Рамка фокуса
+         ================================================================
+         Системная рисуется почти чёрным пунктиром — на нашем чёрном фоне её
+         не видно вовсе, и с клавиатуры окно становится непроходимым. Свой
+         вариант той же формы, но цветом Dim.
+    -->
+    <Style x:Key="ScvpnFocusVisual">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Rectangle Margin="2"
+                               RadiusX="3" RadiusY="3"
+                               SnapsToDevicePixels="True"
+                               Stroke="{x:Static theme:Palette.DimBrush}"
+                               StrokeThickness="1"
+                               StrokeDashArray="2 2" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ================================================================
+         Окно
+         ================================================================
+         QSS: QMainWindow, QWidget { background: BG; color: TEXT;
+         font-family: UI_FONT; font-size: FS_ROW_TITLE }.
+
+         Стиль именованный: неявные стили в WPF подбираются по точному типу
+         элемента, поэтому TargetType="Window" не достаётся ни одному
+         наследнику (AddDialog, MainWindow и прочие — это свои типы). Окну
+         нужно либо сослаться на ScvpnWindow явно, либо выставить те же
+         Background/Foreground/FontFamily у себя, как это делают диалоги.
+    -->
+    <Style x:Key="ScvpnWindow" TargetType="Window">
+        <Setter Property="Background" Value="{x:Static theme:Palette.BgBrush}" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <!-- Именно UiFontFamily, а не UiFont: {x:Static} отдаёт значение как
+             есть, преобразователь типов к результату разметочного расширения не
+             применяется, и строка в свойстве FontFamily упала бы при разборе. -->
+        <Setter Property="FontFamily" Value="{x:Static theme:Metrics.UiFontFamily}" />
+        <Setter Property="FontSize" Value="{x:Static theme:Metrics.FsRowTitle}" />
+        <!-- Мелкий текст (10–13) в режиме Ideal расплывается: Qt рисовал его
+             по пиксельной сетке, и без Display шрифт в списке заметно жирнее
+             и мутнее прежнего. Свойство наследуемое — хватает одного места. -->
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Window">
+                    <Border Background="{TemplateBinding Background}">
+                        <!-- AdornerDecorator обязателен: без него в окне не
+                             работают всплывающие подсказки проверки ввода и
+                             любые адорнеры. -->
+                        <AdornerDecorator>
+                            <ContentPresenter />
+                        </AdornerDecorator>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Неявного <Style TargetType="Window"> здесь нет намеренно: он бы всё
+         равно не сработал ни на одном нашем окне (стиль подбирается по точному
+         типу, а у нас все окна — свои классы) и только создавал бы видимость,
+         что фон и шрифт назначены. Каждое окно выставляет их у себя. -->
+
+    <!-- ================================================================
+         Подписи
+         ================================================================
+         QSS: QLabel { background: transparent } — и больше ничего. Цвет,
+         размер и семейство подписи в Qt наследовали от окна, здесь так же.
+
+         Ни Foreground, ни FontSize сюда ставить нельзя: значение из стиля
+         перебивает наследование, и тогда знак в кнопке шапки перестал бы
+         светлеть при наведении (кнопка меняет свой Foreground, а надпись
+         внутри неё брала бы белый из этого стиля) и потерял бы свои 14.
+    -->
+    <Style TargetType="TextBlock">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+    </Style>
+
+    <!-- ================================================================
+         Кнопки
+         ================================================================
+         QSS: QPushButton { background: SURFACE_HI; border: 1px solid STROKE;
+         border-radius: BOX_CORNER; padding: 7px 16px; color: TEXT }
+              QPushButton:hover   { border-color: DIM }
+              QPushButton:default { border-color: ACCENT }
+    -->
+    <Style TargetType="Button">
+        <Setter Property="Background" Value="{x:Static theme:Palette.SurfaceHiBrush}" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="BorderBrush" Value="{x:Static theme:Palette.StrokeBrush}" />
+        <Setter Property="BorderThickness" Value="{StaticResource HairlineBorder}" />
+        <!-- padding: 7px 16px из QSS; в Metrics поля кнопки не заведены. -->
+        <Setter Property="Padding" Value="16,7,16,7" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource ScvpnFocusVisual}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource BoxCornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          RecognizesAccessKey="True"
+                                          SnapsToDevicePixels="True" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- Порядок как в QSS: правило :default стоит там ниже
+                             :hover и потому его перебивает — кнопка по
+                             умолчанию остаётся с акцентной рамкой и под
+                             курсором. Переставишь местами — потеряешь это. -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush"
+                                    Value="{x:Static theme:Palette.DimBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsDefault" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush"
+                                    Value="{x:Static theme:Palette.AccentBrush}" />
+                        </Trigger>
+                        <!-- Отдельного правила в QSS не было: недоступную
+                             кнопку притушивал сам Qt. Свой шаблон рисует
+                             ровно то, что в нём написано, поэтому притушить
+                             приходится вручную. -->
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{x:Static theme:Palette.MutedBrush}" />
+                            <Setter TargetName="Bd" Property="BorderBrush"
+                                    Value="{x:Static theme:Palette.StrokeBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        Кнопки шапки (в Qt это QToolButton) плоские: ни фона, ни рамки — при
+        наведении светлеет сам знак. Подложка была раньше и ушла намеренно:
+        объёмный элемент в окне ровно один, иначе четыре прямоугольника в шапке
+        спорят с кнопкой питания за внимание. Область нажатия осталась прежней,
+        28x28 — её задаёт размер кнопки.
+
+        Foreground меняется на самой кнопке, а надпись внутри наследует его —
+        поэтому у стиля TextBlock выше цвета нет.
+    -->
+    <Style x:Key="HeaderButton" TargetType="Button">
+        <!-- Transparent, а не null: прозрачный фон всё ещё ловит нажатия, а
+             отсутствующий — нет, и кнопка нажималась бы только по самому знаку. -->
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.DimBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Width" Value="{x:Static theme:Metrics.HeaderButton}" />
+        <Setter Property="Height" Value="{x:Static theme:Metrics.HeaderButton}" />
+        <Setter Property="FontSize" Value="{x:Static theme:Metrics.HeaderIcon}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource ScvpnFocusVisual}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          RecognizesAccessKey="True" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{x:Static theme:Palette.MutedBrush}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ================================================================
+         Поля ввода
+         ================================================================
+         QSS: QLineEdit { background: BG; border: 1px solid STROKE;
+         border-radius: BOX_CORNER; padding: 7px 10px; color: TEXT;
+         selection-background-color: STROKE; selection-color: TEXT }
+              QLineEdit:focus { border-color: ACCENT }
+    -->
+    <Style TargetType="TextBox">
+        <Setter Property="Background" Value="{x:Static theme:Palette.BgBrush}" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="BorderBrush" Value="{x:Static theme:Palette.StrokeBrush}" />
+        <Setter Property="BorderThickness" Value="{StaticResource HairlineBorder}" />
+        <!-- padding: 7px 10px из QSS; своего числа в Metrics нет. -->
+        <Setter Property="Padding" Value="10,7,10,7" />
+        <Setter Property="CaretBrush" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="SelectionBrush" Value="{x:Static theme:Palette.StrokeBrush}" />
+        <!-- Qt заливал выделение сплошным цветом; у WPF по умолчанию 0.4, и
+             серая подложка под белым текстом почти не читалась. -->
+        <Setter Property="SelectionOpacity" Value="1" />
+        <Setter Property="SelectionTextBrush" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="AllowDrop" Value="True" />
+        <!-- Фокус показывает акцентная рамка, вторая пунктирная лишняя. -->
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource BoxCornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <!-- Видимость полос прокрутки здесь не задаётся: её
+                             переносит на PART_ContentHost сам TextBoxBase из
+                             свойств поля, и заданная в шаблоне только мешала
+                             бы VerticalScrollBarVisibility="Auto" снаружи. -->
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush"
+                                    Value="{x:Static theme:Palette.AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{x:Static theme:Palette.MutedBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ================================================================
+         Полоса прокрутки
+         ================================================================
+         QSS: QScrollBar:vertical { background: transparent; width: 8px }
+              QScrollBar::handle:vertical { background: STROKE;
+                  border-radius: 4px; min-height: 30px }
+              QScrollBar::handle:vertical:hover { background: DIM }
+              QScrollBar::add-line, ::sub-line { height: 0 }   — стрелок нет
+              QScrollBar::add-page, ::sub-page { background: transparent }
+
+         Ширина 8, скругление 4 (ровно половина ширины — ручка получается
+         таблеткой) и минимальная высота 30 в Metrics не заведены: в QSS они
+         тоже были литералами.
+    -->
+    <Style x:Key="ScrollThumb" TargetType="Thumb">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border x:Name="Bd"
+                            Background="{x:Static theme:Palette.StrokeBrush}"
+                            CornerRadius="4" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{x:Static theme:Palette.DimBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{x:Static theme:Palette.DimBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Полоса до и после ручки: прозрачная, но нажимается — это
+         постраничная прокрутка (add-page / sub-page в QSS). -->
+    <Style x:Key="ScrollPageButton" TargetType="RepeatButton">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Background="{TemplateBinding Background}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <ControlTemplate x:Key="VerticalScrollBarTemplate" TargetType="ScrollBar">
+        <!-- Кнопок-стрелок нет вовсе: в QSS им задана нулевая высота. -->
+        <Border Background="{TemplateBinding Background}">
+            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Style="{StaticResource ScrollPageButton}"
+                                  Command="ScrollBar.PageUpCommand" />
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                    <Thumb Style="{StaticResource ScrollThumb}" MinHeight="30" />
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Style="{StaticResource ScrollPageButton}"
+                                  Command="ScrollBar.PageDownCommand" />
+                </Track.IncreaseRepeatButton>
+            </Track>
+        </Border>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="HorizontalScrollBarTemplate" TargetType="ScrollBar">
+        <Border Background="{TemplateBinding Background}">
+            <Track x:Name="PART_Track">
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Style="{StaticResource ScrollPageButton}"
+                                  Command="ScrollBar.PageLeftCommand" />
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                    <Thumb Style="{StaticResource ScrollThumb}" MinWidth="30" />
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Style="{StaticResource ScrollPageButton}"
+                                  Command="ScrollBar.PageRightCommand" />
+                </Track.IncreaseRepeatButton>
+            </Track>
+        </Border>
+    </ControlTemplate>
+
+    <Style TargetType="ScrollBar">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Width" Value="8" />
+        <Setter Property="MinWidth" Value="8" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template" Value="{StaticResource VerticalScrollBarTemplate}" />
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width" Value="Auto" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Height" Value="8" />
+                <Setter Property="MinHeight" Value="8" />
+                <Setter Property="Template" Value="{StaticResource HorizontalScrollBarTemplate}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="ScrollViewer">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="{TemplateBinding Background}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <ScrollContentPresenter Grid.Row="0" Grid.Column="0"
+                                                Margin="{TemplateBinding Padding}"
+                                                Content="{TemplateBinding Content}"
+                                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                CanHorizontallyScroll="False"
+                                                CanVerticallyScroll="False" />
+
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Row="0" Grid.Column="1"
+                                   Orientation="Vertical"
+                                   Minimum="0"
+                                   Maximum="{TemplateBinding ScrollableHeight}"
+                                   ViewportSize="{TemplateBinding ViewportHeight}"
+                                   Value="{TemplateBinding VerticalOffset}"
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+
+                        <ScrollBar x:Name="PART_HorizontalScrollBar" Grid.Row="1" Grid.Column="0"
+                                   Orientation="Horizontal"
+                                   Minimum="0"
+                                   Maximum="{TemplateBinding ScrollableWidth}"
+                                   ViewportSize="{TemplateBinding ViewportWidth}"
+                                   Value="{TemplateBinding HorizontalOffset}"
+                                   Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ================================================================
+         Списки
+         ================================================================
+         QSS: QListWidget { background: transparent; border: none; outline: none }
+    -->
+    <Style TargetType="ListBox">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <!-- outline: none — пунктирной рамки фокуса у списка быть не должно. -->
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <!-- Строка тянется во всю ширину и обрезает текст сама (см. ServerDelegate
+             в ui/widgets.py): горизонтальная прокрутка ей не нужна, а с ней
+             подсветка под курсором перестала бы доходить до правого края. -->
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBox">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}">
+                            <ItemsPresenter SnapsToDevicePixels="True" />
+                        </ScrollViewer>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ListBoxItem">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          SnapsToDevicePixels="True" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- Подсветка идёт от края до края окна: нажимается вся
+                             полоса, и это должно быть видно. Поля живут внутри
+                             строки, а не в отступах списка. Цвет тот же, каким
+                             её заливал ServerDelegate.
+
+                             Выделение здесь не рисуется намеренно: выбор
+                             показывается маркером слева и яркостью имени, а
+                             это часть шаблона строки, а не контейнера. -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{x:Static theme:Palette.SurfaceBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ================================================================
+         Строка списка серверов
+         ================================================================
+         Порт ServerDelegate из ui/widgets.py. Строка плоская: маркер выбора,
+         имя, под ним адрес, справа колонка пинга. Карточек нет — строки
+         разделяет волосяная линия, поэтому список весит меньше кнопки питания,
+         единственного объёмного элемента окна.
+
+         Шаблон живёт здесь, а не в MainWindow.xaml: состояния «под курсором» и
+         «нажата» раздаёт ListBoxItem (см. его шаблон выше), а «выбрана» —
+         маркер и яркость имени — часть самой строки. Разносить это по двум
+         файлам значило бы искать половину строки не там.
+
+         Thickness из одного числа Metrics в разметке не собирается (x:Static
+         отдаёт double), поэтому поля разложены по сторонам готовыми ресурсами —
+         тем же приёмом, что HairlineBorder выше.
+    -->
+    <Thickness x:Key="RowMarkerMargin"
+               Left="{x:Static theme:Metrics.ListPadding}"
+               Top="{x:Static theme:Metrics.RowMarkerInset}"
+               Bottom="{x:Static theme:Metrics.RowMarkerInset}" />
+
+    <Thickness x:Key="RowTextMargin"
+               Left="{x:Static theme:Metrics.SectionPadding}"
+               Right="{x:Static theme:Metrics.RowGap}" />
+
+    <Thickness x:Key="RowSubtitleMargin" Top="{x:Static theme:Metrics.RowTextSpacing}" />
+
+    <Thickness x:Key="RowPingMargin" Right="{x:Static theme:Metrics.ListPadding}" />
+
+    <Thickness x:Key="RowLineMargin" Left="{x:Static theme:Metrics.ListPadding}" />
+
+    <Thickness x:Key="RowSectionMargin"
+               Left="{x:Static theme:Metrics.SectionPadding}"
+               Bottom="{x:Static theme:Metrics.SectionBottom}" />
+
+    <DataTemplate DataType="{x:Type controls:ServerRow}">
+        <!-- Два вида строки в одном шаблоне (так короче, чем свой
+             ItemTemplateSelector): обычная и заголовок раздела. Свёрнутая ветка
+             не занимает места, поэтому высоту строки задаёт видимая. -->
+        <Grid>
+            <Grid x:Name="Row" Height="{x:Static theme:Metrics.RowHeight}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Маркер выбора. Радиус скругления — половина ширины
+                     (прутик со скруглёнными концами), как в drawRoundedRect
+                     у ServerDelegate; отдельного числа в Metrics нет. -->
+                <Rectangle x:Name="Marker" Grid.Column="0"
+                           Visibility="Collapsed"
+                           HorizontalAlignment="Left"
+                           Width="{x:Static theme:Metrics.RowMarker}"
+                           RadiusX="1" RadiusY="1"
+                           Margin="{StaticResource RowMarkerMargin}"
+                           Fill="{x:Static theme:Palette.AccentBrush}" />
+
+                <StackPanel Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Margin="{StaticResource RowTextMargin}">
+                    <!-- Имя приглушено у невыбранных строк: выбор — это
+                         яркость и маркер, а не обводка. -->
+                    <TextBlock x:Name="RowTitle"
+                               Text="{Binding Title}"
+                               TextTrimming="CharacterEllipsis"
+                               FontSize="{x:Static theme:Metrics.FsRowTitle}"
+                               FontWeight="Medium"
+                               Foreground="{x:Static theme:Palette.DimBrush}" />
+                    <!-- Адрес яркость не теряет: иначе он уходит под порог
+                         читаемости. -->
+                    <TextBlock Text="{Binding Subtitle}"
+                               Margin="{StaticResource RowSubtitleMargin}"
+                               TextTrimming="CharacterEllipsis"
+                               FontSize="{x:Static theme:Metrics.FsDetail}"
+                               Foreground="{x:Static theme:Palette.DimBrush}" />
+                </StackPanel>
+
+                <!-- Колонка пинга постоянной ширины: значения выравниваются по
+                     правому краю и читаются столбиком, а не пляшут за именем.
+                     Цифры табличные — иначе перезамер дёргает колонку. -->
+                <TextBlock Grid.Column="1"
+                           Text="{Binding PingText}"
+                           Foreground="{Binding PingBrush}"
+                           Width="{x:Static theme:Metrics.PingColumn}"
+                           Margin="{StaticResource RowPingMargin}"
+                           TextAlignment="Right"
+                           VerticalAlignment="Center"
+                           Typography.NumeralAlignment="Tabular"
+                           FontSize="{x:Static theme:Metrics.FsDetail}" />
+
+                <!-- Линия начинается от поля строки, а справа доходит до края
+                     окна — ровно как её рисовал ServerDelegate. -->
+                <Border x:Name="Line" Grid.Column="0" Grid.ColumnSpan="2"
+                        VerticalAlignment="Bottom"
+                        Height="{x:Static theme:Metrics.StrokeWidth}"
+                        Margin="{StaticResource RowLineMargin}"
+                        Background="{x:Static theme:Palette.StrokeBrush}"
+                        SnapsToDevicePixels="True" />
+            </Grid>
+
+            <controls:TrackedTextBlock x:Name="Section"
+                                       Visibility="Collapsed"
+                                       Text="{Binding Title}"
+                                       HorizontalAlignment="Left"
+                                       Margin="{StaticResource RowSectionMargin}"
+                                       FontFamily="{x:Static theme:Metrics.UiFontFamily}"
+                                       FontSize="{x:Static theme:Metrics.FsSection}"
+                                       FontWeight="Bold"
+                                       Tracking="{x:Static theme:Metrics.SectionTracking}"
+                                       Foreground="{x:Static theme:Palette.DimBrush}" />
+        </Grid>
+
+        <DataTemplate.Triggers>
+            <!-- Выбор строки живёт на контейнере, а не в данных: шаблон
+                 спрашивает его у ListBoxItem, внутри которого стоит. -->
+            <DataTrigger Value="True"
+                         Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType={x:Type ListBoxItem}}}">
+                <Setter TargetName="Marker" Property="Visibility" Value="Visible" />
+                <Setter TargetName="RowTitle" Property="Foreground"
+                        Value="{x:Static theme:Palette.TextBrush}" />
+            </DataTrigger>
+            <!-- У последней строки линии нет: под ней и так край списка.
+                 Признак ставит тот, кто собирает список — элемент внутри
+                 ItemsControl своего номера не знает. -->
+            <DataTrigger Binding="{Binding IsLast}" Value="True">
+                <Setter TargetName="Line" Property="Visibility" Value="Collapsed" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding IsSection}" Value="True">
+                <Setter TargetName="Row" Property="Visibility" Value="Collapsed" />
+                <Setter TargetName="Section" Property="Visibility" Value="Visible" />
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
+
+    <!-- ================================================================
+         Разделитель
+         ================================================================
+         QSS: QMenu::separator { height: 1px; background: STROKE; margin: 6px 8px }
+    -->
+    <Style TargetType="Separator">
+        <Setter Property="Background" Value="{x:Static theme:Palette.StrokeBrush}" />
+        <Setter Property="Height" Value="{x:Static theme:Metrics.Hairline}" />
+        <!-- margin: 6px 8px из QSS. -->
+        <Setter Property="Margin" Value="8,6,8,6" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Background="{TemplateBinding Background}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Внутри меню WPF ищет стиль разделителя не по типу, а по этому ключу —
+         без него в выпадающем списке остался бы системный светлый. -->
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator"
+           BasedOn="{StaticResource {x:Type Separator}}" />
+
+    <!-- ================================================================
+         Меню
+         ================================================================
+         QSS: QMenu { background: SURFACE; border: 1px solid STROKE;
+                      border-radius: BOX_CORNER; padding: 6px }
+              QMenu::item { padding: 6px 26px 6px 22px; border-radius: 6px }
+              QMenu::item:selected { background: SURFACE_HI }
+
+         Левое поле 22 — это колонка отметки, правое 26 — место под стрелку
+         подменю; оба числа из QSS, в Metrics их нет. Скругление пункта 6
+         оттуда же (у самого меню оно BOX_CORNER = 8).
+    -->
+    <Style TargetType="MenuItem">
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <!-- Шаблон один на все роли: строки меню у нас живут только в
+                     контекстных меню шапки, полосы меню в окне нет вовсе. -->
+                <ControlTemplate TargetType="MenuItem">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="6"
+                            Padding="0,6,26,6"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="22" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Отметку рисуем сами: системная нарисована для
+                                 светлой темы и на чёрном не видна. -->
+                            <Path x:Name="Check" Grid.Column="0"
+                                  Visibility="Collapsed"
+                                  Width="10" Height="8"
+                                  Stretch="Uniform"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Stroke="{x:Static theme:Palette.AccentBrush}"
+                                  StrokeThickness="1.6"
+                                  StrokeEndLineCap="Round" StrokeStartLineCap="Round"
+                                  Data="M 0,4 L 3,7 L 9,0" />
+                            <Ellipse x:Name="Dot" Grid.Column="0"
+                                     Visibility="Collapsed"
+                                     Width="6" Height="6"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center"
+                                     Fill="{x:Static theme:Palette.AccentBrush}" />
+
+                            <ContentPresenter Grid.Column="1"
+                                              ContentSource="Header"
+                                              RecognizesAccessKey="True"
+                                              VerticalAlignment="Center" />
+
+                            <TextBlock Grid.Column="2"
+                                       Margin="16,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="{x:Static theme:Palette.MutedBrush}"
+                                       Text="{TemplateBinding InputGestureText}" />
+
+                            <!-- Стрелка подменю прячется, когда подменю нет:
+                                 колонка Auto схлопывается, и поля пункта
+                                 остаются ровно теми, что в QSS. -->
+                            <Path x:Name="Arrow" Grid.Column="3"
+                                  Visibility="Collapsed"
+                                  Margin="12,0,0,0"
+                                  VerticalAlignment="Center"
+                                  Fill="{x:Static theme:Palette.DimBrush}"
+                                  Data="M 0,0 L 4,4 L 0,8 Z" />
+
+                            <Popup x:Name="PART_Popup"
+                                   Grid.Column="0"
+                                   AllowsTransparency="True"
+                                   Placement="Right"
+                                   HorizontalOffset="-2"
+                                   Focusable="False"
+                                   PopupAnimation="None"
+                                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
+                                <Border Background="{x:Static theme:Palette.SurfaceBrush}"
+                                        BorderBrush="{x:Static theme:Palette.StrokeBrush}"
+                                        BorderThickness="{StaticResource HairlineBorder}"
+                                        CornerRadius="{StaticResource BoxCornerRadius}"
+                                        Padding="6">
+                                    <ItemsPresenter />
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="HasItems" Value="True">
+                            <Setter TargetName="Arrow" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <!-- У MenuItem в WPF нет GroupName, а различать
+                             взаимоисключающие пункты (режим маршрутизации,
+                             режим VPN) чем-то надо: метка в Tag — единственное,
+                             что ставится снаружи без своего attached-свойства.
+                             Ставит её стиль RadioMenuItem ниже. -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsChecked" Value="True" />
+                                <Condition Property="Tag" Value="radio" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Check" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="Dot" Property="Visibility" Value="Visible" />
+                        </MultiTrigger>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{x:Static theme:Palette.SurfaceHiBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{x:Static theme:Palette.MutedBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Пункт-переключатель: та же строка, но отметка кружком, а не галочкой. -->
+    <Style x:Key="RadioMenuItem" TargetType="MenuItem"
+           BasedOn="{StaticResource {x:Type MenuItem}}">
+        <Setter Property="Tag" Value="radio" />
+    </Style>
+
+    <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{x:Static theme:Palette.SurfaceBrush}" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="BorderBrush" Value="{x:Static theme:Palette.StrokeBrush}" />
+        <Setter Property="BorderThickness" Value="{StaticResource HairlineBorder}" />
+        <!-- padding: 6px из QSS. -->
+        <Setter Property="Padding" Value="6" />
+        <!-- Тень нам не нужна и в шаблоне не рисуется, но именно этот флаг
+             включает прозрачность окна всплывашки: без неё углы скругления
+             были бы залиты системным светлым. -->
+        <Setter Property="HasDropShadow" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource BoxCornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer Focusable="False">
+                            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </ScrollViewer>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ================================================================
+         Флажки и переключатели
+         ================================================================
+         QSS: системная отрисовка на тёмном фоне даёт тёмное на тёмном,
+         поэтому индикаторы рисуем сами.
+
+         QRadioButton, QCheckBox { spacing: 9px; padding: 3px 0 }
+         индикатор: 15x15, border 1px DIM, background BG, border-radius 4
+         checked: background ACCENT, border-color ACCENT
+         hover:   border-color ACCENT
+         радио:   16x16, круглый
+
+         Галочки внутри отмеченного флажка нет и не было: в QSS у :checked
+         только заливка, и белый квадрат на чёрном читается как отметка.
+    -->
+    <Style TargetType="CheckBox">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <!-- padding: 3px 0 из QSS. -->
+        <Setter Property="Padding" Value="0,3,0,3" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource ScvpnFocusVisual}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <!-- Прозрачный фон на всю строку: нажимается и подпись, а
+                         не только квадратик. -->
+                    <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="Box" Grid.Column="0"
+                                    Width="15" Height="15"
+                                    CornerRadius="4"
+                                    Background="{x:Static theme:Palette.BgBrush}"
+                                    BorderBrush="{x:Static theme:Palette.DimBrush}"
+                                    BorderThickness="{StaticResource HairlineBorder}"
+                                    VerticalAlignment="Center"
+                                    SnapsToDevicePixels="True" />
+                            <!-- spacing: 9px из QSS. -->
+                            <ContentPresenter Grid.Column="1"
+                                              Margin="9,0,0,0"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background"
+                                    Value="{x:Static theme:Palette.AccentBrush}" />
+                            <Setter TargetName="Box" Property="BorderBrush"
+                                    Value="{x:Static theme:Palette.AccentBrush}" />
+                        </Trigger>
+                        <!-- Правило :hover стоит в QSS ниже :checked и меняет
+                             только цвет рамки — заливка отмеченного флажка от
+                             наведения не пропадает. -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush"
+                                    Value="{x:Static theme:Palette.AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{x:Static theme:Palette.MutedBrush}" />
+                            <Setter TargetName="Box" Property="BorderBrush"
+                                    Value="{x:Static theme:Palette.MutedBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="RadioButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="Padding" Value="0,3,0,3" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource ScvpnFocusVisual}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid Grid.Column="0" Width="16" Height="16" VerticalAlignment="Center">
+                                <Ellipse x:Name="Ring"
+                                         Fill="{x:Static theme:Palette.BgBrush}"
+                                         Stroke="{x:Static theme:Palette.DimBrush}"
+                                         StrokeThickness="{x:Static theme:Metrics.StrokeWidth}" />
+                                <!-- Точку в Qt приходилось рисовать градиентом:
+                                     широкую рамку он не скруглял и вместо
+                                     кружка выходил квадрат. Здесь это просто
+                                     второй круг — 45% радиуса, как у той
+                                     градиентной остановки. -->
+                                <Ellipse x:Name="Dot"
+                                         Width="7" Height="7"
+                                         Visibility="Collapsed"
+                                         Fill="{x:Static theme:Palette.AccentBrush}" />
+                            </Grid>
+                            <ContentPresenter Grid.Column="1"
+                                              Margin="9,0,0,0"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Dot" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="Ring" Property="Stroke"
+                                    Value="{x:Static theme:Palette.AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Ring" Property="Stroke"
+                                    Value="{x:Static theme:Palette.AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{x:Static theme:Palette.MutedBrush}" />
+                            <Setter TargetName="Ring" Property="Stroke"
+                                    Value="{x:Static theme:Palette.MutedBrush}" />
+                            <Setter TargetName="Dot" Property="Fill"
+                                    Value="{x:Static theme:Palette.MutedBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ================================================================
+         Полоса выполнения
+         ================================================================
+         Правила для QProgressBar в QSS не было: Qt-версия показывала
+         QProgressDialog системного вида. Здесь его заменяет своё окно, и
+         полосу приходится описать, иначе она останется светлой.
+    -->
+    <Style TargetType="ProgressBar">
+        <Setter Property="Background" Value="{x:Static theme:Palette.BgBrush}" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.AccentBrush}" />
+        <Setter Property="BorderBrush" Value="{x:Static theme:Palette.StrokeBrush}" />
+        <Setter Property="BorderThickness" Value="{StaticResource HairlineBorder}" />
+        <Setter Property="Height" Value="6" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Border x:Name="Track"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="3"
+                            SnapsToDevicePixels="True">
+                        <Grid ClipToBounds="True">
+                            <Rectangle x:Name="PART_Track" />
+                            <Rectangle x:Name="PART_Indicator"
+                                       HorizontalAlignment="Left"
+                                       Fill="{TemplateBinding Foreground}" />
+                            <!-- Бегущая полоса, когда размер файла неизвестен.
+                                 Двигаем не сам прямоугольник, а маску: её
+                                 остановки заданы в долях ширины, поэтому
+                                 анимация не зависит от размера окна и её не
+                                 надо пересчитывать при изменении ширины. -->
+                            <Rectangle x:Name="Runner"
+                                       Visibility="Collapsed"
+                                       Fill="{TemplateBinding Foreground}">
+                                <Rectangle.OpacityMask>
+                                    <!-- Остановки названы не для красоты: всё,
+                                         что объявлено в шаблоне без имени и
+                                         умеет замораживаться, WPF замораживает
+                                         ради скорости, а анимация замороженного
+                                         объекта падает с «Cannot animate on an
+                                         immutable object instance». Имя держит
+                                         остановку живой и заодно позволяет
+                                         целить в неё напрямую, без пути через
+                                         OpacityMask и индекс в коллекции. -->
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                        <GradientStop x:Name="RunnerHead" Color="#00000000" Offset="-0.4" />
+                                        <GradientStop x:Name="RunnerBody" Color="#FF000000" Offset="-0.2" />
+                                        <GradientStop x:Name="RunnerTail" Color="#00000000" Offset="0" />
+                                    </LinearGradientBrush>
+                                </Rectangle.OpacityMask>
+                            </Rectangle>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsIndeterminate" Value="True">
+                            <Setter TargetName="PART_Indicator" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="Runner" Property="Visibility" Value="Visible" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard Name="RunnerLoop">
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="RunnerHead"
+                                            Storyboard.TargetProperty="Offset"
+                                            From="-0.4" To="1.0" Duration="0:0:1.2" />
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="RunnerBody"
+                                            Storyboard.TargetProperty="Offset"
+                                            From="-0.2" To="1.2" Duration="0:0:1.2" />
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="RunnerTail"
+                                            Storyboard.TargetProperty="Offset"
+                                            From="0" To="1.4" Duration="0:0:1.2" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="RunnerLoop" />
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ================================================================
+         Подсказка
+         ================================================================
+         В QSS правила для QToolTip не было — подсказка оставалась системной и
+         светлой. В WPF она такой и останется, если её не описать, поэтому
+         собрана из тех же кистей, что и меню.
+    -->
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="{x:Static theme:Palette.SurfaceBrush}" />
+        <Setter Property="Foreground" Value="{x:Static theme:Palette.TextBrush}" />
+        <Setter Property="BorderBrush" Value="{x:Static theme:Palette.StrokeBrush}" />
+        <Setter Property="BorderThickness" Value="{StaticResource HairlineBorder}" />
+        <Setter Property="Padding" Value="10,6,10,6" />
+        <Setter Property="FontSize" Value="{x:Static theme:Metrics.FsDetail}" />
+        <!-- Как и у меню: флаг включает прозрачность окна всплывашки, без неё
+             углы скругления заливаются системным цветом. -->
+        <Setter Property="HasDropShadow" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource BoxCornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

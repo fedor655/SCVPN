@@ -1,0 +1,241 @@
+[
+  {
+    "name" : "plain-list",
+    "servers" : [
+      {
+        "address" : "a.example.com",
+        "allow_insecure" : false,
+        "alpn" : "",
+        "alter_id" : 0,
+        "extra" : {
+          "security" : "tls"
+        },
+        "fingerprint" : "",
+        "flow" : "",
+        "grpc_service" : "",
+        "method" : "",
+        "name" : "A",
+        "network" : "tcp",
+        "password" : "",
+        "port" : 443,
+        "protocol" : "vless",
+        "public_key" : "",
+        "security" : "tls",
+        "short_id" : "",
+        "sni" : "",
+        "spider_x" : "/",
+        "uuid" : "11111111-2222-3333-4444-555555555555",
+        "ws_host" : "",
+        "ws_path" : "/"
+      },
+      {
+        "address" : "b.example.com",
+        "allow_insecure" : false,
+        "alpn" : "",
+        "alter_id" : 0,
+        "extra" : {
+          "security" : "tls"
+        },
+        "fingerprint" : "",
+        "flow" : "",
+        "grpc_service" : "",
+        "method" : "",
+        "name" : "B",
+        "network" : "tcp",
+        "password" : "",
+        "port" : 443,
+        "protocol" : "vless",
+        "public_key" : "",
+        "security" : "tls",
+        "short_id" : "",
+        "sni" : "",
+        "spider_x" : "/",
+        "uuid" : "11111111-2222-3333-4444-555555555555",
+        "ws_host" : "",
+        "ws_path" : "/"
+      },
+      {
+        "address" : "c.example.com",
+        "allow_insecure" : false,
+        "alpn" : "",
+        "alter_id" : 0,
+        "extra" : {
+
+        },
+        "fingerprint" : "",
+        "flow" : "",
+        "grpc_service" : "",
+        "method" : "",
+        "name" : "C",
+        "network" : "tcp",
+        "password" : "pw",
+        "port" : 443,
+        "protocol" : "trojan",
+        "public_key" : "",
+        "security" : "tls",
+        "short_id" : "",
+        "sni" : "",
+        "spider_x" : "/",
+        "uuid" : "",
+        "ws_host" : "",
+        "ws_path" : "/"
+      }
+    ],
+    "text" : "vless://11111111-2222-3333-4444-555555555555@a.example.com:443?security=tls#A\nvless://11111111-2222-3333-4444-555555555555@b.example.com:443?security=tls#B\n\ntrojan://pw@c.example.com:443#C\n"
+  },
+  {
+    "name" : "base64-list",
+    "servers" : [
+      {
+        "address" : "a.example.com",
+        "allow_insecure" : false,
+        "alpn" : "",
+        "alter_id" : 0,
+        "extra" : {
+          "security" : "tls"
+        },
+        "fingerprint" : "",
+        "flow" : "",
+        "grpc_service" : "",
+        "method" : "",
+        "name" : "A",
+        "network" : "tcp",
+        "password" : "",
+        "port" : 443,
+        "protocol" : "vless",
+        "public_key" : "",
+        "security" : "tls",
+        "short_id" : "",
+        "sni" : "",
+        "spider_x" : "/",
+        "uuid" : "11111111-2222-3333-4444-555555555555",
+        "ws_host" : "",
+        "ws_path" : "/"
+      },
+      {
+        "address" : "b.example.com",
+        "allow_insecure" : false,
+        "alpn" : "",
+        "alter_id" : 0,
+        "extra" : {
+          "security" : "tls"
+        },
+        "fingerprint" : "",
+        "flow" : "",
+        "grpc_service" : "",
+        "method" : "",
+        "name" : "B",
+        "network" : "tcp",
+        "password" : "",
+        "port" : 443,
+        "protocol" : "vless",
+        "public_key" : "",
+        "security" : "tls",
+        "short_id" : "",
+        "sni" : "",
+        "spider_x" : "/",
+        "uuid" : "11111111-2222-3333-4444-555555555555",
+        "ws_host" : "",
+        "ws_path" : "/"
+      },
+      {
+        "address" : "c.example.com",
+        "allow_insecure" : false,
+        "alpn" : "",
+        "alter_id" : 0,
+        "extra" : {
+
+        },
+        "fingerprint" : "",
+        "flow" : "",
+        "grpc_service" : "",
+        "method" : "",
+        "name" : "C",
+        "network" : "tcp",
+        "password" : "pw",
+        "port" : 443,
+        "protocol" : "trojan",
+        "public_key" : "",
+        "security" : "tls",
+        "short_id" : "",
+        "sni" : "",
+        "spider_x" : "/",
+        "uuid" : "",
+        "ws_host" : "",
+        "ws_path" : "/"
+      }
+    ],
+    "text" : "dmxlc3M6Ly8xMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTVAYS5leGFtcGxlLmNvbTo0NDM/c2VjdXJpdHk9dGxzI0EKdmxlc3M6Ly8xMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTVAYi5leGFtcGxlLmNvbTo0NDM/c2VjdXJpdHk9dGxzI0IKCnRyb2phbjovL3B3QGMuZXhhbXBsZS5jb206NDQzI0MK"
+  },
+  {
+    "name" : "with-garbage-lines",
+    "servers" : [
+      {
+        "address" : "d.example.com",
+        "allow_insecure" : false,
+        "alpn" : "",
+        "alter_id" : 0,
+        "extra" : {
+
+        },
+        "fingerprint" : "",
+        "flow" : "",
+        "grpc_service" : "",
+        "method" : "",
+        "name" : "D",
+        "network" : "tcp",
+        "password" : "",
+        "port" : 443,
+        "protocol" : "vless",
+        "public_key" : "",
+        "security" : "none",
+        "short_id" : "",
+        "sni" : "",
+        "spider_x" : "/",
+        "uuid" : "11111111-2222-3333-4444-555555555555",
+        "ws_host" : "",
+        "ws_path" : "/"
+      }
+    ],
+    "text" : "# комментарий\nvless://11111111-2222-3333-4444-555555555555@d.example.com:443#D\nне ссылка вовсе\n"
+  },
+  {
+    "name" : "empty",
+    "servers" : [
+
+    ],
+    "text" : ""
+  },
+  {
+    "name" : "panel-stub",
+    "servers" : [
+      {
+        "address" : "0.0.0.0",
+        "allow_insecure" : false,
+        "alpn" : "",
+        "alter_id" : 0,
+        "extra" : {
+
+        },
+        "fingerprint" : "",
+        "flow" : "",
+        "grpc_service" : "",
+        "method" : "",
+        "name" : "App not supported",
+        "network" : "tcp",
+        "password" : "",
+        "port" : 1,
+        "protocol" : "vless",
+        "public_key" : "",
+        "security" : "none",
+        "short_id" : "",
+        "sni" : "",
+        "spider_x" : "/",
+        "uuid" : "00000000-0000-0000-0000-000000000000",
+        "ws_host" : "",
+        "ws_path" : "/"
+      }
+    ],
+    "text" : "vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1#App%20not%20supported\n"
+  }
+]

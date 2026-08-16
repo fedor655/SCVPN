@@ -1,0 +1,24 @@
+<Project>
+
+  <!--
+    Общие свойства обоих проектов. Версия живёт здесь и только здесь: раньше
+    она была записана дважды (app_info.py и installer.iss) и разъехалась бы при
+    первом же релизе. build.ps1 читает её отсюда и передаёт в Inno Setup.
+  -->
+  <PropertyGroup>
+    <Version>0.0.0</Version>
+    <Company>SCVPN (open source)</Company>
+    <Product>SCVPN</Product>
+    <Copyright>SCVPN</Copyright>
+
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- Предупреждения не копим: их видно только в первый день. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-minimum</AnalysisLevel>
+  </PropertyGroup>
+
+</Project>

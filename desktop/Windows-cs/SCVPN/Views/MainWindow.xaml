@@ -1,0 +1,262 @@
+<Window x:Class="SCVPN.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:theme="clr-namespace:SCVPN.Theme"
+        xmlns:controls="clr-namespace:SCVPN.Controls"
+        xmlns:views="clr-namespace:SCVPN.Views"
+        Title="SCVPN"
+        Width="{x:Static theme:Metrics.WindowWidth}"
+        Height="{x:Static theme:Metrics.WindowHeight}"
+        MinWidth="{x:Static theme:Metrics.WindowMinWidth}"
+        MinHeight="{x:Static theme:Metrics.WindowMinHeight}"
+        Background="{x:Static theme:Palette.BgBrush}"
+        Foreground="{x:Static theme:Palette.TextBrush}"
+        FontFamily="{x:Static theme:Metrics.UiFontFamily}"
+        FontSize="{x:Static theme:Metrics.FsRowTitle}"
+        TextOptions.TextFormattingMode="Display"
+        KeyDown="OnWindowKeyDown">
+
+    <!--
+        Окно обычное, с системной рамкой: таким было и Qt-окно. Значок окна не
+        ставим — его берёт готовый .ico из сборки (ApplicationIcon в csproj), а
+        окно без своего значка показывает значок приложения. Ровно то же
+        объяснение стояло в run_app() Python-версии.
+
+        Отступы (Thickness) собраны в статические поля код-бехайнда: из
+        отдельных чисел Metrics их в разметке не собрать — x:Static отдаёт
+        double, а преобразователь типов к результату разметочного расширения не
+        применяется.
+
+        Фон, цвет, шрифт и TextFormattingMode выставлены прямо здесь, а не
+        взяты из стиля темы: неявный стиль с TargetType="Window" подбирается по
+        точному типу и наследнику (а MainWindow — свой тип) не достаётся вовсе.
+        Ровно то же делают все окна поверх главного. Display вместо Ideal —
+        потому что мелкий текст (10–13) в Ideal расплывается: Qt рисовал его по
+        пиксельной сетке, и без Display шрифт в списке заметно жирнее и мутнее
+        прежнего. Свойство наследуемое, поэтому его хватает на всё окно.
+    -->
+    <Window.Resources>
+        <!--
+            Сами кнопки шапки (плоские, 28x28, светлеющий знак вместо подложки)
+            описаны в Theme/Theme.xaml под ключом HeaderButton — второй копии
+            здесь быть не должно: она перекрывала бы общий стиль ближней
+            областью видимости, и правка темы до шапки просто не доходила бы.
+            Здесь остаётся только то, чего в общем стиле нет.
+        -->
+        <Style x:Key="HeaderIconButton" TargetType="Button"
+               BasedOn="{StaticResource HeaderButton}">
+            <!-- Курсор-рука был у каждой кнопки шапки и в Qt-версии
+                 (PointingHandCursor у QToolButton). -->
+            <Setter Property="Cursor" Value="Hand" />
+            <!-- Пунктирная рамка фокуса на плоском знаке читается как поломка. -->
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ШАПКА. Правый край группы кнопок совпадает с полем окна — это и
+             есть общая сетка. Просвета между кнопками нет: подложек у них
+             больше нет, и только вплотную они читаются как одна группа. -->
+        <Grid Grid.Row="0" Margin="{x:Static views:MainWindow.HeaderMargin}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Знак «S». Картинку собирает код-бехайнд: размер знака в шапке
+                 не метрика окна, он живёт ровно здесь. -->
+            <Image x:Name="Badge" Grid.Column="0" VerticalAlignment="Center" />
+
+            <!-- Разрядка знака: в WPF её нет вовсе, поэтому знак рисуется по
+                 буквам. В Qt-версии по той же причине она жила в QFont, а не в
+                 таблице стилей. -->
+            <controls:TrackedTextBlock Grid.Column="1"
+                                       Text="SCVPN"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Left"
+                                       Margin="{x:Static views:MainWindow.WordmarkMargin}"
+                                       FontFamily="{x:Static theme:Metrics.UiFontFamily}"
+                                       FontSize="{x:Static theme:Metrics.FsWordmark}"
+                                       FontWeight="Bold"
+                                       Tracking="{x:Static theme:Metrics.WordmarkTracking}"
+                                       Foreground="{x:Static theme:Palette.TextBrush}" />
+
+            <!-- Пинг — отдельной кнопкой в шапке, а не только в меню: его ищут
+                 глазами. Знак рисуется на канве 24×24 из ui/widgets.py, Viewbox
+                 сводит её к размеру знака шапки — вместе с толщиной линии. -->
+            <Button x:Name="PingButton" Grid.Column="2"
+                    Style="{StaticResource HeaderIconButton}"
+                    ToolTip="Измерить пинг серверов"
+                    Click="OnPingClick">
+                <Viewbox Width="{x:Static theme:Metrics.HeaderIcon}"
+                         Height="{x:Static theme:Metrics.HeaderIcon}"
+                         Stretch="Uniform">
+                    <Path Data="M 3,12 L 8,12 L 10.5,6.5 L 14,17.5 L 16,12 L 21,12"
+                          StrokeThickness="2.4"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          StrokeLineJoin="Round"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Viewbox>
+            </Button>
+
+            <Button x:Name="AddButton" Grid.Column="3"
+                    Style="{StaticResource HeaderIconButton}"
+                    Content="+"
+                    ToolTip="Добавить сервер или подписку"
+                    Click="OnAddClick" />
+
+            <Button x:Name="RefreshButton" Grid.Column="4"
+                    Style="{StaticResource HeaderIconButton}"
+                    Content="↻"
+                    ToolTip="Обновить подписки"
+                    Click="OnRefreshClick" />
+
+            <!-- Меню собирается кодом: состав зависит от настроек и от того,
+                 скачаны ли компоненты TUN. -->
+            <Button x:Name="MenuButton" Grid.Column="5"
+                    Style="{StaticResource HeaderIconButton}"
+                    Content="⋯"
+                    ToolTip="Настройки и подписки"
+                    Click="OnMenuClick" />
+        </Grid>
+
+        <!-- Полоса заголовка Windows чужая и светлее содержимого: без этой
+             линии непонятно, где кончается системная рамка и начинается
+             приложение. -->
+        <Border Grid.Row="1"
+                Height="{x:Static theme:Metrics.Hairline}"
+                Background="{x:Static theme:Palette.StrokeBrush}" />
+
+        <!-- БЛОК ПИТАНИЯ. Пустоты вокруг ужаты: кнопка выросла до 156, и прежние
+             отступы отдавали ей треть окна, оставляя списку четыре строки. -->
+        <StackPanel Grid.Row="2" Margin="{x:Static views:MainWindow.PowerBlockMargin}">
+            <controls:PowerButton x:Name="Power"
+                                  HorizontalAlignment="Center"
+                                  Click="OnPowerClick" />
+
+            <!-- Состояние не красится по-разному: в чёрно-белой теме его
+                 различает форма кольца, а не яркость надписи. -->
+            <controls:TrackedTextBlock x:Name="StatusLabel"
+                                       HorizontalAlignment="Center"
+                                       Margin="{x:Static views:MainWindow.StatusMargin}"
+                                       FontFamily="{x:Static theme:Metrics.UiFontFamily}"
+                                       FontSize="{x:Static theme:Metrics.FsStatus}"
+                                       FontWeight="SemiBold"
+                                       Tracking="{x:Static theme:Metrics.StatusTracking}"
+                                       Foreground="{x:Static theme:Palette.TextBrush}" />
+
+            <!--
+                Подробности под состоянием: строка «что сейчас» и подпись режима.
+
+                Раньше это была одна строка вида «00:12:34 · системный прокси»:
+                аптайм и режим — разные по природе вещи, живое число и
+                настройка, — а разделяла их точка. Теперь режим стоит отдельной
+                подписью и только при живом подключении: в простое он ничего не
+                сообщает.
+
+                Обе строки остаются в раскладке всегда, даже пустые, а у блока
+                есть нижняя граница высоты: иначе список серверов подпрыгивал бы
+                при каждой смене состояния. Высота именно минимальная, а не
+                жёсткая — жёсткая ужала бы подписи ниже их строки, и у русских
+                букв срезало бы хвосты.
+            -->
+            <StackPanel MinHeight="{x:Static theme:Metrics.SubstatusHeight}"
+                        Margin="{x:Static views:MainWindow.SubstatusMargin}">
+                <!-- Цифры табличные: аптайм тикает раз в секунду, и
+                     пропорциональные дёргали бы строку на каждом тике. -->
+                <TextBlock x:Name="SubstatusLabel"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"
+                           Typography.NumeralAlignment="Tabular"
+                           FontSize="{x:Static theme:Metrics.FsBody}"
+                           Foreground="{x:Static theme:Palette.DimBrush}" />
+
+                <!-- Подпись режима — тот же вес, что у заголовка раздела, но
+                     приглушённее: она сообщает не о чём раздел, а о том, как
+                     именно идёт трафик. -->
+                <controls:TrackedTextBlock x:Name="ModeLabel"
+                                           HorizontalAlignment="Center"
+                                           Margin="{x:Static views:MainWindow.ModeMargin}"
+                                           FontFamily="{x:Static theme:Metrics.UiFontFamily}"
+                                           FontSize="{x:Static theme:Metrics.FsSection}"
+                                           FontWeight="Bold"
+                                           Tracking="{x:Static theme:Metrics.SectionTracking}"
+                                           Foreground="{x:Static theme:Palette.MutedBrush}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Заголовок встаёт ровно над именами серверов, а не над краем строки:
+             колонка текста — самая заметная вертикаль в списке. -->
+        <controls:TrackedTextBlock Grid.Row="3"
+                                   Text="СЕРВЕРЫ"
+                                   HorizontalAlignment="Left"
+                                   Margin="{x:Static views:MainWindow.SectionMargin}"
+                                   FontFamily="{x:Static theme:Metrics.UiFontFamily}"
+                                   FontSize="{x:Static theme:Metrics.FsSection}"
+                                   FontWeight="Bold"
+                                   Tracking="{x:Static theme:Metrics.SectionTracking}"
+                                   Foreground="{x:Static theme:Palette.DimBrush}" />
+
+        <!--
+            Список и пустой экран занимают одну и ту же строку сетки: видно
+            всегда ровно одно из двух, и место под ними не прыгает.
+
+            Ни ItemTemplate, ни ItemContainerStyle здесь нет намеренно: строку
+            рисует шаблон из Theme/Theme.xaml — там же, где живут состояния
+            «выбрана», «под курсором», «нажата», которые ListBoxItem раздаёт сам.
+        -->
+        <ListBox x:Name="ServerList" Grid.Row="4"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 Padding="{x:Static views:MainWindow.ListBottomPadding}"
+                 HorizontalContentAlignment="Stretch"
+                 SelectionMode="Single"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 SelectionChanged="OnSelectionChanged"
+                 MouseDoubleClick="OnListDoubleClick"
+                 PreviewMouseRightButtonDown="OnListRightButtonDown" />
+
+        <!--
+            Пустой список. Прежде здесь стояла одна серая фраза посреди пустоты,
+            и экран выглядел так, будто список не загрузился. Теперь это два
+            разных по весу сообщения: что произошло и что с этим делать — второе
+            набрано как подпись, чтобы не спорило с первым.
+        -->
+        <StackPanel x:Name="EmptyView" Grid.Row="4"
+                    VerticalAlignment="Center"
+                    Margin="{x:Static views:MainWindow.EmptyMargin}">
+            <TextBlock Text="Серверов пока нет"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       FontSize="{x:Static theme:Metrics.FsRowTitle}"
+                       FontWeight="Medium"
+                       Foreground="{x:Static theme:Palette.DimBrush}" />
+            <controls:TrackedTextBlock Text="ДОБАВЬ ССЫЛКУ ИЛИ ПОДПИСКУ КНОПКОЙ  +"
+                                       HorizontalAlignment="Center"
+                                       Margin="{x:Static views:MainWindow.EmptyHintMargin}"
+                                       FontFamily="{x:Static theme:Metrics.UiFontFamily}"
+                                       FontSize="{x:Static theme:Metrics.FsSection}"
+                                       FontWeight="Bold"
+                                       Tracking="{x:Static theme:Metrics.SectionTracking}"
+                                       Foreground="{x:Static theme:Palette.MutedBrush}" />
+        </StackPanel>
+
+        <!-- Лог — не коробка на весь низ окна, а полоса с последней строкой:
+             читают его именно ради неё. Разворот — по щелчку. -->
+        <controls:LogPane x:Name="Log" Grid.Row="5" />
+    </Grid>
+</Window>

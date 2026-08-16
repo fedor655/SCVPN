@@ -1,0 +1,72 @@
+<Window x:Class="SCVPN.Views.MessageDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:theme="clr-namespace:SCVPN.Theme"
+        Title="SCVPN"
+        Width="{x:Static theme:Metrics.SheetWidth}"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{x:Static theme:Palette.SurfaceBrush}"
+        Foreground="{x:Static theme:Palette.TextBrush}"
+        FontFamily="{x:Static theme:Metrics.UiFontFamily}"
+        FontSize="{x:Static theme:Metrics.FsRowTitle}"
+        TextOptions.TextFormattingMode="Display"
+        PreviewKeyDown="OnPreviewKeyDown">
+
+    <!-- Отступы, размеры значка и шрифт выставляются в конструкторе: Thickness
+         из XAML одним числом не собрать, а числа обязаны приходить из Metrics,
+         а не из разметки. -->
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Значок: кольцо приглушённого цвета и белый знак внутри. Порт
+                 _glyph_icon из ui/theme.py — системные значки MessageBox
+                 нарисованы для светлой темы, на чёрном фоне вопросительный
+                 знак получается тёмно-серым на чёрном и почти не виден.
+                 Возни с ретиной, как в Qt-версии, здесь нет: WPF рисует
+                 вектор и масштаб экрана держит сам. -->
+            <Grid x:Name="IconBox" Grid.Column="0" VerticalAlignment="Top">
+                <Ellipse x:Name="Ring"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"
+                         Stroke="{x:Static theme:Palette.DimBrush}" />
+                <TextBlock x:Name="Glyph"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           FontWeight="DemiBold"
+                           Foreground="{x:Static theme:Palette.TextBrush}" />
+            </Grid>
+
+            <TextBlock x:Name="Message" Grid.Column="1"
+                       TextWrapping="Wrap"
+                       VerticalAlignment="Center"
+                       Foreground="{x:Static theme:Palette.TextBrush}" />
+        </Grid>
+
+        <!-- Поле ввода живёт только в Prompt — замене QInputDialog.getText. -->
+        <TextBox x:Name="Input" Grid.Row="1"
+                 Visibility="Collapsed"
+                 VerticalContentAlignment="Center"
+                 Background="{x:Static theme:Palette.BgBrush}"
+                 Foreground="{x:Static theme:Palette.TextBrush}"
+                 BorderBrush="{x:Static theme:Palette.StrokeBrush}"
+                 CaretBrush="{x:Static theme:Palette.TextBrush}"
+                 SelectionBrush="{x:Static theme:Palette.StrokeBrush}"
+                 SelectionTextBrush="{x:Static theme:Palette.TextBrush}" />
+
+        <StackPanel x:Name="ButtonRow" Grid.Row="2"
+                    Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="SecondaryButton" Visibility="Collapsed" IsCancel="True" />
+            <Button x:Name="PrimaryButton" IsDefault="True" Click="OnPrimary" />
+        </StackPanel>
+    </Grid>
+</Window>

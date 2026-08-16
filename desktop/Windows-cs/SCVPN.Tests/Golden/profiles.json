@@ -1,0 +1,123 @@
+{
+  "subscriptions": [
+    {
+      "name": "Моя подписка",
+      "url": "https://panel.example.com/sub/abc123",
+      "updated": "2026-08-16 12:00",
+      "added": "2026-01-09 18:30",
+      "info": {
+        "title": "Подписка",
+        "account": "user_key-1",
+        "upload": 1024,
+        "download": 2048,
+        "total": 107374182400,
+        "expire": 1788405825,
+        "update_interval": 12,
+        "support_url": "https://t.me/support",
+        "web_page_url": "https://panel.example.com/",
+        "announce": "Привет мир",
+        "hwid": {
+          "x-hwid-max-devices-reached": "false"
+        },
+        "fetched": "16.08.2026 12:00"
+      },
+      "servers": [
+        {
+          "protocol": "vless",
+          "name": "Россия 1",
+          "address": "ru1.example.com",
+          "port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555",
+          "password": "",
+          "method": "",
+          "alter_id": 0,
+          "network": "tcp",
+          "security": "reality",
+          "flow": "xtls-rprx-vision",
+          "sni": "www.microsoft.com",
+          "fingerprint": "chrome",
+          "alpn": "",
+          "public_key": "PUBKEY123",
+          "short_id": "a1b2",
+          "spider_x": "/",
+          "allow_insecure": false,
+          "ws_path": "/",
+          "ws_host": "",
+          "grpc_service": "",
+          "extra": {
+            "type": "tcp",
+            "security": "reality",
+            "flow": "xtls-rprx-vision",
+            "sni": "www.microsoft.com",
+            "fp": "chrome",
+            "pbk": "PUBKEY123",
+            "sid": "a1b2",
+            "spx": "/"
+          }
+        },
+        {
+          "protocol": "vless",
+          "name": "DE-WS",
+          "address": "de.example.com",
+          "port": 8443,
+          "uuid": "11111111-2222-3333-4444-555555555555",
+          "password": "",
+          "method": "",
+          "alter_id": 0,
+          "network": "ws",
+          "security": "tls",
+          "flow": "",
+          "sni": "cdn.example.com",
+          "fingerprint": "firefox",
+          "alpn": "h2,http/1.1",
+          "public_key": "",
+          "short_id": "",
+          "spider_x": "/",
+          "allow_insecure": false,
+          "ws_path": "/ws?ed=2048",
+          "ws_host": "cdn.example.com",
+          "grpc_service": "",
+          "extra": {
+            "type": "ws",
+            "security": "tls",
+            "sni": "cdn.example.com",
+            "host": "cdn.example.com",
+            "path": "/ws?ed=2048",
+            "alpn": "h2,http/1.1",
+            "fp": "firefox"
+          }
+        }
+      ]
+    }
+  ],
+  "servers": [
+    {
+      "protocol": "trojan",
+      "name": "Trojan",
+      "address": "tj.example.com",
+      "port": 443,
+      "uuid": "",
+      "password": "p@ssw0rd",
+      "method": "",
+      "alter_id": 0,
+      "network": "tcp",
+      "security": "tls",
+      "flow": "",
+      "sni": "tj.example.com",
+      "fingerprint": "chrome",
+      "alpn": "",
+      "public_key": "",
+      "short_id": "",
+      "spider_x": "/",
+      "allow_insecure": false,
+      "ws_path": "/",
+      "ws_host": "",
+      "grpc_service": "",
+      "extra": {
+        "security": "tls",
+        "sni": "tj.example.com",
+        "fp": "chrome"
+      }
+    }
+  ]
+}

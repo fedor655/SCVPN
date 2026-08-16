@@ -1,0 +1,160 @@
+[
+  {
+    "name": "full",
+    "headers": {
+      "profile-title": "base64:0J/QvtC00L/QuNGB0LrQsA==",
+      "profile-update-interval": "12",
+      "subscription-userinfo": "upload=1024; download=2048; total=107374182400; expire=1788405825",
+      "content-disposition": "attachment; filename=\"user_key-1\"",
+      "support-url": "https://t.me/support",
+      "profile-web-page-url": "https://panel.example.com/",
+      "announce": "base64:0J/RgNC40LLQtdGCINC80LjRgA==",
+      "x-hwid-max-devices-reached": "false"
+    },
+    "info": {
+      "title": "Подписка",
+      "account": "user_key-1",
+      "upload": 1024,
+      "download": 2048,
+      "total": 107374182400,
+      "expire": 1788405825,
+      "update_interval": 12,
+      "support_url": "https://t.me/support",
+      "web_page_url": "https://panel.example.com/",
+      "announce": "Привет мир",
+      "hwid": {
+        "x-hwid-max-devices-reached": "false"
+      },
+      "fetched": ""
+    },
+    "used": 3072,
+    "unlimited": false,
+    "used_ratio": 2.86102294921875e-08,
+    "device_limit_reached": false
+  },
+  {
+    "name": "device-limit",
+    "headers": {
+      "subscription-userinfo": "upload=0; download=0; total=0; expire=0",
+      "x-hwid-max-devices-reached": "true",
+      "x-hwid-not-supported": "false"
+    },
+    "info": {
+      "title": "",
+      "account": "",
+      "upload": 0,
+      "download": 0,
+      "total": 0,
+      "expire": 0,
+      "update_interval": 0,
+      "support_url": "",
+      "web_page_url": "",
+      "announce": "",
+      "hwid": {
+        "x-hwid-max-devices-reached": "true",
+        "x-hwid-not-supported": "false"
+      },
+      "fetched": ""
+    },
+    "used": 0,
+    "unlimited": true,
+    "used_ratio": 0.0,
+    "device_limit_reached": true
+  },
+  {
+    "name": "plain-title",
+    "headers": {
+      "profile-title": "My Subscription",
+      "content-disposition": "attachment; filename=noquotes",
+      "subscription-userinfo": "upload=5; download=6"
+    },
+    "info": {
+      "title": "My Subscription",
+      "account": "noquotes",
+      "upload": 5,
+      "download": 6,
+      "total": 0,
+      "expire": 0,
+      "update_interval": 0,
+      "support_url": "",
+      "web_page_url": "",
+      "announce": "",
+      "hwid": {},
+      "fetched": ""
+    },
+    "used": 11,
+    "unlimited": true,
+    "used_ratio": 0.0,
+    "device_limit_reached": false
+  },
+  {
+    "name": "float-values",
+    "headers": {
+      "subscription-userinfo": "upload=1.0; download=2.5; total=3.0; expire=1788405825.0"
+    },
+    "info": {
+      "title": "",
+      "account": "",
+      "upload": 1,
+      "download": 2,
+      "total": 3,
+      "expire": 1788405825,
+      "update_interval": 0,
+      "support_url": "",
+      "web_page_url": "",
+      "announce": "",
+      "hwid": {},
+      "fetched": ""
+    },
+    "used": 3,
+    "unlimited": false,
+    "used_ratio": 1.0,
+    "device_limit_reached": false
+  },
+  {
+    "name": "broken-interval",
+    "headers": {
+      "profile-update-interval": "не число"
+    },
+    "info": {
+      "title": "",
+      "account": "",
+      "upload": 0,
+      "download": 0,
+      "total": 0,
+      "expire": 0,
+      "update_interval": 0,
+      "support_url": "",
+      "web_page_url": "",
+      "announce": "",
+      "hwid": {},
+      "fetched": ""
+    },
+    "used": 0,
+    "unlimited": true,
+    "used_ratio": 0.0,
+    "device_limit_reached": false
+  },
+  {
+    "name": "empty",
+    "headers": {},
+    "info": {
+      "title": "",
+      "account": "",
+      "upload": 0,
+      "download": 0,
+      "total": 0,
+      "expire": 0,
+      "update_interval": 0,
+      "support_url": "",
+      "web_page_url": "",
+      "announce": "",
+      "hwid": {},
+      "fetched": ""
+    },
+    "used": 0,
+    "unlimited": true,
+    "used_ratio": 0.0,
+    "device_limit_reached": false
+  }
+]

@@ -1,0 +1,1090 @@
+[
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@ru1.example.com:443/tcp/reality",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@ru1.example.com:443?type=tcp&security=reality&flow=xtls-rprx-vision&sni=www.microsoft.com&fp=chrome&pbk=PUBKEY123&sid=a1b2&spx=%2F#%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D1%8F%201",
+    "name" : "vless-reality-vision",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "ru1.example.com",
+            "port" : 443,
+            "users" : [
+              {
+                "encryption" : "none",
+                "flow" : "xtls-rprx-vision",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "realitySettings" : {
+          "fingerprint" : "chrome",
+          "publicKey" : "PUBKEY123",
+          "serverName" : "www.microsoft.com",
+          "shortId" : "a1b2",
+          "spiderX" : "/"
+        },
+        "security" : "reality"
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "ru1.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "flow" : "xtls-rprx-vision",
+        "fp" : "chrome",
+        "pbk" : "PUBKEY123",
+        "security" : "reality",
+        "sid" : "a1b2",
+        "sni" : "www.microsoft.com",
+        "spx" : "/",
+        "type" : "tcp"
+      },
+      "fingerprint" : "chrome",
+      "flow" : "xtls-rprx-vision",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "Россия 1",
+      "network" : "tcp",
+      "password" : "",
+      "port" : 443,
+      "protocol" : "vless",
+      "public_key" : "PUBKEY123",
+      "security" : "reality",
+      "short_id" : "a1b2",
+      "sni" : "www.microsoft.com",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@de.example.com:8443/ws/tls",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@de.example.com:8443?type=ws&security=tls&sni=cdn.example.com&host=cdn.example.com&path=%2Fws%3Fed%3D2048&alpn=h2%2Chttp%2F1.1&fp=firefox#DE-WS",
+    "name" : "vless-ws-tls",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "de.example.com",
+            "port" : 8443,
+            "users" : [
+              {
+                "encryption" : "none",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "ws",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "alpn" : [
+            "h2",
+            "http/1.1"
+          ],
+          "fingerprint" : "firefox",
+          "serverName" : "cdn.example.com"
+        },
+        "wsSettings" : {
+          "headers" : {
+            "Host" : "cdn.example.com"
+          },
+          "path" : "/ws?ed=2048"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "de.example.com",
+      "allow_insecure" : false,
+      "alpn" : "h2,http/1.1",
+      "alter_id" : 0,
+      "extra" : {
+        "alpn" : "h2,http/1.1",
+        "fp" : "firefox",
+        "host" : "cdn.example.com",
+        "path" : "/ws?ed=2048",
+        "security" : "tls",
+        "sni" : "cdn.example.com",
+        "type" : "ws"
+      },
+      "fingerprint" : "firefox",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "DE-WS",
+      "network" : "ws",
+      "password" : "",
+      "port" : 8443,
+      "protocol" : "vless",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "cdn.example.com",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "cdn.example.com",
+      "ws_path" : "/ws?ed=2048"
+    }
+  },
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@nl.example.com:443/grpc/tls",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@nl.example.com:443?type=grpc&security=tls&serviceName=grpcSvc&sni=nl.example.com#NL-gRPC",
+    "name" : "vless-grpc-tls",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "nl.example.com",
+            "port" : 443,
+            "users" : [
+              {
+                "encryption" : "none",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "grpcSettings" : {
+          "serviceName" : "grpcSvc"
+        },
+        "network" : "grpc",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "serverName" : "nl.example.com"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "nl.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "security" : "tls",
+        "serviceName" : "grpcSvc",
+        "sni" : "nl.example.com",
+        "type" : "grpc"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "grpcSvc",
+      "method" : "",
+      "name" : "NL-gRPC",
+      "network" : "grpc",
+      "password" : "",
+      "port" : 443,
+      "protocol" : "vless",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "nl.example.com",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@1.2.3.4:80/tcp/none",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@1.2.3.4:80#plain",
+    "name" : "vless-plain-tcp",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "1.2.3.4",
+            "port" : 80,
+            "users" : [
+              {
+                "encryption" : "none",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "none"
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "1.2.3.4",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "plain",
+      "network" : "tcp",
+      "password" : "",
+      "port" : 80,
+      "protocol" : "vless",
+      "public_key" : "",
+      "security" : "none",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@noport.example.com:443/tcp/reality",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@noport.example.com?security=reality&pbk=K&sid=&sni=a.com#no-port",
+    "name" : "vless-no-port",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "noport.example.com",
+            "port" : 443,
+            "users" : [
+              {
+                "encryption" : "none",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "realitySettings" : {
+          "fingerprint" : "chrome",
+          "publicKey" : "K",
+          "serverName" : "a.com",
+          "shortId" : "",
+          "spiderX" : "/"
+        },
+        "security" : "reality"
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "noport.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "pbk" : "K",
+        "security" : "reality",
+        "sid" : "",
+        "sni" : "a.com"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "no-port",
+      "network" : "tcp",
+      "password" : "",
+      "port" : 443,
+      "protocol" : "vless",
+      "public_key" : "K",
+      "security" : "reality",
+      "short_id" : "",
+      "sni" : "a.com",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@insecure.example.com:443/tcp/tls",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@insecure.example.com:443?security=tls&allowInsecure=1&sni=insecure.example.com#insecure",
+    "name" : "vless-allow-insecure",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "insecure.example.com",
+            "port" : 443,
+            "users" : [
+              {
+                "encryption" : "none",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : true,
+          "serverName" : "insecure.example.com"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "insecure.example.com",
+      "allow_insecure" : true,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "allowInsecure" : "1",
+        "security" : "tls",
+        "sni" : "insecure.example.com"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "insecure",
+      "network" : "tcp",
+      "password" : "",
+      "port" : 443,
+      "protocol" : "vless",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "insecure.example.com",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@peer.example.com:443/tcp/tls",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@peer.example.com:443?security=tls&peer=peer.example.com#peer",
+    "name" : "vless-peer-instead-of-sni",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "peer.example.com",
+            "port" : 443,
+            "users" : [
+              {
+                "encryption" : "none",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "serverName" : "peer.example.com"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "peer.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "peer" : "peer.example.com",
+        "security" : "tls"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "peer",
+      "network" : "tcp",
+      "password" : "",
+      "port" : 443,
+      "protocol" : "vless",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "peer.example.com",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@h2.example.com:443/http/tls",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@h2.example.com:443?type=http&security=tls&path=%2Fh2&host=h2.example.com#H2",
+    "name" : "vless-http-h2",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "h2.example.com",
+            "port" : 443,
+            "users" : [
+              {
+                "encryption" : "none",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "httpSettings" : {
+          "host" : [
+            "h2.example.com"
+          ],
+          "path" : "/h2"
+        },
+        "network" : "http",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "serverName" : "h2.example.com"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "h2.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "host" : "h2.example.com",
+        "path" : "/h2",
+        "security" : "tls",
+        "type" : "http"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "H2",
+      "network" : "http",
+      "password" : "",
+      "port" : 443,
+      "protocol" : "vless",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "h2.example.com",
+      "ws_path" : "/h2"
+    }
+  },
+  {
+    "key" : "vless://11111111-2222-3333-4444-555555555555@nofrag.example.com:443/tcp/tls",
+    "link" : "vless://11111111-2222-3333-4444-555555555555@nofrag.example.com:443?security=tls",
+    "name" : "vless-empty-fragment",
+    "outbound" : {
+      "protocol" : "vless",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "nofrag.example.com",
+            "port" : 443,
+            "users" : [
+              {
+                "encryption" : "none",
+                "id" : "11111111-2222-3333-4444-555555555555"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "serverName" : "nofrag.example.com"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "nofrag.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "security" : "tls"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "",
+      "network" : "tcp",
+      "password" : "",
+      "port" : 443,
+      "protocol" : "vless",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "vmess://11111111-2222-3333-4444-555555555555@vm.example.com:443/ws/tls",
+    "link" : "vmess://eyJ2IjoiMiIsInBzIjoiVk1FU1MtV1MiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsInR5cGUiOiJub25lIiwiaG9zdCI6InZtLmV4YW1wbGUuY29tIiwicGF0aCI6Ii92bWVzcyIsInRscyI6InRscyJ9",
+    "name" : "vmess-ws-tls",
+    "outbound" : {
+      "protocol" : "vmess",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "vm.example.com",
+            "port" : 443,
+            "users" : [
+              {
+                "alterId" : 0,
+                "id" : "11111111-2222-3333-4444-555555555555",
+                "security" : "auto"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "ws",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "serverName" : "vm.example.com"
+        },
+        "wsSettings" : {
+          "headers" : {
+            "Host" : "vm.example.com"
+          },
+          "path" : "/vmess"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "vm.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "add" : "vm.example.com",
+        "aid" : "0",
+        "host" : "vm.example.com",
+        "id" : "11111111-2222-3333-4444-555555555555",
+        "net" : "ws",
+        "path" : "/vmess",
+        "port" : "443",
+        "ps" : "VMESS-WS",
+        "tls" : "tls",
+        "type" : "none",
+        "v" : "2"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "VMESS-WS",
+      "network" : "ws",
+      "password" : "",
+      "port" : 443,
+      "protocol" : "vmess",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "vm.example.com",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "vm.example.com",
+      "ws_path" : "/vmess"
+    }
+  },
+  {
+    "key" : "vmess://11111111-2222-3333-4444-555555555555@2.3.4.5:10086/tcp/none",
+    "link" : "vmess://eyJ2IjoiMiIsInBzIjoiVk1FU1MtVENQIiwiYWRkIjoiMi4zLjQuNSIsInBvcnQiOjEwMDg2LCJpZCI6IjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsImFpZCI6MCwibmV0IjoidGNwIiwidGxzIjoiIn0=",
+    "name" : "vmess-tcp-plain",
+    "outbound" : {
+      "protocol" : "vmess",
+      "settings" : {
+        "vnext" : [
+          {
+            "address" : "2.3.4.5",
+            "port" : 10086,
+            "users" : [
+              {
+                "alterId" : 0,
+                "id" : "11111111-2222-3333-4444-555555555555",
+                "security" : "auto"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "none"
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "2.3.4.5",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "add" : "2.3.4.5",
+        "aid" : 0,
+        "id" : "11111111-2222-3333-4444-555555555555",
+        "net" : "tcp",
+        "port" : 10086,
+        "ps" : "VMESS-TCP",
+        "tls" : "",
+        "v" : "2"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "VMESS-TCP",
+      "network" : "tcp",
+      "password" : "",
+      "port" : 10086,
+      "protocol" : "vmess",
+      "public_key" : "",
+      "security" : "none",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "11111111-2222-3333-4444-555555555555",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "trojan://p@ssw0rd@tj.example.com:443/tcp/tls",
+    "link" : "trojan://p%40ssw0rd@tj.example.com:443?security=tls&sni=tj.example.com&fp=chrome#Trojan",
+    "name" : "trojan-tcp-tls",
+    "outbound" : {
+      "protocol" : "trojan",
+      "settings" : {
+        "servers" : [
+          {
+            "address" : "tj.example.com",
+            "password" : "p@ssw0rd",
+            "port" : 443
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "fingerprint" : "chrome",
+          "serverName" : "tj.example.com"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "tj.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "fp" : "chrome",
+        "security" : "tls",
+        "sni" : "tj.example.com"
+      },
+      "fingerprint" : "chrome",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "Trojan",
+      "network" : "tcp",
+      "password" : "p@ssw0rd",
+      "port" : 443,
+      "protocol" : "trojan",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "tj.example.com",
+      "spider_x" : "/",
+      "uuid" : "",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "trojan://password@tjws.example.com:2083/ws/tls",
+    "link" : "trojan://password@tjws.example.com:2083?type=ws&security=tls&path=%2Ftj&host=tjws.example.com#Trojan-WS",
+    "name" : "trojan-ws",
+    "outbound" : {
+      "protocol" : "trojan",
+      "settings" : {
+        "servers" : [
+          {
+            "address" : "tjws.example.com",
+            "password" : "password",
+            "port" : 2083
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "ws",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "serverName" : "tjws.example.com"
+        },
+        "wsSettings" : {
+          "headers" : {
+            "Host" : "tjws.example.com"
+          },
+          "path" : "/tj"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "tjws.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+        "host" : "tjws.example.com",
+        "path" : "/tj",
+        "security" : "tls",
+        "type" : "ws"
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "Trojan-WS",
+      "network" : "ws",
+      "password" : "password",
+      "port" : 2083,
+      "protocol" : "trojan",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "",
+      "ws_host" : "tjws.example.com",
+      "ws_path" : "/tj"
+    }
+  },
+  {
+    "key" : "trojan://password@tjdef.example.com:443/tcp/tls",
+    "link" : "trojan://password@tjdef.example.com:443#Trojan-default",
+    "name" : "trojan-default-security",
+    "outbound" : {
+      "protocol" : "trojan",
+      "settings" : {
+        "servers" : [
+          {
+            "address" : "tjdef.example.com",
+            "password" : "password",
+            "port" : 443
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "tls",
+        "tlsSettings" : {
+          "allowInsecure" : false,
+          "serverName" : "tjdef.example.com"
+        }
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "tjdef.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "",
+      "name" : "Trojan-default",
+      "network" : "tcp",
+      "password" : "password",
+      "port" : 443,
+      "protocol" : "trojan",
+      "public_key" : "",
+      "security" : "tls",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "shadowsocks://secret123@ss.example.com:8388/tcp/none",
+    "link" : "ss://YWVzLTI1Ni1nY206c2VjcmV0MTIz@ss.example.com:8388#SS-1",
+    "name" : "ss-userinfo-base64",
+    "outbound" : {
+      "protocol" : "shadowsocks",
+      "settings" : {
+        "servers" : [
+          {
+            "address" : "ss.example.com",
+            "method" : "aes-256-gcm",
+            "password" : "secret123",
+            "port" : 8388
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "none"
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "ss.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "aes-256-gcm",
+      "name" : "SS-1",
+      "network" : "tcp",
+      "password" : "secret123",
+      "port" : 8388,
+      "protocol" : "shadowsocks",
+      "public_key" : "",
+      "security" : "none",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "shadowsocks://secret123@ss2.example.com:8389/tcp/none",
+    "link" : "ss://YWVzLTI1Ni1nY206c2VjcmV0MTIzQHNzMi5leGFtcGxlLmNvbTo4Mzg5#SS-2",
+    "name" : "ss-whole-base64",
+    "outbound" : {
+      "protocol" : "shadowsocks",
+      "settings" : {
+        "servers" : [
+          {
+            "address" : "ss2.example.com",
+            "method" : "aes-256-gcm",
+            "password" : "secret123",
+            "port" : 8389
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "none"
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "ss2.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "aes-256-gcm",
+      "name" : "SS-2",
+      "network" : "tcp",
+      "password" : "secret123",
+      "port" : 8389,
+      "protocol" : "shadowsocks",
+      "public_key" : "",
+      "security" : "none",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "shadowsocks://pass word@ss3.example.com:9000/tcp/none",
+    "link" : "ss://chacha20-ietf-poly1305:pass%20word@ss3.example.com:9000#SS-3",
+    "name" : "ss-plain-userinfo",
+    "outbound" : {
+      "protocol" : "shadowsocks",
+      "settings" : {
+        "servers" : [
+          {
+            "address" : "ss3.example.com",
+            "method" : "chacha20-ietf-poly1305",
+            "password" : "pass word",
+            "port" : 9000
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "none"
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "ss3.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "chacha20-ietf-poly1305",
+      "name" : "SS-3",
+      "network" : "tcp",
+      "password" : "pass word",
+      "port" : 9000,
+      "protocol" : "shadowsocks",
+      "public_key" : "",
+      "security" : "none",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : "shadowsocks://secret123@ss4.example.com:8388/tcp/none",
+    "link" : "ss://YWVzLTI1Ni1nY206c2VjcmV0MTIz@ss4.example.com#SS-4",
+    "name" : "ss-no-port",
+    "outbound" : {
+      "protocol" : "shadowsocks",
+      "settings" : {
+        "servers" : [
+          {
+            "address" : "ss4.example.com",
+            "method" : "aes-256-gcm",
+            "password" : "secret123",
+            "port" : 8388
+          }
+        ]
+      },
+      "streamSettings" : {
+        "network" : "tcp",
+        "security" : "none"
+      },
+      "tag" : "proxy"
+    },
+    "server" : {
+      "address" : "ss4.example.com",
+      "allow_insecure" : false,
+      "alpn" : "",
+      "alter_id" : 0,
+      "extra" : {
+
+      },
+      "fingerprint" : "",
+      "flow" : "",
+      "grpc_service" : "",
+      "method" : "aes-256-gcm",
+      "name" : "SS-4",
+      "network" : "tcp",
+      "password" : "secret123",
+      "port" : 8388,
+      "protocol" : "shadowsocks",
+      "public_key" : "",
+      "security" : "none",
+      "short_id" : "",
+      "sni" : "",
+      "spider_x" : "/",
+      "uuid" : "",
+      "ws_host" : "",
+      "ws_path" : "/"
+    }
+  },
+  {
+    "key" : null,
+    "link" : "http://example.com/",
+    "name" : "bad-scheme",
+    "outbound" : null,
+    "server" : null
+  },
+  {
+    "key" : null,
+    "link" : "",
+    "name" : "bad-empty",
+    "outbound" : null,
+    "server" : null
+  },
+  {
+    "key" : null,
+    "link" : "vless://",
+    "name" : "bad-garbage",
+    "outbound" : null,
+    "server" : null
+  },
+  {
+    "key" : null,
+    "link" : "vmess://не-base64-вовсе",
+    "name" : "bad-vmess-not-base64",
+    "outbound" : null,
+    "server" : null
+  }
+]

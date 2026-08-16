@@ -1,0 +1,23 @@
+{
+  "socks_port": 10808,
+  "http_port": 10809,
+  "route_mode": "global",
+  "block_ads": false,
+  "system_proxy": true,
+  "selected_key": "trojan://p@ssw0rd@tj.example.com:443/tcp/tls",
+  "tls_fingerprint": "auto",
+  "vpn_mode": "tun",
+  "split_mode": "off",
+  "split_apps": [
+    "Telegram.exe"
+  ],
+  "tun_stack": "gvisor",
+  "hwid": "deadbeef-1234-5678-9abc-def012345678",
+  "unknown_future_key": {
+    "nested": [
+      1,
+      2,
+      3
+    ]
+  }
+}

@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!--
+      Версия Windows в TFM нужна ради WinRT: камеру в сканере QR открывает
+      Windows.Media.Capture, а он доступен только через такой TFM. Нижняя
+      планка поддержки задаётся установщиком (Windows 10 21H2), здесь стоит
+      19041 — ниже, потому что компилятору важен лишь набор API.
+    -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+
+    <AssemblyName>SCVPN</AssemblyName>
+    <RootNamespace>SCVPN</RootNamespace>
+    <ApplicationIcon>Assets\scvpn.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <!--
+      SelfContained здесь НЕ включаем, хотя публикуемся именно так: без
+      RuntimeIdentifier это ошибка сборки (NETSDK1031), и обычные `dotnet run`
+      и `dotnet test` перестали бы работать. Флаг передаёт build.ps1 вместе с
+      -r win-x64 / -r win-arm64.
+    -->
+    <!-- Trimming для WPF не поддержан, включать нечего. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Генерация QR-кода ссылки подписки: берём только матрицу модулей,
+         рисуем сами, как это делала Qt-версия. -->
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <!-- Распознавание QR с камеры. Чистый C#, работает и на arm64 —
+         ровно то, чего не умел opencv-python. -->
+    <PackageReference Include="ZXing.Net" Version="0.16.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\scvpn.ico" />
+  </ItemGroup>
+
+</Project>

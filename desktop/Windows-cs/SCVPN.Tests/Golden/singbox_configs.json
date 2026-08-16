@@ -1,0 +1,326 @@
+[
+  {
+    "name": "off-no-apps",
+    "socks_port": 10808,
+    "exclude_ips": [
+      "93.184.216.34",
+      "1.1.1.1"
+    ],
+    "log_level": "warn",
+    "split_mode": "off",
+    "split_apps": [],
+    "config": {
+      "log": {
+        "level": "warn"
+      },
+      "inbounds": [
+        {
+          "type": "tun",
+          "tag": "tun-in",
+          "interface_name": "SCVPNTun",
+          "address": [
+            "172.18.0.1/30"
+          ],
+          "mtu": 1500,
+          "auto_route": true,
+          "strict_route": false,
+          "stack": "gvisor",
+          "route_exclude_address": [
+            "93.184.216.34/32",
+            "1.1.1.1/32"
+          ]
+        }
+      ],
+      "outbounds": [
+        {
+          "type": "socks",
+          "tag": "to-xray",
+          "server": "127.0.0.1",
+          "server_port": 10808,
+          "version": "5"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "to-xray",
+        "rules": [
+          {
+            "process_path": [
+              "<XRAY_EXE>"
+            ],
+            "outbound": "direct"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "exclude-two",
+    "socks_port": 10808,
+    "exclude_ips": [
+      "93.184.216.34",
+      "1.1.1.1"
+    ],
+    "log_level": "warn",
+    "split_mode": "exclude",
+    "split_apps": [
+      "Telegram.exe",
+      "chrome.exe"
+    ],
+    "config": {
+      "log": {
+        "level": "warn"
+      },
+      "inbounds": [
+        {
+          "type": "tun",
+          "tag": "tun-in",
+          "interface_name": "SCVPNTun",
+          "address": [
+            "172.18.0.1/30"
+          ],
+          "mtu": 1500,
+          "auto_route": true,
+          "strict_route": false,
+          "stack": "gvisor",
+          "route_exclude_address": [
+            "93.184.216.34/32",
+            "1.1.1.1/32"
+          ]
+        }
+      ],
+      "outbounds": [
+        {
+          "type": "socks",
+          "tag": "to-xray",
+          "server": "127.0.0.1",
+          "server_port": 10808,
+          "version": "5"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "to-xray",
+        "rules": [
+          {
+            "process_path": [
+              "<XRAY_EXE>"
+            ],
+            "outbound": "direct"
+          },
+          {
+            "process_name": [
+              "Telegram.exe",
+              "chrome.exe"
+            ],
+            "outbound": "direct"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "include-two",
+    "socks_port": 10808,
+    "exclude_ips": [
+      "93.184.216.34",
+      "1.1.1.1"
+    ],
+    "log_level": "warn",
+    "split_mode": "include",
+    "split_apps": [
+      "Telegram.exe",
+      "chrome.exe"
+    ],
+    "config": {
+      "log": {
+        "level": "warn"
+      },
+      "inbounds": [
+        {
+          "type": "tun",
+          "tag": "tun-in",
+          "interface_name": "SCVPNTun",
+          "address": [
+            "172.18.0.1/30"
+          ],
+          "mtu": 1500,
+          "auto_route": true,
+          "strict_route": false,
+          "stack": "gvisor",
+          "route_exclude_address": [
+            "93.184.216.34/32",
+            "1.1.1.1/32"
+          ]
+        }
+      ],
+      "outbounds": [
+        {
+          "type": "socks",
+          "tag": "to-xray",
+          "server": "127.0.0.1",
+          "server_port": 10808,
+          "version": "5"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "direct",
+        "rules": [
+          {
+            "process_path": [
+              "<XRAY_EXE>"
+            ],
+            "outbound": "direct"
+          },
+          {
+            "process_name": [
+              "Telegram.exe",
+              "chrome.exe"
+            ],
+            "outbound": "to-xray"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "include-empty",
+    "socks_port": 10808,
+    "exclude_ips": [
+      "93.184.216.34",
+      "1.1.1.1"
+    ],
+    "log_level": "warn",
+    "split_mode": "include",
+    "split_apps": [],
+    "config": {
+      "log": {
+        "level": "warn"
+      },
+      "inbounds": [
+        {
+          "type": "tun",
+          "tag": "tun-in",
+          "interface_name": "SCVPNTun",
+          "address": [
+            "172.18.0.1/30"
+          ],
+          "mtu": 1500,
+          "auto_route": true,
+          "strict_route": false,
+          "stack": "gvisor",
+          "route_exclude_address": [
+            "93.184.216.34/32",
+            "1.1.1.1/32"
+          ]
+        }
+      ],
+      "outbounds": [
+        {
+          "type": "socks",
+          "tag": "to-xray",
+          "server": "127.0.0.1",
+          "server_port": 10808,
+          "version": "5"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "to-xray",
+        "rules": [
+          {
+            "process_path": [
+              "<XRAY_EXE>"
+            ],
+            "outbound": "direct"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "exclude-blank-names",
+    "socks_port": 10808,
+    "exclude_ips": [
+      "93.184.216.34",
+      "1.1.1.1"
+    ],
+    "log_level": "warn",
+    "split_mode": "exclude",
+    "split_apps": [
+      "  ",
+      "ok.exe"
+    ],
+    "config": {
+      "log": {
+        "level": "warn"
+      },
+      "inbounds": [
+        {
+          "type": "tun",
+          "tag": "tun-in",
+          "interface_name": "SCVPNTun",
+          "address": [
+            "172.18.0.1/30"
+          ],
+          "mtu": 1500,
+          "auto_route": true,
+          "strict_route": false,
+          "stack": "gvisor",
+          "route_exclude_address": [
+            "93.184.216.34/32",
+            "1.1.1.1/32"
+          ]
+        }
+      ],
+      "outbounds": [
+        {
+          "type": "socks",
+          "tag": "to-xray",
+          "server": "127.0.0.1",
+          "server_port": 10808,
+          "version": "5"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "to-xray",
+        "rules": [
+          {
+            "process_path": [
+              "<XRAY_EXE>"
+            ],
+            "outbound": "direct"
+          },
+          {
+            "process_name": [
+              "ok.exe"
+            ],
+            "outbound": "direct"
+          }
+        ]
+      }
+    }
+  }
+]

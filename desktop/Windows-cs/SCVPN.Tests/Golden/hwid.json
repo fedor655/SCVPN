@@ -1,0 +1,21 @@
+{
+  "salt": "scvpn-hwid-v1",
+  "cases": [
+    {
+      "source": "8f3a6c12-9d4e-4b7a-a1c5-2e9b7f0d6a34",
+      "hwid": "36b20f1f-e210-ef92-d70b-497107f2905b"
+    },
+    {
+      "source": "00000000-0000-0000-0000-000000000000",
+      "hwid": "ce457b3e-fd18-6dfc-998b-96fd340c133a"
+    },
+    {
+      "source": "mac-a1b2c3d4e5f6",
+      "hwid": "78702436-fe4b-90ba-c3f8-62b61b3347bd"
+    },
+    {
+      "source": "ЮНИКОД-МАШИНА",
+      "hwid": "b601dc55-456f-c3c1-26c4-08eb4b35d88e"
+    }
+  ]
+}

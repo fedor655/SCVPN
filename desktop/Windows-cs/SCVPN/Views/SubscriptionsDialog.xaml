@@ -1,0 +1,59 @@
+<Window x:Class="SCVPN.Views.SubscriptionsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:theme="clr-namespace:SCVPN.Theme"
+        Title="Подписки"
+        Width="{x:Static theme:Metrics.SheetWidth}"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{x:Static theme:Palette.SurfaceBrush}"
+        Foreground="{x:Static theme:Palette.TextBrush}"
+        FontSize="{x:Static theme:Metrics.FsRowTitle}"
+        TextOptions.TextFormattingMode="Display">
+
+    <!--
+        Разметка тут только каркасная: карточки подписок строит код. Их состав
+        зависит от того, что прислала панель (объявление, безлимит, лимит
+        устройств, ссылка на поддержку), и шаблон с десятком конвертеров
+        видимости читался бы хуже, чем то же самое в C#.
+
+        Отступы и поля Thickness задаются в конструкторе: Thickness из
+        нескольких чисел Metrics в XAML не собрать — x:Static отдаёт double,
+        а преобразователь типов к результату разметочного расширения не
+        применяется.
+    -->
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Подписок может быть много, а высота окна ограничена рабочим столом. -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="Cards" />
+        </ScrollViewer>
+
+        <!--
+            «Закрыть» одна на окно и живёт внизу, а не в карточке: в Qt-версии
+            окно показывало ровно одну подписку, и кнопка стояла в её же ряду.
+        -->
+        <StackPanel x:Name="Footer" Grid.Row="1">
+            <Border x:Name="FooterDivider"
+                    Height="{x:Static theme:Metrics.Hairline}"
+                    Background="{x:Static theme:Palette.StrokeBrush}" />
+            <!-- Закрывает окно сам IsCancel: своего Click здесь быть не должно.
+                 Кнопка отмены закрывает окно через DialogResult, и обработчик,
+                 который вдобавок звал Close(), гонялся бы с ним за то, кто
+                 закроет окно первым — второй пришедший работал бы уже с
+                 закрытым окном. -->
+            <Button x:Name="CloseButton"
+                    Content="Закрыть"
+                    HorizontalAlignment="Right"
+                    IsDefault="True"
+                    IsCancel="True" />
+        </StackPanel>
+    </Grid>
+</Window>

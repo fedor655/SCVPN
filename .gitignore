@@ -16,6 +16,14 @@ desktop/macOS/data/
 desktop/Windows/bin/
 desktop/macOS/bin/
 
+# ── Windows-версия на C# ────────────────────────────────────────────
+desktop/Windows-cs/**/bin/
+desktop/Windows-cs/**/obj/
+desktop/Windows-cs/dist/
+desktop/Windows-cs/dist_installer/
+desktop/Windows-cs/.vs/
+*.user
+
 # ── Android ─────────────────────────────────────────────────────────
 android/.gradle/
 android/build/
