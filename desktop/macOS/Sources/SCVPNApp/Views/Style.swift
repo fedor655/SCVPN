@@ -53,6 +53,13 @@ enum Style {
     /// полный refresh rate незачем.
     static let powerBreathFPS: Double = 24
 
+    /// Переход между состояниями подключения.
+    ///
+    /// Четверть секунды — столько, чтобы глаз успел заметить смену и не
+    /// начал ждать. Дольше означало бы, что после нажатия кнопка ещё
+    /// раздумывает, хотя ядро уже стартовало.
+    static let stateChange: Animation = .easeInOut(duration: 0.25)
+
     static let powerBlockPadding: CGFloat = 24
     static let statusTop: CGFloat = 18
     static let substatusTop: CGFloat = 5

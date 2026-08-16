@@ -71,6 +71,10 @@ struct MainView: View {
                 .tracking(Style.statusTracking)
                 .foregroundStyle(Color.scvpnText)
                 .padding(.top, Style.statusTop)
+                // Надпись меняется одновременно с кольцом и тем же
+                // растворением: раньше «Подключено» возникало рывком, будто
+                // подменили не ту строку.
+                .contentTransition(.opacity)
             Text(substatus)
                 .font(.substatus)
                 .foregroundStyle(Color.scvpnDim)
@@ -78,9 +82,11 @@ struct MainView: View {
                 .padding(.horizontal, Style.substatusPadding)
                 .padding(.top, Style.substatusTop)
                 .frame(height: Style.substatusHeight, alignment: .top)
+                .contentTransition(.opacity)
         }
         .padding(.vertical, Style.powerBlockPadding)
         .frame(maxWidth: .infinity)
+        .animation(Style.stateChange, value: model.state)
     }
 
     private var substatus: String {
