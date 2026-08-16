@@ -14,40 +14,32 @@ struct AddSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: Style.sheetGap) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text("Вставь ссылку сервера (vless://, vmess://, trojan://, ss://) "
                      + "или адрес подписки.")
-                    .font(.scvpnUI(12))
+                    .font(.scvpnUI(13))
                     .foregroundStyle(Color.scvpnDim)
 
-                // Ссылка — моноширинным: в ней важен каждый знак, и в
-                // пропорциональном шрифте не отличить l от 1, когда её вычитывают
-                // глазами.
                 TextField("ссылка", text: $text, axis: .vertical)
-                    .font(.scvpnMono(11))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .lineLimit(3...6)
-                    .padding(Style.logPadding)
-                    .background(RoundedRectangle(cornerRadius: Style.boxCorner)
-                        .fill(Color.scvpnSurface))
-                    .overlay(RoundedRectangle(cornerRadius: Style.boxCorner)
-                        .stroke(Color.scvpnStroke, lineWidth: Style.stroke))
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.scvpnSurface))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.scvpnStroke))
                     .foregroundStyle(Color.scvpnText)
 
-                // Тринадцать, а не двенадцать: это то, во что целятся пальцем, и
-                // 13 — самый мелкий кегль шкалы, в который ещё можно попасть.
                 HStack(spacing: 12) {
                     Button("Вставить") {
                         text = UIPasteboard.general.string ?? text
                     }
                     Button("Сканировать QR") { scanning = true }
                 }
-                .font(.scvpnUI(13))
+                .font(.scvpnUI(14))
 
                 Spacer()
             }
-            .padding(Style.sheetPadding)
+            .padding(16)
             .background(Color.scvpnBG)
             .navigationTitle("Новый сервер")
             .navigationBarTitleDisplayMode(.inline)

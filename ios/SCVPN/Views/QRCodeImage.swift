@@ -13,9 +13,7 @@ struct QRCodeImage: View {
                 .resizable()
                 .frame(width: side, height: side)
                 .background(Color.white)       // тёмная тема QR ломает: сканеры ждут светлый фон
-                // Скругление одно на все вложенные панели — литералов здесь
-                // быть не должно, иначе оно разъедется с соседними.
-                .cornerRadius(Style.boxCorner)
+                .cornerRadius(8)
         }
     }
 

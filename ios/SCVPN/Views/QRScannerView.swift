@@ -16,10 +16,10 @@ struct QRScannerView: View {
                 // У симулятора камеры нет. Пустой чёрный экран выглядел бы как
                 // сломанный сканер, поэтому говорим прямо.
                 Text("В симуляторе камеры нет — сканировать QR можно только на устройстве.")
-                    .font(.scvpnUI(12))
+                    .font(.scvpnUI(14))
                     .foregroundStyle(Color.scvpnDim)
                     .multilineTextAlignment(.center)
-                    .padding(Style.emptyPadding)
+                    .padding(32)
                 #else
                 CameraPreview(onCode: { code in
                     onCode(code)

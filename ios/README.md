@@ -101,10 +101,9 @@ export SCVPN_BUNDLE_ID=com.example.scvpn
 способ раздачи), поэтому в git не кладётся; при его отсутствии скрипт печатает
 образец.
 
-Иконка приложения нарисована из той же геометрии, что и знак в интерфейсе:
-`ios/Tools/render-icon.swift` рендерит `BrandmarkView` в PNG. Перерисовать —
-положить файл в пакет с зависимостью на `core-swift` и запустить `swift run`;
-результат кладётся в `SCVPN/Assets.xcassets/AppIcon.appiconset/`.
+Иконка приложения нарисована из той же геометрии, что и знак в интерфейсе, и
+лежит готовой в `SCVPN/Assets.xcassets/AppIcon.appiconset/`. Скрипта, который
+её рисует, в проекте нет — как и на остальных платформах.
 
 ## Что уже работает
 
@@ -142,6 +141,6 @@ export SCVPN_BUNDLE_ID=com.example.scvpn
 
 `core-swift/Sources/SCVPNCore/` — один пакет на macOS и iOS. Платформенное
 разделено `#if os(macOS)` / `#if os(iOS)`, а не двумя деревьями файлов: копии
-расходятся молча. Правка логики в `desktop/Windows/` (Python) по-прежнему
+расходятся молча. Правка логики в `desktop/shared/` (Python, Windows) по-прежнему
 требует парной правки здесь — см. `desktop/macOS/README.md`, раздел «Общий код
 с Windows».

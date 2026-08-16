@@ -241,61 +241,20 @@ final class AppModel: ObservableObject {
     // Пинг
     // ------------------------------------------------------------------
 
-    /// Пинг — задержка запроса **через сам сервер**.
+    /// Пинг — время установки TCP-соединения, как на десктопе.
     ///
-    /// `pingBatch` поднимает ядро внутри вызова и гасит его там же, свой
-    /// туннель при этом не трогается. Это отвечает на вопрос «сервер
-    /// работает», а не «порт открыт»: мёртвый VLESS на живом 443 при
-    /// TCP-замере показывался честными сорока двумя миллисекундами.
-    ///
-    /// Без собранного libXray ядра в сборке нет вовсе (см. `ios/README.md`),
-    /// и замерять нечем — тогда откатываемся на TCP. Приложение остаётся
-    /// полезным, но числа означают меньше, и об этом сказано в логе.
+    /// Замер через ядро (`measureOutboundDelay`) честнее — он проверяет и
+    /// рукопожатие, — но требует собранного libXray. Пока его нет, TCP-пинг
+    /// работает и показывает правду про доступность порта.
     func pingAll() {
         let list = servers
         guard !list.isEmpty else { return }
-        // При поднятом туннеле замер пошёл бы через сам туннель: дорога до
-        // сервера через сервер. Цифры выглядели бы настоящими.
-        guard state == .idle || state == .error else {
-            alert = .init(title: "Сначала отключись",
-                          text: "При живом подключении замер идёт через сам туннель, "
-                              + "и цифры окажутся выдумкой.")
-            return
-        }
-
-        let throughCore = XrayBridge.available
-        append(throughCore
-               ? "[*] Меряю пинг \(list.count) серверов…"
-               : "[*] Меряю пинг \(list.count) серверов по TCP: в этой сборке нет ядра.")
-        for server in list { pings[server.key()] = .unknown }
-
+        append("[*] Меряю пинг \(list.count) серверов…")
         for server in list {
             Task.detached(priority: .utility) {
-                let ms: Int?
-                if throughCore {
-                    // Отпечатки перебираются, потому что у панелей сплошь и
-                    // рядом стоит `randomized` — это «панель не знает», а не
-                    // «сервер просит случайный». Одна проба таким отпечатком
-                    // проваливается, и живой сервер получает «нет ответа».
-                    let needsFingerprint = ["reality", "tls"].contains(server.security)
-                    let candidates = needsFingerprint
-                        ? Array(candidateFingerprints(server, override: "auto")
-                            .prefix(pingFingerprintTries))
-                        : [server.fingerprint]
-                    var measured: Int?
-                    for fp in candidates {
-                        var probe = server
-                        probe.fingerprint = fp
-                        guard let cfg = try? buildProbeConfig(server: probe) else { continue }
-                        let delay = XrayBridge.measureDelay(configJSON: cfg, url: pingURL)
-                        if delay > 0 { measured = delay; break }
-                    }
-                    ms = measured
-                } else {
-                    ms = tcpPing(host: server.address, port: server.port)
-                }
+                let result = tcpPing(host: server.address, port: server.port)
                 await MainActor.run { [weak self] in
-                    self?.pings[server.key()] = ms.map(PingResult.ms) ?? .noAnswer
+                    self?.pings[server.key()] = result.map(PingResult.ms) ?? .noAnswer
                 }
             }
         }
