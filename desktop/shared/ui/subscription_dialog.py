@@ -64,21 +64,25 @@ class SubscriptionDialog(QDialog):
         self.refresh_requested = False
 
         self.setWindowTitle("Подписка")
-        self.setMinimumWidth(420)
+        # Ширина и поля — общие для всех окон поверх главного: разные ширины
+        # заметны, когда окна открывают подряд.
+        self.setMinimumWidth(theme.SHEET_WIDTH)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 18)
+        root.setContentsMargins(
+            theme.SHEET_PAD_H, theme.SHEET_PAD_V, theme.SHEET_PAD_H, theme.SHEET_PAD_V
+        )
         root.setSpacing(14)
 
         info = sub.info
         title = QLabel(info.title or sub.name or "Подписка")
-        title.setStyleSheet(f"font-size: 17px; font-weight: 700; color: {theme.TEXT};")
+        title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {theme.TEXT};")
         title.setWordWrap(True)
         root.addWidget(title)
 
         if info.account:
             account = QLabel(info.account)
-            account.setStyleSheet(f"color: {theme.DIM}; font-size: 12px;")
+            account.setStyleSheet(f"color: {theme.DIM}; font-size: {theme.FS_BODY}px;")
             root.addWidget(account)
 
         if info.announce:
@@ -86,7 +90,8 @@ class SubscriptionDialog(QDialog):
             note.setWordWrap(True)
             note.setStyleSheet(
                 f"color: {theme.TEXT}; background: {theme.SURFACE_HI};"
-                f"border: 1px solid {theme.STROKE}; border-radius: 10px; padding: 10px;"
+                f"border: 1px solid {theme.STROKE};"
+                f"border-radius: {theme.BOX_CORNER}px; padding: 10px;"
             )
             root.addWidget(note)
 
@@ -205,9 +210,10 @@ class SubscriptionDialog(QDialog):
         link.setWordWrap(True)
         link.setTextInteractionFlags(Qt.TextSelectableByMouse)
         link.setStyleSheet(
-            f"color: {theme.TEXT}; font-size: 11px; font-family: {theme.MONO_FONT}, monospace;"
+            f"color: {theme.TEXT}; font-size: {theme.FS_DETAIL}px;"
+            f"font-family: {theme.MONO_FONT}, monospace;"
             f"background: {theme.BG}; border: 1px solid {theme.STROKE};"
-            "border-radius: 8px; padding: 8px;"
+            f"border-radius: {theme.BOX_CORNER}px; padding: 8px;"
         )
         left.addWidget(link)
 
@@ -233,7 +239,7 @@ class SubscriptionDialog(QDialog):
             qr = QLabel()
             qr.setPixmap(pm)
             qr.setFixedSize(pm.size())
-            qr.setStyleSheet("border-radius: 8px;")
+            qr.setStyleSheet(f"border-radius: {theme.BOX_CORNER}px;")
             qr_box.addWidget(qr)
             hint = QLabel("Наведи камерой,\nчтобы перенести на телефон")
             hint.setAlignment(Qt.AlignCenter)

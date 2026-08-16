@@ -27,19 +27,23 @@ class AddDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Добавить")
-        self.setMinimumWidth(440)
+        # Ширина и поля общие у всех окон поверх главного: разные ширины
+        # заметны, когда окна открывают подряд.
+        self.setMinimumWidth(theme.SHEET_WIDTH)
         self.value: str = ""
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(
+            theme.SHEET_PAD_H, theme.SHEET_PAD_V, theme.SHEET_PAD_H, theme.SHEET_PAD_V
+        )
+        root.setSpacing(theme.SHEET_GAP)
 
         caption = QLabel(
             "Вставь ссылку сервера (vless:// / vmess:// / trojan:// / ss://)\n"
             "или URL подписки — либо отсканируй QR-код."
         )
         caption.setWordWrap(True)
-        caption.setStyleSheet(f"color: {theme.DIM}; font-size: 12px;")
+        caption.setStyleSheet(f"color: {theme.DIM}; font-size: {theme.FS_BODY}px;")
         root.addWidget(caption)
 
         self.input = QPlainTextEdit()
@@ -47,8 +51,8 @@ class AddDialog(QDialog):
         self.input.setFixedHeight(78)
         self.input.setStyleSheet(
             f"background: {theme.BG}; border: 1px solid {theme.STROKE};"
-            f"border-radius: 8px; color: {theme.TEXT}; padding: 8px;"
-            f"font-family: {theme.MONO_FONT}, monospace; font-size: 11px;"
+            f"border-radius: {theme.BOX_CORNER}px; color: {theme.TEXT}; padding: 8px;"
+            f"font-family: {theme.MONO_FONT}, monospace; font-size: {theme.FS_DETAIL}px;"
         )
         root.addWidget(self.input)
 

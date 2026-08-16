@@ -33,7 +33,9 @@ class QrScannerDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Сканировать QR-код")
-        self.setMinimumSize(520, 460)
+        # Ширина как у остальных окон поверх главного: сканер открывают из
+        # окна добавления, и разница в ширине была бы заметна сразу.
+        self.setMinimumSize(theme.SHEET_WIDTH, 460)
 
         self.text: str = ""
         self._cap = None
@@ -42,21 +44,23 @@ class QrScannerDialog(QDialog):
         self._frames = 0
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 14, 16, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(
+            theme.SHEET_PAD_H, theme.SHEET_PAD_V, theme.SHEET_PAD_H, theme.SHEET_PAD_V
+        )
+        root.setSpacing(theme.SHEET_GAP)
 
         self.video = QLabel("Открываю камеру…")
         self.video.setAlignment(Qt.AlignCenter)
         self.video.setMinimumHeight(340)
         self.video.setStyleSheet(
             f"background: {theme.BG}; border: 1px solid {theme.STROKE};"
-            f"border-radius: 10px; color: {theme.DIM};"
+            f"border-radius: {theme.BOX_CORNER}px; color: {theme.DIM};"
         )
         root.addWidget(self.video, 1)
 
         self.hint = QLabel("Поднеси QR-код подписки к камере")
         self.hint.setAlignment(Qt.AlignCenter)
-        self.hint.setStyleSheet(f"color: {theme.DIM}; font-size: 12px;")
+        self.hint.setStyleSheet(f"color: {theme.DIM}; font-size: {theme.FS_BODY}px;")
         root.addWidget(self.hint)
 
         row = QHBoxLayout()

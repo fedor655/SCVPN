@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QPlainTextEdit,
     QProgressDialog,
     QToolButton,
     QVBoxLayout,
@@ -67,16 +66,21 @@ from .add_dialog import AddDialog
 from .brandmark import mark_pixmap
 from .split_dialog import SplitTunnelDialog
 from .subscription_dialog import SubscriptionDialog
-from .widgets import ROLE_PING, ROLE_SERVER, ROLE_SUBTITLE, PowerButton, ServerDelegate, pulse_icon
+from .widgets import (
+    ROLE_PING,
+    ROLE_SERVER,
+    ROLE_SUBTITLE,
+    LogPane,
+    PowerButton,
+    ServerDelegate,
+    hairline,
+    pulse_icon,
+)
 from .workers import PingWorker, Worker
 
-STATE_COLORS = {
-    "idle": theme.DIM,
-    "connecting": theme.TEXT,
-    "connected": theme.ACCENT,
-    "error": theme.TEXT,
-    "tun_stuck": theme.TEXT,
-}
+# Яркостью состояния не различаются: «Отключено» и «Подключено» одинаково
+# белые, а отличает их форма кольца и само слово. Список цветов на состояния
+# был и ушёл — в чёрно-белой теме он давал только ложное чувство разницы.
 STATE_TEXTS = {
     "idle": "Отключено",
     "connecting": "Подключение…",
@@ -87,12 +91,11 @@ STATE_TEXTS = {
     "tun_stuck": "Туннель не снят",
 }
 
-# Шапка macOS: отступы, высота кнопок, итоговая высота ряда. Светофор
-# опускаем в центр этого ряда и отодвигаем от края (см. native.titlebar.sink).
-MAC_HEADER_TOP = 12
+# Шапка macOS: слева место кнопкам окна, светофор опускаем в центр ряда и
+# отодвигаем от края (см. native.titlebar.sink). Вертикаль ряда общая с
+# Windows и живёт в theme: сдвинешь её — кнопки окна разъедутся с надписью.
 MAC_HEADER_LEFT = 88
-MAC_BTN = 28
-MAC_HEADER_H = MAC_HEADER_TOP + MAC_BTN + 10
+MAC_HEADER_H = theme.HEADER_TOP + theme.HEADER_BTN + theme.HEADER_BOTTOM
 MAC_LIGHTS_LEFT = 18
 
 TUN_STUCK_TEXT = (
@@ -175,18 +178,30 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         root.addLayout(self._build_header())
+        # Полосы заголовка у окна на macOS нет, а на Windows она чужая и
+        # светлее: без этой линии непонятно, где кончается системная рамка и
+        # начинается приложение.
+        root.addWidget(hairline(central))
+
         root.addLayout(self._build_power_block())
 
         section = QLabel("СЕРВЕРЫ")
         section.setObjectName("section")
-        section.setContentsMargins(22, 0, 22, 8)
+        section.setFont(theme.font_section())
+        # Заголовок встаёт ровно над именами серверов, а не над краем строки:
+        # колонка текста — самая заметная вертикаль в списке.
+        section.setContentsMargins(
+            theme.SECTION_PADDING, 0, theme.SECTION_PADDING, theme.SECTION_BOTTOM
+        )
         root.addWidget(section)
 
         self.list = QListWidget()
         self.list.setItemDelegate(ServerDelegate(self.list))
         self.list.setMouseTracking(True)          # чтобы делегат видел наведение
-        self.list.setSpacing(0)
-        self.list.setViewportMargins(16, 0, 10, 10)
+        self.list.setSpacing(theme.LIST_SPACING)
+        # Поля ушли внутрь строки: подсветка под курсором должна идти от края
+        # до края окна, а не по карточке. Снизу остаётся просвет до лога.
+        self.list.setViewportMargins(0, 0, 0, theme.LIST_BOTTOM)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.setSelectionMode(QListWidget.SingleSelection)
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -195,24 +210,49 @@ class MainWindow(QMainWindow):
         self.list.itemDoubleClicked.connect(lambda *_: self._on_connect_clicked())
         root.addWidget(self.list, 1)
 
-        self.empty_label = QLabel("Серверов пока нет.\nДобавь ссылку или подписку кнопкой  +")
-        self.empty_label.setAlignment(Qt.AlignCenter)
-        self.empty_label.setObjectName("substatus")
-        self.empty_label.setContentsMargins(20, 24, 20, 24)
-        root.addWidget(self.empty_label, 1)
+        self.empty_view = self._build_empty()
+        root.addWidget(self.empty_view, 1)
 
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumBlockCount(2000)
-        self.log_view.setFixedHeight(130)
-        self._log_wrap = QWidget()
-        log_layout = QVBoxLayout(self._log_wrap)
-        log_layout.setContentsMargins(16, 4, 16, 16)
-        log_layout.addWidget(self.log_view)
-        self._log_wrap.setVisible(bool(self.settings.get("show_log", False)))
-        root.addWidget(self._log_wrap)
+        # Лог — не коробка на весь низ окна, а полоса с последней строкой:
+        # читают его именно ради неё. Разворот — по щелчку.
+        self.log = LogPane()
+        self.log.setVisible(bool(self.settings.get("show_log", False)))
+        root.addWidget(self.log)
 
         self.setCentralWidget(central)
+
+    def _build_empty(self) -> QWidget:
+        """Пустой список.
+
+        Прежде здесь стояла одна серая фраза посреди пустоты, и экран выглядел
+        так, будто список не загрузился. Теперь это два разных по весу
+        сообщения: что произошло и что с этим делать — второе набрано как
+        подпись, чтобы не спорило с первым.
+        """
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(
+            theme.EMPTY_PADDING, theme.EMPTY_PADDING,
+            theme.EMPTY_PADDING, theme.EMPTY_PADDING,
+        )
+        lay.setSpacing(theme.EMPTY_GAP)
+        lay.addStretch(1)
+
+        title = QLabel("Серверов пока нет")
+        title.setObjectName("emptyTitle")
+        title.setFont(theme.font_row_title())
+        title.setAlignment(Qt.AlignCenter)
+        lay.addWidget(title)
+
+        hint = QLabel("ДОБАВЬ ССЫЛКУ ИЛИ ПОДПИСКУ КНОПКОЙ  +")
+        hint.setObjectName("emptyHint")
+        hint.setFont(theme.font_section())
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        lay.addStretch(1)
+        return box
 
     def mousePressEvent(self, event) -> None:
         # Полосы заголовка на macOS больше нет, тащить окно не за что —
@@ -232,7 +272,7 @@ class MainWindow(QMainWindow):
         from native.titlebar import sink
 
         try:
-            sink(int(self.winId()), MAC_HEADER_TOP + MAC_BTN / 2, MAC_LIGHTS_LEFT)
+            sink(int(self.winId()), theme.HEADER_TOP + theme.HEADER_BTN / 2, MAC_LIGHTS_LEFT)
         except Exception as exc:          # чужая внутренняя кухня AppKit
             self._append_log(f"[!] Не удалось опустить кнопки окна: {exc}")
 
@@ -259,13 +299,17 @@ class MainWindow(QMainWindow):
         mac = sys.platform == "darwin"
         header = QHBoxLayout()
         # На macOS шапка — это и есть полоса заголовка: слева место кнопкам
-        # окна, а ряд ниже (28 против 34) ставит надпись на их высоту.
-        if mac:
-            header.setContentsMargins(MAC_HEADER_LEFT, MAC_HEADER_TOP, 12, 10)
-        else:
-            header.setContentsMargins(22, 16, 12, 10)
-        header.setSpacing(2)
-        btn = QSize(MAC_BTN, MAC_BTN) if mac else QSize(34, 34)
+        # окна. Правый край группы кнопок совпадает с полем окна — это и есть
+        # общая сетка. Просвета между кнопками нет: подложек у них больше нет,
+        # и только вплотную они читаются как одна группа.
+        header.setContentsMargins(
+            MAC_HEADER_LEFT if mac else theme.LIST_PADDING,
+            theme.HEADER_TOP,
+            theme.HEADER_TRAILING,
+            theme.HEADER_BOTTOM,
+        )
+        header.setSpacing(theme.HEADER_SPACING)
+        btn = QSize(theme.HEADER_BTN, theme.HEADER_BTN)
 
         # Значок рядом с кнопками окна тесно — на macOS оставляем одну надпись.
         if not mac:
@@ -275,7 +319,10 @@ class MainWindow(QMainWindow):
 
         title = QLabel("SCVPN")
         title.setObjectName("wordmark")
-        title.setContentsMargins(0 if mac else 10, 0, 0, 0)
+        # Разрядка задаётся шрифтом: letter-spacing таблица стилей Qt молча
+        # выбрасывает, и знак все эти годы стоял без неё.
+        title.setFont(theme.font_wordmark())
+        title.setContentsMargins(0 if mac else theme.HEADER_BADGE_GAP, 0, 0, 0)
         header.addWidget(title, 1)
 
         def tool(text: str, tip: str, slot) -> QToolButton:
@@ -283,17 +330,23 @@ class MainWindow(QMainWindow):
             b.setText(text)
             b.setToolTip(tip)
             b.setFixedSize(btn)
+            # Подложки у кнопок нет, и без autoRaise стиль рисует знак только
+            # «нормальным»: наведение видно лишь у кнопок с приподнятым видом.
+            b.setAutoRaise(True)
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(slot)
             header.addWidget(b)
             return b
 
         # Пинг — отдельной кнопкой в шапке, а не только в меню: его ищут глазами.
+        # Рисуем знак вдвое крупнее нужного: Qt ужмёт его сам, и на экране с
+        # масштабом 2 кардиограмма останется чёткой.
         ping_btn = QToolButton()
-        ping_btn.setIcon(pulse_icon(theme.DIM))
-        ping_btn.setIconSize(QSize(20, 20))
+        ping_btn.setIcon(pulse_icon(size=theme.HEADER_ICON * 2))
+        ping_btn.setIconSize(QSize(theme.HEADER_ICON, theme.HEADER_ICON))
         ping_btn.setToolTip("Измерить пинг серверов")
         ping_btn.setFixedSize(btn)
+        ping_btn.setAutoRaise(True)
         ping_btn.setCursor(Qt.PointingHandCursor)
         ping_btn.clicked.connect(self._ping_all)
         header.addWidget(ping_btn)
@@ -310,11 +363,15 @@ class MainWindow(QMainWindow):
         return header
 
     def _build_power_block(self) -> QVBoxLayout:
+        # Пустоты вокруг блока ужаты: кнопка выросла до 156, и прежние отступы
+        # отдавали ей треть окна, оставляя списку четыре строки.
         block = QVBoxLayout()
-        block.setContentsMargins(0, 24, 0, 24)
+        block.setContentsMargins(
+            0, theme.POWER_BLOCK_PADDING, 0, theme.POWER_BLOCK_PADDING
+        )
         block.setSpacing(0)
 
-        self.power = PowerButton(132)
+        self.power = PowerButton(theme.POWER_SIDE)
         self.power.clicked.connect(self._on_connect_clicked)
         row = QHBoxLayout()
         row.addStretch(1)
@@ -324,16 +381,51 @@ class MainWindow(QMainWindow):
 
         self.status_label = QLabel(STATE_TEXTS["idle"])
         self.status_label.setObjectName("status")
+        self.status_label.setFont(theme.font_status())
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setContentsMargins(0, 18, 0, 0)
+        self.status_label.setContentsMargins(0, theme.STATUS_TOP, 0, 0)
         block.addWidget(self.status_label)
+
+        block.addWidget(self._build_status_detail())
+        return block
+
+    def _build_status_detail(self) -> QWidget:
+        """Подробности под состоянием: строка «что сейчас» и подпись режима.
+
+        Раньше это была одна строка вида «00:12:34 · системный прокси»: аптайм
+        и режим — разные по природе вещи, живое число и настройка, — а
+        разделяла их точка. Теперь режим стоит отдельной подписью и только при
+        живом подключении: в простое он ничего не сообщает.
+
+        Обе строки остаются в раскладке всегда, даже пустые, а у блока есть
+        нижняя граница высоты: иначе список серверов подпрыгивал бы при каждой
+        смене состояния. Высота именно минимальная, а не жёсткая — жёсткая
+        ужала бы подписи ниже их строки, и у русских букв срезало бы хвосты.
+        """
+        box = QWidget()
+        box.setMinimumHeight(theme.SUBSTATUS_HEIGHT)
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(
+            theme.SUBSTATUS_PADDING, theme.SUBSTATUS_TOP, theme.SUBSTATUS_PADDING, 0
+        )
+        lay.setSpacing(theme.SUBSTATUS_LINE_GAP)
 
         self.substatus_label = QLabel("")
         self.substatus_label.setObjectName("substatus")
+        # Цифры табличные: аптайм тикает раз в секунду, и пропорциональные
+        # дёргали бы строку на каждом тике.
+        self.substatus_label.setFont(theme.font_substatus())
         self.substatus_label.setAlignment(Qt.AlignCenter)
-        self.substatus_label.setContentsMargins(20, 5, 20, 0)
-        block.addWidget(self.substatus_label)
-        return block
+        lay.addWidget(self.substatus_label)
+
+        self.mode_label = QLabel("")
+        self.mode_label.setObjectName("mode")
+        self.mode_label.setFont(theme.font_section())
+        self.mode_label.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self.mode_label)
+
+        lay.addStretch(1)
+        return box
 
     def _build_menu(self) -> QMenu:
         menu = QMenu(self)
@@ -423,8 +515,11 @@ class MainWindow(QMainWindow):
         save_settings(self.settings)
 
     def _toggle_log(self, visible: bool) -> None:
+        # Настройка решает, видна ли полоса вообще; развёрнут ли лог — нет:
+        # это состояние взгляда, а не приложения, и переживать перезапуск ему
+        # незачем.
         self._set_setting("show_log", visible)
-        self._log_wrap.setVisible(visible)
+        self.log.setVisible(visible)
 
     # ------------------------------------------------------------------
     # Список серверов
@@ -456,14 +551,20 @@ class MainWindow(QMainWindow):
             self.list.setCurrentRow(0)
         self.list.blockSignals(False)
 
-        self.empty_label.setVisible(not servers)
+        self.empty_view.setVisible(not servers)
         self.list.setVisible(bool(servers))
         self._update_substatus()
 
     @staticmethod
     def _proto_label(s: Server) -> str:
-        sec = f"+{s.security}" if s.security not in ("", "none") else ""
-        return f"{s.protocol}{sec} / {s.network}"
+        """Что видно под именем: протокол, адрес и транспорт — то, по чему
+        пользователь отличает два сервера с одинаковым названием."""
+        parts = [s.protocol, f"{s.address}:{s.port}"]
+        if s.security not in ("", "none"):
+            parts.append(s.security)
+        if s.network != "tcp":
+            parts.append(s.network)
+        return " · ".join(parts)
 
     def _current_server(self) -> Server | None:
         item = self.list.currentItem()
@@ -752,21 +853,36 @@ class MainWindow(QMainWindow):
         self._state = state
         self.power.set_state(state)
         self.status_label.setText(STATE_TEXTS[state])
-        self.status_label.setStyleSheet(f"color: {STATE_COLORS[state]};")
         self._update_substatus()
 
     def _update_substatus(self) -> None:
-        server = self._current_server()
-        text = server.title if server else ""
+        self.substatus_label.setText(self._detail_line())
+        self.mode_label.setText(self._mode_caption())
+
+    def _detail_line(self) -> str:
+        """Что происходит прямо сейчас: при живом подключении — сколько оно
+        держится, в остальных случаях — куда собирались подключаться."""
         if self._state == "connected" and self._connected_since:
             secs = int(time.monotonic() - self._connected_since)
-            clock = (
+            return (
                 f"{secs // 3600}:{secs // 60 % 60:02d}:{secs % 60:02d}"
                 if secs >= 3600 else f"{secs // 60:02d}:{secs % 60:02d}"
             )
-            mode = "TUN" if self.settings.get("vpn_mode") == "tun" else "прокси"
-            text = f"{text}  ·  {clock}  ·  {mode}" if text else clock
-        self.substatus_label.setText(text)
+        if self._state == "tun_stuck":
+            return "Трафик всё ещё идёт через туннель"
+        server = self._current_server()
+        return server.title if server else ""
+
+    def _mode_caption(self) -> str:
+        """Режим — только при живом подключении.
+
+        В простое он ни о чём не сообщает: ничего ещё не выбрано и никуда не
+        идёт. Пустая строка при этом остаётся в раскладке, иначе список под
+        ней прыгал бы на каждом подключении.
+        """
+        if self._state != "connected":
+            return ""
+        return "ВЕСЬ ТРАФИК" if self.settings.get("vpn_mode") == "tun" else "СИСТЕМНЫЙ ПРОКСИ"
 
     # ------------------------------------------------------------------
     # Управление серверами
@@ -1103,7 +1219,7 @@ class MainWindow(QMainWindow):
         self._update_substatus()
 
     def _append_log(self, text: str) -> None:
-        self.log_view.appendPlainText(text)
+        self.log.append(text)
 
     # ------------------------------------------------------------------
     # Закрытие окна — обязательно вернуть систему в исходное состояние

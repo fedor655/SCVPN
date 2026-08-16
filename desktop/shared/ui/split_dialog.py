@@ -44,15 +44,18 @@ class SplitTunnelDialog(QDialog):
     def __init__(self, route_mode: str, mode: str, apps: list[str], parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Раздельное туннелирование")
-        self.resize(430, 560)
+        # Ширина и поля — общие для всех окон поверх главного.
+        self.resize(theme.SHEET_WIDTH, 560)
 
         self.route_mode = route_mode or ROUTE_GLOBAL
         self.mode = mode or SPLIT_OFF
         self._apps = list(apps)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(
+            theme.SHEET_PAD_H, theme.SHEET_PAD_V, theme.SHEET_PAD_H, theme.SHEET_PAD_V
+        )
+        root.setSpacing(theme.SHEET_GAP)
 
         self.rb_auto = QRadioButton("Авто — российские сайты напрямую, остальное через VPN")
         self.rb_off = QRadioButton("Всё через VPN")
@@ -81,10 +84,15 @@ class SplitTunnelDialog(QDialog):
             "системный прокси приложения не различает."
         )
         note.setWordWrap(True)
-        note.setStyleSheet(f"color: {theme.DIM}; font-size: 11px; padding: 4px 0 2px 0;")
+        note.setStyleSheet(
+            f"color: {theme.DIM}; font-size: {theme.FS_DETAIL}px; padding: 4px 0 2px 0;"
+        )
         root.addWidget(note)
 
-        root.addWidget(QLabel("Приложения:"))
+        apps_caption = QLabel("ПРИЛОЖЕНИЯ")
+        apps_caption.setObjectName("section")
+        apps_caption.setFont(theme.font_section())
+        root.addWidget(apps_caption)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("Поиск по имени…")
@@ -151,7 +159,23 @@ class SplitTunnelDialog(QDialog):
         enabled = self.rb_exclude.isChecked() or self.rb_include.isChecked()
         self.list.setEnabled(enabled)
         self.search.setEnabled(enabled)
-        self.list.setStyleSheet("" if enabled else "color: #4A5563;")
+        self.list.setStyleSheet(self._list_style(enabled))
+
+    @staticmethod
+    def _list_style(enabled: bool) -> str:
+        """Список приложений — вложенная панель: заливка, волосяная рамка и то
+        самое скругление 8, что у полей ввода и карточек подписки.
+
+        Выключенный список гасится палитрой (`muted`), а не отдельным серым:
+        второй список цветов в приложении разошёлся бы с остальными молча —
+        здесь такой и лежал, зашитым мимо палитры.
+        """
+        return (
+            f"QListWidget {{ background: {theme.BG};"
+            f" border: 1px solid {theme.STROKE};"
+            f" border-radius: {theme.BOX_CORNER}px; padding: 6px;"
+            f" color: {theme.TEXT if enabled else theme.MUTED}; }}"
+        )
 
     def _add_manual(self) -> None:
         name, ok = QInputDialog.getText(

@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.graphics.drawable.GradientDrawable
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -25,6 +24,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.ListView
 import android.widget.PopupMenu
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,13 +45,27 @@ class MainActivity : AppCompatActivity() {
 
     private val reqVpn = 1
 
-    private lateinit var power: FrameLayout
-    private lateinit var powerIcon: ImageView
+    private lateinit var power: PowerButtonView
     private lateinit var statusText: TextView
     private lateinit var subtitleText: TextView
+    private lateinit var modeText: TextView
     private lateinit var list: ListView
-    private lateinit var emptyText: TextView
+    private lateinit var emptyBox: View
     private lateinit var adapter: ServerAdapter
+
+    private lateinit var logStrip: View
+    private lateinit var logLine: TextView
+    private lateinit var logChevron: ImageView
+    private lateinit var logBody: ScrollView
+    private lateinit var logText: TextView
+
+    /**
+     * Лог развёрнут.
+     *
+     * Не в настройках: это состояние взгляда, а не приложения — разворачивают
+     * лог, чтобы посмотреть здесь и сейчас.
+     */
+    private var logExpanded = false
 
     private var servers: MutableList<Server> = mutableListOf()
     private var pings: MutableMap<String, Long> = mutableMapOf()
@@ -120,11 +134,20 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         power = findViewById(R.id.power)
-        powerIcon = findViewById(R.id.power_icon)
         statusText = findViewById(R.id.status)
         subtitleText = findViewById(R.id.subtitle)
+        modeText = findViewById(R.id.mode)
         list = findViewById(R.id.list)
-        emptyText = findViewById(R.id.empty)
+        emptyBox = findViewById(R.id.empty)
+
+        logStrip = findViewById(R.id.log_strip)
+        logLine = findViewById(R.id.log_line)
+        logChevron = findViewById(R.id.log_chevron)
+        logBody = findViewById(R.id.log_body)
+        logText = findViewById(R.id.log_text)
+        logStrip.setOnClickListener { toggleLog() }
+        logStrip.contentDescription = getString(R.string.log_expand)
+        renderLog()
 
         power.setOnClickListener { onPowerClick() }
         findViewById<ImageButton>(R.id.btn_add).setOnClickListener { showAddDialog() }
@@ -161,11 +184,16 @@ class MainActivity : AppCompatActivity() {
         val live = if (ScVpnService.isRunning) VpnState.CONNECTED else VpnState.IDLE
         renderState(if (VpnBus.current == VpnState.CONNECTING) VpnState.CONNECTING else live, "")
         if (live == VpnState.CONNECTED) ui.post(ticker)
+
+        // Строки приходят из фоновых потоков — сервиса и колбэка ядра.
+        CoreLog.onLine { ui.post { renderLog() } }
+        renderLog()
     }
 
     override fun onStop() {
         super.onStop()
         ui.removeCallbacks(ticker)
+        CoreLog.onLine(null)
         runCatching { unregisterReceiver(stateReceiver) }
     }
 
@@ -207,35 +235,34 @@ class MainActivity : AppCompatActivity() {
     private fun renderState(state: VpnState, message: String) {
         val selected = servers.getOrNull(Prefs.selectedIndex(this))
 
-        // Цветом состояния в чёрно-белой теме не различить, поэтому кольцо
-        // меняет ещё и вид: подключено — толстое сплошное, ошибка — пунктир.
-        val colorRes = when (state) {
-            VpnState.CONNECTED -> R.color.accent
-            VpnState.CONNECTING, VpnState.ERROR -> R.color.text
-            VpnState.IDLE -> R.color.muted
-        }
-        val color = ContextCompat.getColor(this, colorRes)
-        val width = if (state == VpnState.CONNECTED) dp(5) else dp(3)
+        // Цветом состояния в чёрно-белой теме не различить, поэтому его
+        // показывает форма кольца: подключено — толстое сплошное, ошибка —
+        // пунктир, простой — тонкое приглушённое. Рисует это сама кнопка,
+        // она же растворяет одно состояние в другое.
+        power.show(state)
 
-        (power.background.mutate() as? GradientDrawable)?.apply {
-            if (state == VpnState.ERROR) setStroke(width, color, dp(6).toFloat(), dp(5).toFloat())
-            else setStroke(width, color)
-        }
-        powerIcon.setColorFilter(color)
-        statusText.setTextColor(color)
-
+        // Крупная надпись всегда полной яркости: состояние читается словом и
+        // кольцом, а притушенный заголовок только размывал бы шкалу.
         statusText.text = when (state) {
             VpnState.CONNECTED -> getString(R.string.state_connected)
             VpnState.CONNECTING -> getString(R.string.state_connecting)
-            VpnState.ERROR -> "Ошибка"
+            VpnState.ERROR -> "Не подключилось"
             VpnState.IDLE -> getString(R.string.state_idle)
         }
+        power.contentDescription = statusText.text
 
+        // Строка подробностей: при живом подключении — сколько оно держится,
+        // в остальных случаях — куда собирались подключаться. Причина отказа
+        // вытесняет и то и другое: она и есть та подробность, ради которой
+        // строка нужна.
         subtitleText.text = when {
             state == VpnState.ERROR && message.isNotBlank() -> message
             state == VpnState.CONNECTED -> {
                 // Имя от сервиса, а не из списка: выбор мог смениться, а
-                // туннель остался на прежнем сервере.
+                // туннель остался на прежнем сервере. Новый вид показывал бы
+                // здесь один аптайм, но тогда пропадает ровно то, ради чего
+                // это имя сюда и добавили — какой сервер держит трафик прямо
+                // сейчас. Правда важнее одинаковости, поэтому имя остаётся.
                 val name = VpnBus.serverTitle.ifBlank { selected?.title ?: "" }
                 val secs = if (VpnBus.since > 0)
                     (SystemClock.elapsedRealtime() - VpnBus.since) / 1000 else 0
@@ -243,6 +270,62 @@ class MainActivity : AppCompatActivity() {
             }
             else -> selected?.title ?: ""
         }
+
+        // Режим — только при живом подключении: в простое он ни о чём не
+        // сообщает, потому что ничего ещё не поднято.
+        if (state == VpnState.CONNECTED) {
+            modeText.setText(modeCaption())
+            modeText.visibility = View.VISIBLE
+        } else {
+            modeText.visibility = View.GONE
+        }
+    }
+
+    /**
+     * Что именно идёт через туннель.
+     *
+     * Ответ собирается из тех же настроек, по которым туннель и строится
+     * (`Prefs.routeMode` + `Prefs.splitMode`), — второго места с этой логикой
+     * не заводим. Порядок проверок повторяет экран раздельного
+     * туннелирования: «Авто» там — это обход РФ при выключенном разборе по
+     * приложениям.
+     */
+    private fun modeCaption(): Int = when {
+        Prefs.splitMode(this) == SplitTunnel.EXCLUDE -> R.string.mode_exclude
+        Prefs.splitMode(this) == SplitTunnel.INCLUDE -> R.string.mode_include
+        Prefs.routeMode(this) == XrayConfig.ROUTE_BYPASS_RU -> R.string.mode_bypass_ru
+        else -> R.string.mode_all
+    }
+
+    // ------------------------------------------------------------------
+    // Лог ядра
+    // ------------------------------------------------------------------
+
+    /**
+     * Полоса лога.
+     *
+     * Свёрнута до одной строки: лог читают ради последнего сообщения, а не
+     * ради истории. Строку обрезает сама разметка — с начала, потому что у
+     * сообщения ядра важен хвост.
+     */
+    private fun renderLog() {
+        logLine.text = CoreLog.last() ?: getString(R.string.log_empty)
+        if (!logExpanded) return
+        logText.text = CoreLog.snapshot().joinToString("\n")
+        // Развёрнутый лог тоже читают снизу — держим хвост в виду.
+        logBody.post { logBody.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun toggleLog() {
+        logExpanded = !logExpanded
+        logBody.visibility = if (logExpanded) View.VISIBLE else View.GONE
+        logChevron.animate()
+            .rotation(if (logExpanded) 90f else 0f)
+            .setDuration(PowerButtonView.STATE_MS)
+            .start()
+        logStrip.contentDescription =
+            getString(if (logExpanded) R.string.log_collapse else R.string.log_expand)
+        renderLog()
     }
 
     private fun elapsed(totalSeconds: Long): String {
@@ -255,15 +338,13 @@ class MainActivity : AppCompatActivity() {
                else String.format(java.util.Locale.ROOT, "%02d:%02d", m, s)
     }
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-
     // ------------------------------------------------------------------
     // Серверы
     // ------------------------------------------------------------------
     private fun reloadServers() {
         servers = Prefs.loadServers(this)
         adapter.notifyDataSetChanged()
-        emptyText.visibility = if (servers.isEmpty()) View.VISIBLE else View.GONE
+        emptyBox.visibility = if (servers.isEmpty()) View.VISIBLE else View.GONE
         if (servers.isNotEmpty()) {
             val sel = Prefs.selectedIndex(this).coerceIn(0, servers.size - 1)
             Prefs.setSelectedIndex(this, sel)
@@ -288,7 +369,9 @@ class MainActivity : AppCompatActivity() {
      * значило бы перекладывать на человека то, что видно из самой строки.
      */
     private fun showAddDialog(prefill: String = "") {
-        val pad = dp(20)
+        // Поля у всех окон поверх главного одни: разные заметны, когда окна
+        // открывают подряд.
+        val pad = resources.getDimensionPixelSize(R.dimen.sheet_pad_h)
         val input = EditText(this).apply {
             hint = getString(R.string.dlg_add_hint)
             setSingleLine(false)
@@ -297,7 +380,7 @@ class MainActivity : AppCompatActivity() {
             setSelection(prefill.length)
         }
         val box = FrameLayout(this).apply {
-            setPadding(pad, dp(8), pad, 0)
+            setPadding(pad, resources.getDimensionPixelSize(R.dimen.sheet_gap), pad, 0)
             addView(input, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
@@ -676,13 +759,34 @@ class MainActivity : AppCompatActivity() {
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
             val view = convertView ?: layoutInflater.inflate(R.layout.item_server, parent, false)
             val s = servers[position]
+            val selected = position == Prefs.selectedIndex(this@MainActivity)
 
-            view.findViewById<TextView>(R.id.name).text = s.title
+            // Выбор показывается маркером слева и полной яркостью имени —
+            // рамка того же белого на чёрном почти не читалась.
+            view.findViewById<View>(R.id.marker).visibility =
+                if (selected) View.VISIBLE else View.INVISIBLE
+
+            // Под последней строкой линии нет: там и так край списка.
+            view.findViewById<View>(R.id.divider).visibility =
+                if (position == servers.size - 1) View.INVISIBLE else View.VISIBLE
+
+            view.findViewById<TextView>(R.id.name).apply {
+                text = s.title
+                setTextColor(ContextCompat.getColor(
+                    context, if (selected) R.color.text else R.color.text_dim))
+            }
+            // Адрес яркость не теряет и у невыбранной строки: иначе он уходит
+            // под порог читаемости.
             view.findViewById<TextView>(R.id.sub).text = s.subtitle
 
             val pingView = view.findViewById<TextView>(R.id.ping)
             when (val ms = pings[s.key()]) {
-                null -> { pingView.text = ""; }
+                // До замера — прочерк, а не пустота: пустое место справа
+                // выглядит так, будто строку не дорисовали.
+                null -> {
+                    pingView.text = "—"
+                    pingView.setTextColor(ContextCompat.getColor(context, R.color.muted))
+                }
                 -1L -> {
                     // «Плохо» в монохроме показываем словом, а не цветом.
                     pingView.text = "нет ответа"
@@ -699,7 +803,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            view.isActivated = position == Prefs.selectedIndex(this@MainActivity)
+            view.isActivated = selected
             return view
         }
     }

@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Окно подписки. Поля и скругления — общие для всех окон поверх главного
+  (`sheet_pad_*`, `box_corner`): разные заметны, когда окна открывают подряд.
+  Размеры текста — из общей шкалы: 11 на пояснения и цифры, 10 моноширинных на
+  ссылку. Промежуточных размеров здесь не заводить.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
@@ -7,65 +13,65 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="22dp"
-        android:paddingEnd="22dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp">
+        android:paddingStart="@dimen/sheet_pad_h"
+        android:paddingEnd="@dimen/sheet_pad_h"
+        android:paddingTop="@dimen/sheet_gap"
+        android:paddingBottom="@dimen/sheet_gap">
 
         <TextView
             android:id="@+id/sub_account"
+            style="@style/Text.RowDetail"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_dim"
-            android:textSize="12sp" />
+            android:layout_height="wrap_content" />
 
         <TextView
             android:id="@+id/sub_announce"
+            style="@style/Text.RowDetail"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="@dimen/sheet_gap"
             android:background="@drawable/bg_card"
-            android:padding="10dp"
+            android:padding="@dimen/sheet_gap"
             android:textColor="@color/text"
-            android:textSize="13sp"
             android:visibility="gone" />
 
+        <!-- Цифры табличные: строки «потрачено» и «осталось дней» иначе
+             разъезжаются по ширине от одного открытия к другому. -->
         <TextView
             android:id="@+id/sub_stats"
+            style="@style/Text.RowDetail"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="@dimen/sheet_gap"
             android:lineSpacingExtra="5dp"
-            android:textColor="@color/text"
-            android:textSize="14sp" />
+            android:fontFeatureSettings="tnum"
+            android:textColor="@color/text" />
 
         <ImageView
             android:id="@+id/sub_qr"
             android:layout_width="220dp"
             android:layout_height="220dp"
             android:layout_gravity="center_horizontal"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/sheet_pad_v"
             android:contentDescription="@string/menu_subscription" />
 
         <TextView
+            style="@style/Text.RowDetail"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="@dimen/empty_gap"
             android:gravity="center"
             android:text="@string/sub_qr_hint"
-            android:textColor="@color/text_dim"
-            android:textSize="12sp" />
+            android:textColor="@color/muted" />
 
         <TextView
             android:id="@+id/sub_url"
+            style="@style/Text.Log"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="@dimen/sheet_gap"
             android:background="@drawable/bg_card"
-            android:padding="10dp"
-            android:textColor="@color/text_dim"
-            android:textIsSelectable="true"
-            android:textSize="11sp"
-            android:fontFamily="monospace" />
+            android:padding="@dimen/sheet_gap"
+            android:textIsSelectable="true" />
     </LinearLayout>
 </ScrollView>

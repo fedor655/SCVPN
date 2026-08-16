@@ -18,9 +18,14 @@ struct SubscriptionSheet: View {
         NavigationStack {
             List {
                 if model.subscriptions.isEmpty {
-                    Text("Подписок нет")
-                        .font(.scvpnUI(13))
+                    // Два сообщения разного веса, как на пустом списке серверов:
+                    // что произошло и что делать. Одна серая фраза посреди
+                    // пустоты читается как «не загрузилось».
+                    Text("Подписок пока нет.\nДобавь URL подписки кнопкой  +")
+                        .font(.substatus)
                         .foregroundStyle(Color.scvpnDim)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                         .listRowBackground(Color.scvpnSurface)
                 }
                 ForEach(model.subscriptions, id: \.url) { sub in
@@ -59,7 +64,7 @@ struct SubscriptionSheet: View {
     private func card(_ sub: SCVPNCore.Subscription) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(sub.name.isEmpty ? sub.url : sub.name)
-                .font(.scvpnUI(15, weight: .bold))
+                .font(.scvpnUI(13, weight: .bold))
                 .foregroundStyle(Color.scvpnText)
 
             line("Серверов", "\(sub.servers.count)")
@@ -71,7 +76,7 @@ struct SubscriptionSheet: View {
             if !sub.updated.isEmpty { line("Обновлено", sub.updated) }
             if !sub.info.announce.isEmpty {
                 Text(sub.info.announce)
-                    .font(.scvpnUI(12))
+                    .font(.scvpnUI(11))
                     .foregroundStyle(Color.scvpnDim)
             }
 
@@ -101,14 +106,15 @@ struct SubscriptionSheet: View {
         .listRowBackground(Color.scvpnSurface)
     }
 
+    /// Строка «название — значение». Название приглушено, значение полной
+    /// яркостью: смотрят сюда ради второго, а первое только подписывает его.
     private func line(_ name: String, _ value: String) -> some View {
         HStack {
-            Text(name)
+            Text(name).foregroundStyle(Color.scvpnDim)
             Spacer()
-            Text(value)
+            Text(value).foregroundStyle(Color.scvpnText)
         }
-        .font(.scvpnUI(12))
-        .foregroundStyle(Color.scvpnDim)
+        .font(.scvpnUI(11))
     }
 
     private func traffic(_ info: SubscriptionInfo) -> String {
@@ -134,19 +140,19 @@ struct LogSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if model.logLines.isEmpty {
                         Text("Пока пусто — здесь появятся строки о подключении.")
-                            .font(.scvpnUI(13))
+                            .font(.scvpnUI(12))
                             .foregroundStyle(Color.scvpnDim)
-                            .padding(.top, 24)
+                            .padding(.top, Style.emptyPadding)
                     }
                     ForEach(Array(model.logLines.enumerated()), id: \.offset) { _, line in
                         Text(line)
-                            .font(.scvpnMono(11))
+                            .font(.scvpnMono(10))
                             .foregroundStyle(Color.scvpnDim)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
                 }
-                .padding(12)
+                .padding(Style.sheetPadding)
             }
             .background(Color.scvpnBG)
             .navigationTitle("Журнал")

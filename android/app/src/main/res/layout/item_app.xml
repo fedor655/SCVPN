@@ -1,13 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Строка списка приложений на экране раздельного туннелирования. Та же
+  пластика, что у строк серверов: плоско, поле окна слева и справа, имя 13,
+  подпись 11.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingStart="8dp"
-    android:paddingEnd="8dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp">
+    android:paddingStart="@dimen/field"
+    android:paddingEnd="@dimen/field"
+    android:paddingTop="@dimen/empty_gap"
+    android:paddingBottom="@dimen/empty_gap">
 
     <ImageView
         android:id="@+id/icon"
@@ -19,32 +24,32 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginStart="12dp"
+        android:layout_marginStart="@dimen/row_text_leading"
         android:orientation="vertical">
 
         <TextView
             android:id="@+id/label"
+            style="@style/Text.RowTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="@color/text"
-            android:textSize="15sp" />
+            android:ellipsize="end" />
 
         <TextView
             android:id="@+id/pkg"
+            style="@style/Text.RowDetail"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/row_text_spacing"
             android:maxLines="1"
-            android:ellipsize="middle"
-            android:textColor="@color/text_dim"
-            android:textSize="11sp" />
+            android:ellipsize="middle" />
     </LinearLayout>
 
     <CheckBox
         android:id="@+id/checked"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/row_gap"
         android:clickable="false"
         android:focusable="false" />
 </LinearLayout>

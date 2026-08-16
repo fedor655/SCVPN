@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Роли текста. Размеры берутся из `dimens.xml`, здесь — начертание, яркость и
+  разрядка.
+
+  **Разрядка живёт тут, а не в dimens**, потому что на Android она задаётся в
+  em: одно и то же значение при 10sp и при 26sp даёт разный отступ. Числа
+  посчитаны из macOS, где разрядка задана в пунктах: em = pt / размер.
+  Разрядка тем шире, чем мельче и служебнее надпись — у знака и заголовков
+  разделов она растягивает строку в полоску, у крупного статуса, наоборот,
+  стягивает, иначе 26 рассыпаются на буквы.
+
+  **Цифры везде табличные** (`fontFeatureSettings="tnum"`) там, где значение
+  меняется: аптайм тикает раз в секунду, пинг меняется на каждом замере, а
+  пропорциональные цифры дёргают разметку на каждом обновлении.
+
+  Полужирность `600` (semibold) объявляется через `textFontWeight`: в системе
+  нет отдельного семейства под неё. Атрибут появился в API 28, на более старых
+  он молча игнорируется и остаётся `sans-serif-medium` — разница в один шаг
+  насыщенности, а не в размере, поэтому шкала не ломается.
+-->
+<resources>
+
+    <!-- Знак SCVPN в шапке: разрядка 4 при размере 12 → 0.333 em. -->
+    <style name="Text.Wordmark" parent="">
+        <item name="android:textSize">@dimen/text_wordmark</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.333</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+
+    <!-- Состояние подключения — единственная крупная надпись экрана.
+         Разрядка −0.4 при размере 26 → −0.015 em. -->
+    <style name="Text.Status" parent="">
+        <item name="android:textSize">@dimen/text_status</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:letterSpacing">-0.015</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+
+    <!-- Строка под состоянием: аптайм, поэтому цифры табличные. -->
+    <style name="Text.Substatus" parent="">
+        <item name="android:textSize">@dimen/text_substatus</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:textColor">@color/text_dim</item>
+    </style>
+
+    <!-- Подписи разделов и режима: разрядка 2 при размере 10 → 0.2 em. -->
+    <style name="Text.Section" parent="">
+        <item name="android:textSize">@dimen/text_section</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.2</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textColor">@color/text_dim</item>
+    </style>
+
+    <!-- Имя сервера. Полужирности хватает, чтобы имя отделилось от адреса под
+         ним без увеличения размера. -->
+    <style name="Text.RowTitle" parent="">
+        <item name="android:textSize">@dimen/text_row_title</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+
+    <!-- Адрес под именем сервера. Яркость не теряет даже у невыбранной
+         строки — иначе уходит под порог читаемости. -->
+    <style name="Text.RowDetail" parent="">
+        <item name="android:textSize">@dimen/text_row_detail</item>
+        <item name="android:textColor">@color/text_dim</item>
+    </style>
+
+    <!-- Значение пинга: тот же размер, но цифры табличные — колонка не пляшет
+         при перезамере. -->
+    <style name="Text.RowPing" parent="">
+        <item name="android:textSize">@dimen/text_row_detail</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:textColor">@color/text_dim</item>
+    </style>
+
+    <!-- Лог ядра: моноширинный, чтобы столбцы времени и уровня стояли ровно. -->
+    <style name="Text.Log" parent="">
+        <item name="android:textSize">@dimen/text_log</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textColor">@color/text_dim</item>
+    </style>
+</resources>

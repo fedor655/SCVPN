@@ -7,7 +7,27 @@
     <string name="state_connected">Подключено</string>
 
     <string name="servers">Серверы</string>
-    <string name="no_servers">Серверов пока нет.\nДобавь ссылку или подписку кнопкой +</string>
+
+    <!--
+      Пустой список: два сообщения разного веса — что произошло и что делать.
+      Заглавные буквы даёт стиль подписи (`textAllCaps`), поэтому здесь строки
+      набраны обычным регистром.
+    -->
+    <string name="empty_title">Серверов пока нет</string>
+    <string name="empty_hint">Добавь ссылку или подписку кнопкой  +</string>
+
+    <!--
+      Подпись режима под статусом. Показывается только при живом подключении и
+      отвечает на один вопрос: что именно сейчас идёт через туннель.
+    -->
+    <string name="mode_all">Весь трафик</string>
+    <string name="mode_bypass_ru">Кроме российских</string>
+    <string name="mode_exclude">Кроме выбранных</string>
+    <string name="mode_include">Только выбранные</string>
+
+    <string name="log_empty">Лог ядра пуст</string>
+    <string name="log_expand">Развернуть лог</string>
+    <string name="log_collapse">Свернуть лог</string>
 
     <string name="action_add">Добавить</string>
     <string name="action_refresh">Обновить подписку</string>

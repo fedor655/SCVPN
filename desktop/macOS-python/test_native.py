@@ -2855,9 +2855,12 @@ def test_disconnect_does_not_report_idle_when_tunnel_survived():
     import shared.ui.main_window as mw
     from shared.ui.widgets import PowerButton
 
-    assert set(mw.STATE_TEXTS) == set(mw.STATE_COLORS) == set(PowerButton._RING), (
+    # Список цветов на состояния убран: яркостью они больше не различаются,
+    # надпись всегда белая, а разницу несёт форма кольца. Сторож остался тем
+    # же — ключи статуса и кольца обязаны совпадать.
+    assert set(mw.STATE_TEXTS) == set(PowerButton._RING), (
         "состояния статуса и кольца кнопки разошлись: "
-        f"{sorted(mw.STATE_TEXTS)} / {sorted(mw.STATE_COLORS)} / {sorted(PowerButton._RING)}"
+        f"{sorted(mw.STATE_TEXTS)} / {sorted(PowerButton._RING)}"
     )
 
     def window(tun_down: bool):

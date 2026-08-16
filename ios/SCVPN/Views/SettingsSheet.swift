@@ -31,7 +31,7 @@ struct SettingsSheet: View {
                     if !XrayBridge.available {
                         Text("Автоподбор требует ядра Xray — в этой сборке его нет, "
                              + "выбери отпечаток вручную.")
-                            .font(.scvpnUI(12))
+                            .font(.scvpnUI(11))
                             .foregroundStyle(Color.scvpnDim)
                     }
                 }
@@ -61,11 +61,13 @@ struct SettingsSheet: View {
                     Button("Загрузить из файла") { importing = true }
                     Text("Формат общий с версиями для Windows, macOS и Android — "
                          + "файл переносится между ними.")
-                        .font(.scvpnUI(12))
+                        .font(.scvpnUI(11))
                         .foregroundStyle(Color.scvpnDim)
                 }
 
                 Section("Устройство") {
+                    // Моноширинным, как и на десктопе: HWID диктуют и сверяют
+                    // посимвольно.
                     LabeledContent("HWID", value: deviceID())
                         .font(.scvpnMono(11))
                         .textSelection(.enabled)
@@ -75,7 +77,7 @@ struct SettingsSheet: View {
                     Text("Маршрутизация: весь трафик через VPN. Раздельные режимы "
                          + "требуют гео-баз, которые не помещаются в лимит памяти "
                          + "расширения туннеля.")
-                        .font(.scvpnUI(12))
+                        .font(.scvpnUI(11))
                         .foregroundStyle(Color.scvpnDim)
                 }
             }
