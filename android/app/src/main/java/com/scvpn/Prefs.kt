@@ -34,8 +34,9 @@ object Prefs {
     fun selectedIndex(ctx: Context): Int = sp(ctx).getInt(KEY_SELECTED, 0)
     fun setSelectedIndex(ctx: Context, i: Int) = sp(ctx).edit().putInt(KEY_SELECTED, i).apply()
 
-    fun subUrl(ctx: Context): String = sp(ctx).getString(KEY_SUB_URL, "") ?: ""
-    fun setSubUrl(ctx: Context, url: String) = sp(ctx).edit().putString(KEY_SUB_URL, url).apply()
+    /// Прежняя единственная подписка. Читается только при переезде на список
+    /// (см. `subs`) — писать в неё больше некому.
+    private fun legacySubUrl(ctx: Context): String = sp(ctx).getString(KEY_SUB_URL, "") ?: ""
 
     // --- подписки: их может быть несколько, как на десктопе ---
 
@@ -66,7 +67,7 @@ object Prefs {
     fun subs(ctx: Context): MutableList<Sub> {
         val raw = sp(ctx).getString(KEY_SUBS, "") ?: ""
         if (raw.isBlank()) {
-            val legacy = subUrl(ctx)
+            val legacy = legacySubUrl(ctx)
             if (legacy.isBlank()) return mutableListOf()
             val migrated = mutableListOf(Sub(legacy, subInfo(ctx), subAdded(ctx)))
             saveSubs(ctx, migrated)
@@ -96,18 +97,15 @@ object Prefs {
     private const val KEY_SUB_INFO = "sub_info"
     private const val KEY_SUB_ADDED = "sub_added"
 
+    /// Сведения прежней единственной подписки — тоже только для переезда.
     fun subInfo(ctx: Context): SubInfo {
         val raw = sp(ctx).getString(KEY_SUB_INFO, "") ?: ""
         if (raw.isBlank()) return SubInfo()
         return runCatching { SubInfo.fromJson(org.json.JSONObject(raw)) }.getOrDefault(SubInfo())
     }
 
-    fun setSubInfo(ctx: Context, info: SubInfo) =
-        sp(ctx).edit().putString(KEY_SUB_INFO, info.toJson().toString()).apply()
-
+    /// Когда добавили прежнюю единственную подписку — только для переезда.
     fun subAdded(ctx: Context): String = sp(ctx).getString(KEY_SUB_ADDED, "") ?: ""
-    fun setSubAdded(ctx: Context, value: String) =
-        sp(ctx).edit().putString(KEY_SUB_ADDED, value).apply()
 
     // --- раздельное туннелирование ---
 

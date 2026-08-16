@@ -382,11 +382,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Экран подписки: сколько потрачено, до какого числа, ссылка и QR. */
+    /**
+     * Экран подписки. Если их несколько — сперва спрашиваем, какую показать:
+     * раньше открывалась всегда первая, и до остальных было не добраться.
+     */
     private fun showSubscriptionInfo() {
-        val url = Prefs.subUrl(this)
-        if (url.isBlank()) { toast(getString(R.string.no_subscription)); return }
+        val subs = Prefs.subs(this)
+        when (subs.size) {
+            0 -> toast(getString(R.string.no_subscription))
+            1 -> showSubscriptionInfo(subs[0])
+            else -> AlertDialog.Builder(this)
+                .setTitle(R.string.menu_subscription)
+                .setItems(subs.map { it.info.title.ifBlank { it.url } }.toTypedArray()) { _, which ->
+                    showSubscriptionInfo(subs[which])
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+    }
 
-        val info = Prefs.subInfo(this)
+    private fun showSubscriptionInfo(sub: Prefs.Sub) {
+        val url = sub.url
+        val info = sub.info
         val view = layoutInflater.inflate(R.layout.dialog_subscription, null)
 
         view.findViewById<TextView>(R.id.sub_account).text = info.account
@@ -414,10 +431,8 @@ class MainActivity : AppCompatActivity() {
             appendLine("Отдано / принято:  ${SubInfo.humanBytes(info.upload)} / ${SubInfo.humanBytes(info.download)}")
             appendLine("Действует до:  $expires")
             appendLine("Автообновление:  ${SubInfo.humanInterval(info.updateInterval)}")
-            appendLine("Серверов:  ${servers.size}")
-            if (Prefs.subAdded(this@MainActivity).isNotBlank()) {
-                appendLine("Добавлена:  ${Prefs.subAdded(this@MainActivity)}")
-            }
+            appendLine("Серверов:  ${servers.count { it.sub == url }}")
+            if (sub.added.isNotBlank()) appendLine("Добавлена:  ${sub.added}")
             if (info.fetched.isNotBlank()) append("Данные обновлены:  ${info.fetched}")
         }
 
@@ -467,8 +482,6 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(R.string.delete) { _, _ ->
                 val subs = Prefs.subs(this).filterNot { it.url == url }
                 Prefs.saveSubs(this, subs)
-                Prefs.setSubInfo(this, subs.firstOrNull()?.info ?: SubInfo())
-                Prefs.setSubAdded(this, subs.firstOrNull()?.added ?: "")
 
                 // Уходят только серверы этой подписки: добавленные вручную и
                 // чужие остаются на месте.
@@ -574,7 +587,6 @@ class MainActivity : AppCompatActivity() {
                     val updated = Prefs.Sub(url, info, added)
                     if (at >= 0) subs[at] = updated else subs.add(updated)
                     Prefs.saveSubs(this, subs)
-                    Prefs.setSubInfo(this, info)
 
                     // Выбор сохраняем по ключу: индекс после пересборки списка
                     // указывал бы на чужой сервер.
