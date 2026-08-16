@@ -249,18 +249,26 @@ final class AppModel: ObservableObject {
         if selectedKey.isEmpty { select(server) }
     }
 
-    func addFromLink(_ text: String) {
+    /// Разобрать вставленную строку. `false` — не поняли, что это.
+    ///
+    /// Ответ нужен диалогу: закрывать его при отказе нельзя. SwiftUI глотает
+    /// alert, который показывают одновременно с закрытием листа, и человек
+    /// видел, что диалог просто исчез, а сервер не появился.
+    @discardableResult
+    func addFromLink(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let server = parseLink(trimmed) {
             addServer(server)
-            return
+            return true
         }
         guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
             alert = .init(title: "Не разобрал",
-                          text: "Это не ссылка сервера и не адрес подписки.")
-            return
+                          text: "Это не ссылка сервера (vless://, vmess://, trojan://, ss://) "
+                              + "и не адрес подписки.")
+            return false
         }
         Task { await addSubscription(url: trimmed) }
+        return true
     }
 
     func addSubscription(url: String) async {
@@ -285,6 +293,10 @@ final class AppModel: ObservableObject {
         guard !profiles.subscriptions.isEmpty else { return }
         busy = "Обновляю подписки…"
         defer { busy = nil }
+
+        // Отказы копим и показываем разом: раньше о них знал только журнал, и
+        // нажатие «Обновить» выглядело как «ничего не произошло».
+        var failures: [String] = []
         for sub in profiles.subscriptions {
             do {
                 let (fetched, info) = try await fetchSubscription(url: sub.url)
@@ -296,9 +308,16 @@ final class AppModel: ObservableObject {
                 append("[*] \(sub.name): серверов \(fetched.count)")
             } catch {
                 append("[!] \(sub.name): \(error)")
+                failures.append("\(sub.name)\n\(error)")
             }
         }
         persistProfiles()
+
+        if !failures.isEmpty {
+            alert = .init(title: failures.count == 1 ? "Подписка не обновилась"
+                                                    : "Подписки не обновились",
+                          text: failures.joined(separator: "\n\n"))
+        }
     }
 
     func removeSubscription(at offsets: IndexSet) {

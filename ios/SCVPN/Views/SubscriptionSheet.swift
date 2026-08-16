@@ -41,6 +41,12 @@ struct SubscriptionSheet: View {
                         .disabled(model.subscriptions.isEmpty)
                 }
             }
+            // Лист перекрывает главный экран, поэтому его alert не виден:
+            // отказ обновления показываем здесь же.
+            .alert(item: $model.alert) { box in
+                Alert(title: Text(box.title), message: Text(box.text),
+                      dismissButton: .default(Text("Понятно")))
+            }
             .sheet(item: Binding(get: { sharing.map(ShareItem.init) },
                                  set: { sharing = $0?.text })) { item in
                 ShareText(text: item.text, title: "Ссылка подписки SCVPN")

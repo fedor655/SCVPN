@@ -49,11 +49,16 @@ struct AddSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Добавить") {
-                        model.addFromLink(text)
-                        dismiss()
+                        // Закрываемся только если строку поняли: иначе отказ
+                        // остаётся невидимым, а поле — потерянным.
+                        if model.addFromLink(text) { dismiss() }
                     }
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+            }
+            .alert(item: $model.alert) { box in
+                Alert(title: Text(box.title), message: Text(box.text),
+                      dismissButton: .default(Text("Понятно")))
             }
             .sheet(isPresented: $scanning) {
                 QRScannerView { code in
