@@ -11,10 +11,14 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Team берём из сертификата в связке, если не задан явно: он там записан в
-# скобках — «Apple Development: почта (XXXXXXXXXX)».
-TEAM="${SCVPN_TEAM:-$(security find-identity -v -p codesigning 2>/dev/null \
-  | sed -n 's/.*(\([A-Z0-9]\{10\}\)).*/\1/p' | head -1)}"
+# Team берём из сертификата в связке, если не задан явно.
+#
+# Важно: идентификатор команды — это поле OU, а не то, что стоит в скобках
+# после почты (там идентификатор самого сертификата). Перепутать легко, а
+# ошибка выглядит как «No Account for Team», будто аккаунт не добавлен.
+TEAM="${SCVPN_TEAM:-$(security find-certificate -c "Apple Development" -p 2>/dev/null \
+  | openssl x509 -noout -subject 2>/dev/null \
+  | sed -n 's/.*OU=\([A-Z0-9]\{10\}\).*/\1/p' | head -1)}"
 BUNDLE="${SCVPN_BUNDLE_ID:-}"
 WITH_TUNNEL=0
 [ "${1:-}" = "--tunnel" ] && WITH_TUNNEL=1
@@ -50,6 +54,9 @@ spec = open("project.yml").read()
 # Убираем сам таргет и зависимость приложения на него.
 spec = re.sub(r"\n  PacketTunnel:\n(?:.*\n)*?(?=\n  \w|\nschemes:)", "\n", spec)
 spec = spec.replace("      - target: PacketTunnel\n", "")
+# Entitlement нужен и приложению — оно объявляет, что владеет расширением.
+# Без платного аккаунта профиль с ним не выпускается, поэтому убираем.
+spec = re.sub(r"    entitlements:\n(?:      .*\n)+", "", spec)
 open(sys.argv[1], "w").write(spec)
 PY
   echo "[i] Сборка без расширения туннеля (бесплатный Apple ID)."
@@ -57,17 +64,39 @@ else
   echo "[i] Сборка с расширением — нужен платный Apple Developer Program."
 fi
 
+# XcodeGen подставляет в project.yml переменные окружения, а не переменные
+# скрипта: без export подпись уходит пустой, и Xcode отвечает «requires a
+# development team».
+export SCVPN_TEAM="$TEAM" SCVPN_BUNDLE_ID="$BUNDLE"
 xcodegen generate --spec "$SPEC" >/dev/null
 
-DEVICE="$(xcrun devicectl list devices 2>/dev/null | awk '/available/ {print $(NF-1); exit}')"
-[ -n "$DEVICE" ] || { echo "[!] iPhone не найден. Подключи кабелем и разреши доверие."; exit 1; }
+# Берём UDID подключённого iPhone. Сборка идёт под конкретное устройство, а не
+# под «любое iOS»: иначе Apple отвечает «team has no devices» — регистрировать
+# профиль ей не для чего.
+eval "$(xcrun devicectl list devices --json-output /tmp/scvpn-devices.json >/dev/null 2>&1
+python3 - <<'PY2'
+import json
+try:
+    devices = json.load(open("/tmp/scvpn-devices.json"))["result"]["devices"]
+except Exception:
+    devices = []
+for d in devices:
+    props, conn = d.get("deviceProperties", {}), d.get("connectionProperties", {})
+    if "iPhone" in (props.get("name") or "") or "iPad" in (props.get("name") or ""):
+        if conn.get("tunnelState") != "unavailable":
+            print(f'UDID={d["hardwareProperties"]["udid"]}')
+            print(f'DEVICE={d["identifier"]}')
+            break
+PY2
+)"
+[ -n "${UDID:-}" ] || { echo "[!] iPhone не найден. Подключи кабелем и разреши доверие."; exit 1; }
 
 # Вывод сохраняем: у двух самых частых отказов подписи причина не в коде, и
 # без объяснения человек ищет её не там.
 LOG="$DERIVED/last-build.log"
 mkdir -p "$DERIVED"
 if ! xcodebuild build -project SCVPN.xcodeproj -scheme SCVPN \
-  -destination "generic/platform=iOS" -derivedDataPath "$DERIVED" \
+  -destination "platform=iOS,id=$UDID" -derivedDataPath "$DERIVED" \
   -allowProvisioningUpdates 2>&1 | tee "$LOG" | grep -E "error:|BUILD" ; then :; fi
 
 if grep -q "No Account for Team" "$LOG"; then

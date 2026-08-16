@@ -14,6 +14,19 @@ final class TunnelController: ObservableObject {
     /// Последняя причина отказа — её показывает экран, а не молчаливый лог.
     @Published private(set) var lastError: String?
 
+    /// Есть ли в бандле расширение туннеля.
+    ///
+    /// Сборка от бесплатного Apple ID собирается без него: entitlement
+    /// `networkextension` таким аккаунтам не выдаётся. Без расширения система
+    /// отказывает записать профиль VPN **молча** — никакого диалога не
+    /// появляется, и совет «разреши в диалоге» отправляет искать несуществующее.
+    static var hasTunnelExtension: Bool {
+        guard let plugins = Bundle.main.builtInPlugInsURL,
+              let items = try? FileManager.default.contentsOfDirectory(
+                  at: plugins, includingPropertiesForKeys: nil) else { return false }
+        return items.contains { $0.pathExtension == "appex" }
+    }
+
     private var manager: NETunnelProviderManager?
     private var observer: NSObjectProtocol?
 
@@ -69,6 +82,7 @@ final class TunnelController: ObservableObject {
     }
 
     func start(config: TunnelConfig) async throws {
+        guard Self.hasTunnelExtension else { throw Failure.noExtension }
         try await install(config: config)
         let manager = try await loadManager()
         do {
@@ -106,12 +120,27 @@ final class TunnelController: ObservableObject {
         }
     }
 
+    enum Failure: Error {
+        /// Сборка без расширения туннеля.
+        case noExtension
+    }
+
     /// Человеческое объяснение отказа NetworkExtension.
     ///
     /// Сырое `NEVPNError` пользователю не говорит ничего, а два случая из трёх
     /// — не поломка, а среда: симулятор туннели не поднимает вообще, и профиль
     /// без разрешения не ставится.
     static func explain(_ error: Error) -> String {
+        if case Failure.noExtension = error {
+            return """
+                В этой сборке нет расширения туннеля, поэтому подключение \
+                недоступно.
+
+                Возможность поднимать VPN Apple не выдаёт бесплатным \
+                аккаунтам: профиль с ней не подписывается. Остальное \
+                работает — серверы, подписки, пинг, перенос профилей.
+                """
+        }
         #if targetEnvironment(simulator)
         return """
             В симуляторе VPN-туннель не поднимается: NetworkExtension там не \
@@ -124,7 +153,14 @@ final class TunnelController: ObservableObject {
             switch code {
             case .configurationDisabled: return "Профиль VPN выключен в Настройках."
             case .configurationReadWriteFailed:
-                return "Система не дала записать профиль VPN — разреши его в диалоге."
+                // Диалог система показывает не всегда: если у сборки нет права
+                // ставить VPN-профиль, она отказывает молча.
+                return """
+                    Система не дала записать профиль VPN.
+
+                    Если запроса на разрешение не было — у этой сборки нет \
+                    права ставить VPN-профиль.
+                    """
             case .configurationInvalid: return "Профиль VPN собран неверно."
             case .configurationStale: return "Профиль VPN устарел, попробуй ещё раз."
             case .connectionFailed: return "Туннель не поднялся."
