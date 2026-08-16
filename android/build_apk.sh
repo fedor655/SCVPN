@@ -28,4 +28,8 @@ export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
   echo "[!] Нет libhev-socks5-tunnel.so — см. README"; exit 1; }
 
 gradle assembleDebug --no-daemon "$@"
-echo "APK: app/build/outputs/apk/debug/app-debug.apk"
+
+# На macOS каталог сборки унесён из проекта — см. комментарий в build.gradle.kts.
+APK="$HOME/Library/Caches/scvpn-android/app/outputs/apk/debug/app-debug.apk"
+[ -f "$APK" ] || APK="app/build/outputs/apk/debug/app-debug.apk"
+echo "APK: $APK"

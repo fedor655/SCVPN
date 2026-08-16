@@ -65,6 +65,9 @@ dependencies {
 
     // Проверки чистой логики: гоняются на JVM, устройство не нужно.
     testImplementation("junit:junit:4.13.2")
+    // org.json на JVM — заглушка, все методы возвращают null. Настоящая
+    // реализация нужна, чтобы формат обмена проверялся, а не имитировался.
+    testImplementation("org.json:json:20240303")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")

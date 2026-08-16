@@ -16,6 +16,8 @@
 
     <string name="delete_server">Удалить сервер</string>
     <string name="delete_subscription">Удалить подписку</string>
+    <string name="export_profiles">Сохранить профили в файл</string>
+    <string name="import_profiles">Загрузить профили из файла</string>
     <string name="delete">Удалить</string>
 
     <string name="split_title">Раздельное туннелирование</string>

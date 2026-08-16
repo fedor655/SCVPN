@@ -27,6 +27,7 @@ import android.widget.ListView
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -69,6 +70,24 @@ class MainActivity : AppCompatActivity() {
         val text = result.contents
         if (!text.isNullOrBlank()) showAddDialog(text.trim())
     }
+
+    /**
+     * Выбор файла профилей для импорта.
+     *
+     * `OpenDocument`, а не `GetContent`: только он даёт постоянный доступ к
+     * чужому файлу и показывает нормальный проводник, где лежит выгрузка с
+     * компьютера.
+     */
+    private val importLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importProfiles(uri)
+        }
+
+    /** Куда сохранить выгрузку. */
+    private val exportLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            if (uri != null) exportProfiles(uri)
+        }
 
     /** Тикает раз в секунду, пока подключены, — обновляет время сессии. */
     private val ticker = object : Runnable {
@@ -353,6 +372,8 @@ class MainActivity : AppCompatActivity() {
                     1 -> showSubscriptionInfo()
                     2 -> startActivity(Intent(this@MainActivity, SplitActivity::class.java))
                     3 -> confirmDeleteSubscription()
+                    4 -> exportLauncher.launch("profiles.json")
+                    5 -> importLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
                 }
                 true
             }
@@ -462,6 +483,48 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * Выгрузить профили в формате десктопной версии.
+     *
+     * Формат общий с Windows, macOS и iOS — файл можно перенести на любую из
+     * них и обратно.
+     */
+    private fun exportProfiles(uri: android.net.Uri) {
+        val root = ProfilesJson.export(servers, Prefs.subs(this))
+        val ok = runCatching {
+            contentResolver.openOutputStream(uri)?.use { it.write(root.toString(2).toByteArray()) }
+        }.isSuccess
+        toast(if (ok) "Профили сохранены" else "Не удалось сохранить файл")
+    }
+
+    private fun importProfiles(uri: android.net.Uri) {
+        val parsed = runCatching {
+            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: error("файл не читается")
+            ProfilesJson.import(org.json.JSONObject(text))
+        }
+        parsed.onFailure { toast("Это не файл профилей SCVPN"); return }
+
+        val imported = parsed.getOrThrow()
+        if (imported.servers.isEmpty() && imported.subs.isEmpty()) {
+            toast("В файле нет ни серверов, ни подписок"); return
+        }
+
+        // Добавляем, а не заменяем: человек переносит профиль поверх непустого
+        // списка чаще, чем начисто, и потерять при этом свои серверы обидно.
+        val before = servers.size
+        servers = ProfilesJson.mergeInto(servers, imported.servers).toMutableList()
+        Prefs.saveServers(this, servers)
+
+        val subs = Prefs.subs(this)
+        val known = subs.map { it.url }.toHashSet()
+        imported.subs.forEach { if (known.add(it.url)) subs.add(it) }
+        Prefs.saveSubs(this, subs)
+
+        reloadServers()
+        toast("Добавлено серверов: ${servers.size - before}")
     }
 
     private fun showServerActions(pos: Int) {

@@ -35,8 +35,13 @@ macOS и Linux:
 
 ```bash
 ./build_apk.sh
-# APK: app/build/outputs/apk/debug/app-debug.apk
 ```
+
+Путь к APK печатает сам скрипт. **На macOS каталог сборки лежит вне проекта**
+(`~/Library/Caches/scvpn-android/`): репозиторий часто живёт в `~/Documents`,
+а её синхронизирует iCloud — он плодит внутри `build/` копии вроде
+`MainActivity$ServerAdapter 2.dex`, и сборка падает с «Type is defined multiple
+times». На Windows и Linux каталог прежний, `app/build/`.
 
 Что нужно на macOS (всё ставится один раз):
 
