@@ -62,7 +62,11 @@ def fetch_subscription_full(
             "«Обновить» ещё раз. Если серверов нет ни одного — добавь один "
             "ссылкой vless:// или отсканируй QR."
         ) from e
-    r.raise_for_status()
+    if not r.ok:
+        # HTTPError от requests пользователю ничего не говорит, а показать его
+        # надо: 401/403 у панели означают «ссылка протухла», а не поломку
+        # клиента. Swift-версия оборачивает так же — тексты обязаны совпадать.
+        raise SubscriptionError(f"Подписка ответила кодом {r.status_code}.")
 
     servers = parse_subscription_text(r.text)
     _raise_if_panel_stub(servers, r.headers)

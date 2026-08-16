@@ -875,10 +875,12 @@ class MainWindow(QMainWindow):
 
         def on_fail(err):
             self._append_log(f"[!] Ошибка подписки «{sub.name}»: {err.splitlines()[0]}")
-            # Отказ панели (лимит устройств и т.п.) — это не поломка, а то, что
-            # пользователю нужно прочитать и исправить у провайдера.
-            if isinstance(w.error, SubscriptionError):
-                QMessageBox.warning(self, f"Подписка «{sub.name}»", str(w.error))
+            # Показываем всегда, а не только отказ панели: раньше сетевая
+            # ошибка или кривой ответ уходили в один лог, и нажатие «Обновить»
+            # выглядело как «ничего не произошло». Текст SubscriptionError уже
+            # написан для человека, остальное показываем как есть.
+            text = str(w.error) if isinstance(w.error, SubscriptionError) else err.strip()
+            QMessageBox.warning(self, f"Подписка «{sub.name}»", text)
             self._workers.remove(w)
 
         def on_done(result):
