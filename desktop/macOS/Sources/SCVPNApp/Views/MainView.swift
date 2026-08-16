@@ -17,11 +17,11 @@ struct MainView: View {
 
             Text("СЕРВЕРЫ")
                 .font(.section)
-                .tracking(1.5)
+                .tracking(Style.sectionTracking)
                 .foregroundStyle(Color.scvpnDim)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 22)
-                .padding(.bottom, 8)
+                .padding(.horizontal, Style.sectionPadding)
+                .padding(.bottom, Style.sectionBottom)
 
             if model.servers.isEmpty {
                 Text("Серверов пока нет.\nДобавь ссылку или подписку кнопкой  +")
@@ -62,16 +62,16 @@ struct MainView: View {
             Text(model.state.title)
                 .font(.statusBig)
                 .foregroundStyle(Color.scvpnText)
-                .padding(.top, 18)
+                .padding(.top, Style.statusTop)
             Text(substatus)
                 .font(.substatus)
                 .foregroundStyle(Color.scvpnDim)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-                .padding(.top, 5)
-                .frame(height: 32, alignment: .top)
+                .padding(.horizontal, Style.substatusPadding)
+                .padding(.top, Style.substatusTop)
+                .frame(height: Style.substatusHeight, alignment: .top)
         }
-        .padding(.vertical, 24)
+        .padding(.vertical, Style.powerBlockPadding)
         .frame(maxWidth: .infinity)
     }
 
@@ -91,7 +91,7 @@ struct MainView: View {
 
     private var serverList: some View {
         ScrollView {
-            LazyVStack(spacing: 4) {
+            LazyVStack(spacing: Style.listSpacing) {
                 ForEach(model.servers, id: \.key) { server in
                     ServerRow(server: server,
                               ping: model.ping(for: server),
@@ -105,15 +105,15 @@ struct MainView: View {
                         })
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
+            .padding(.horizontal, Style.listPadding)
+            .padding(.bottom, Style.listBottom)
         }
     }
 
     private var logView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
+                LazyVStack(alignment: .leading, spacing: Style.logLineSpacing) {
                     ForEach(Array(model.logLines.enumerated()), id: \.offset) { i, line in
                         Text(line)
                             .font(.scvpnMono(10))
@@ -123,12 +123,13 @@ struct MainView: View {
                             .id(i)
                     }
                 }
-                .padding(8)
+                .padding(Style.logPadding)
             }
-            .frame(height: 130)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.scvpnSurface))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.scvpnStroke, lineWidth: 1))
-            .padding(EdgeInsets(top: 4, leading: 16, bottom: 16, trailing: 16))
+            .frame(height: Style.logHeight)
+            .background(RoundedRectangle(cornerRadius: Style.logCorner).fill(Color.scvpnSurface))
+            .overlay(RoundedRectangle(cornerRadius: Style.logCorner)
+                .stroke(Color.scvpnStroke, lineWidth: Style.stroke))
+            .padding(Style.logInsets)
             .onChange(of: model.logLines.count) { count in
                 // Лог читают ради последней строки — держим её в виду.
                 guard count > 0 else { return }

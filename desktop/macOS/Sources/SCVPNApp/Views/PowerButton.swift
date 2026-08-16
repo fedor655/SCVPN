@@ -8,13 +8,10 @@ import SwiftUI
 /// чёрно-белой теме иначе никак, и это осознанное решение доступности.
 struct PowerButton: View {
     var state: ConnectionState
-    var side: CGFloat = 132
+    var side: CGFloat = Style.powerSide
     var action: () -> Void
 
     @State private var hovering = false
-
-    /// Сколько секунд на оборот бегущей дуги.
-    private let turn: Double = 1.4
 
     var body: some View {
         let ring = state.ring
@@ -32,7 +29,7 @@ struct PowerButton: View {
                 if state == .connecting {
                     // Тусклое кольцо целиком плюс яркая дуга, бегущая по нему.
                     Circle()
-                        .stroke(color.opacity(0.22), lineWidth: ring.width)
+                        .stroke(color.opacity(Style.powerTrackOpacity), lineWidth: ring.width)
                         .padding(inset)
                     spinningArc(color: color, width: ring.width, inset: inset)
                 } else {
@@ -71,9 +68,9 @@ struct PowerButton: View {
     private func spinningArc(color: Color, width: Double, inset: Double) -> some View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-                .truncatingRemainder(dividingBy: turn) / turn
+                .truncatingRemainder(dividingBy: Style.powerSpin) / Style.powerSpin
             Circle()
-                .trim(from: 0, to: 100.0 / 360.0)
+                .trim(from: 0, to: Style.powerArc)
                 .stroke(color, style: StrokeStyle(lineWidth: width, lineCap: .round))
                 .padding(inset)
                 .rotationEffect(.degrees(t * 360))

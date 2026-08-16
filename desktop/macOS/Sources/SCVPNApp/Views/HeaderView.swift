@@ -13,10 +13,10 @@ struct HeaderView<Menu: View>: View {
     @ViewBuilder var menu: () -> Menu
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Style.headerSpacing) {
             Text("SCVPN")
                 .font(.wordmark)
-                .tracking(3)
+                .tracking(Style.wordmarkTracking)
                 .foregroundStyle(Color.scvpnText)
             Spacer(minLength: 0)
             HeaderButton(systemName: "waveform.path", help: "Измерить пинг серверов",
@@ -28,7 +28,7 @@ struct HeaderView<Menu: View>: View {
             HeaderMenuButton(menu: menu)
         }
         .padding(EdgeInsets(top: HeaderMetrics.top, leading: HeaderMetrics.left,
-                            bottom: 10, trailing: 12))
+                            bottom: Style.headerBottom, trailing: Style.headerTrailing))
         .frame(height: HeaderMetrics.height)
     }
 }
@@ -44,11 +44,11 @@ struct HeaderButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 15))
+                .font(.system(size: Style.headerIcon))
                 .foregroundStyle(hovering ? Color.scvpnText : Color.scvpnDim)
                 .frame(width: HeaderMetrics.buttonSide, height: HeaderMetrics.buttonSide)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: Style.headerButtonCorner)
                         .fill(hovering ? Color.scvpnSurfaceHi : Color.clear)
                 )
         }
@@ -69,11 +69,11 @@ struct HeaderMenuButton<Menu: View>: View {
             menu()
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 15))
+                .font(.system(size: Style.headerIcon))
                 .foregroundStyle(hovering ? Color.scvpnText : Color.scvpnDim)
                 .frame(width: HeaderMetrics.buttonSide, height: HeaderMetrics.buttonSide)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: Style.headerButtonCorner)
                         .fill(hovering ? Color.scvpnSurfaceHi : Color.clear)
                 )
         }

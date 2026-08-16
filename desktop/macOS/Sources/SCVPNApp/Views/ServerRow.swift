@@ -15,36 +15,36 @@ struct ServerRow: View {
 
     var body: some View {
         let label = pingLabel(ping)
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .top, spacing: Style.rowGap) {
+            VStack(alignment: .leading, spacing: Style.rowTextSpacing) {
                 Text(server.title)
-                    .font(.scvpnUI(13))
+                    .font(.rowTitle)
                     .foregroundStyle(Color.scvpnText)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(subtitle)
-                    .font(.scvpnUI(11))
+                    .font(.rowDetail)
                     .foregroundStyle(Color.scvpnDim)
                     .lineLimit(1)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: Style.rowGap)
             if !label.text.isEmpty {
                 Text(label.text)
-                    .font(.scvpnUI(11))
+                    .font(.rowDetail)
                     .foregroundStyle(Color(hex: label.color))
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(height: 58, alignment: .top)
+        .padding(.horizontal, Style.rowPaddingH)
+        .padding(.vertical, Style.rowPaddingV)
+        .frame(height: Style.rowHeight, alignment: .top)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: Style.rowCorner)
                 .fill(hovering ? Color.scvpnSurfaceHi : Color.scvpnSurface)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: Style.rowCorner)
                 .stroke(selected ? Color.scvpnAccent : Color.scvpnStroke,
-                        lineWidth: selected ? 1.5 : 1)
+                        lineWidth: selected ? Style.strokeSelected : Style.stroke)
         )
         .onHover { hovering = $0 }
     }
