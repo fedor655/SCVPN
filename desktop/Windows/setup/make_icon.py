@@ -1,7 +1,11 @@
-"""Генерация иконки SCVPN для Windows: setup/scvpn.ico + превью scvpn_256.png.
+"""Разовая перерисовка иконки Windows: setup/scvpn.ico + превью scvpn_256.png.
 
-Сам знак описан в setup/brand.py — там же палитра, общая с Android.
-Запуск:  .venv\\Scripts\\python.exe setup\\make_icon.py
+Готовые файлы лежат в git, сборка их не пересоздаёт — скрипт нужен, только
+если поменялась геометрия знака (setup/brand.py, там же палитра, общая с
+Android). Pillow в requirements.txt намеренно нет, ставится вручную.
+
+Запуск:  .venv\\Scripts\\python.exe -m pip install Pillow
+         .venv\\Scripts\\python.exe setup\\make_icon.py
 """
 from __future__ import annotations
 

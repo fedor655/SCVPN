@@ -1,10 +1,11 @@
-"""Запасные ic_launcher.png для Android 7 (API 24-25) — там адаптивных иконок ещё нет.
+"""Разовая перерисовка запасных ic_launcher.png для Android 7 (API 24-25).
 
 Начиная с API 26 система берёт mipmap-anydpi-v26/ic_launcher.xml (вектор + фон),
-поэтому PNG нужны только как fallback. Рисуются тем же кодом, что и иконка
-десктопной версии, — общий модуль brand.py, чтобы знак не разъехался.
+поэтому PNG нужны только как fallback. Готовые PNG лежат в git, Gradle их не
+пересоздаёт — скрипт нужен, только если поменялась геометрия знака. Рисует тем
+же кодом, что и иконку десктопа (общий brand.py), чтобы знак не разъехался.
 
-Запуск:  python make_launcher_icons.py
+Запуск:  pip install Pillow && python make_launcher_icons.py
 """
 from __future__ import annotations
 
@@ -19,8 +20,7 @@ RES = HERE / "app" / "src" / "main" / "res"
 CANDIDATES = [
     HERE / "brand",
     HERE.parent / "brand",
-    HERE.parent / "desktop" / "setup",
-    Path(r"C:\Users\semin\OneDrive\Рабочий стол\впны\свой хапп\setup"),
+    HERE.parent / "desktop" / "Windows" / "setup",
 ]
 for path in CANDIDATES:
     if (path / "brand.py").exists():

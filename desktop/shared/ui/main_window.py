@@ -305,7 +305,8 @@ class MainWindow(QMainWindow):
         self.menu_btn.setPopupMode(QToolButton.InstantPopup)
         self.menu_btn.setMenu(self._build_menu())
 
-        self.setWindowIcon(QIcon(mark_pixmap(64)))
+        # Иконку окна не рисуем: её ставит run_app() из готового файла
+        # (.ico/.icns), а окно без своей иконки берёт иконку приложения.
         return header
 
     def _build_power_block(self) -> QVBoxLayout:

@@ -225,15 +225,28 @@ Windows, macOS и Android поддерживаются как прежде.
 
 Геометрия знака описана кодом в одном месте — `desktop/Windows/setup/brand.py`:
 одна траектория из двух касающихся дуг, обведённая штрихом с круглыми концами.
-Из неё сделаны `scvpn.ico` (Windows), `scvpn.icns` (macOS) и запасные
-`ic_launcher.png` (Android). На Android основная иконка векторная адаптивная
-(`android/app/src/main/res/drawable/ic_launcher_foreground.xml`), а в интерфейсе
-тот же знак рисуется Qt (`desktop/shared/ui/brandmark.py`).
 
-`.icns` для macOS нарисован один раз и лежит в git готовым — при сборке он не
-пересоздаётся; как его перерисовать, написано в `desktop/macOS-python/setup/README.md`.
-Отличие от Windows-иконки одно: плашка занимает 80 % холста, вокруг прозрачное
-поле — иначе иконка в доке выглядит крупнее соседних.
+Иконка приложения нигде не рисуется на лету: на каждой платформе она лежит в
+git уже в том формате, который просит система, и сборка её не пересоздаёт.
+
+| Платформа | Файл | Что внутри |
+|---|---|---|
+| Windows | `desktop/Windows/setup/scvpn.ico` | 16, 32, 48, 64, 128, 256 px |
+| macOS (Swift) | `desktop/macOS/Resources/scvpn.icns` | 16…1024 px, включая @2x |
+| macOS (Python) | `desktop/macOS-python/setup/scvpn.icns` | то же |
+| Android | `res/mipmap-anydpi-v26/ic_launcher.xml` + `res/mipmap-*/ic_launcher.png` | адаптивная векторная, PNG 48…192 px — fallback для API 24-25 |
+| iOS | `ios/SCVPN/Assets.xcassets/AppIcon.appiconset/icon-1024.png` | 1024 px, остальное режет Xcode |
+
+Перерисовать их можно разовыми скриптами (`setup/make_icon.py`,
+`android/make_launcher_icons.py`, `ios/Tools/render-icon.swift`) — они запускаются
+руками, в сборку не входят и в рантайме-зависимостях не нужны. У macOS отличие
+от Windows-иконки одно: плашка занимает 80 % холста, вокруг прозрачное поле —
+иначе иконка в доке выглядит крупнее соседних.
+
+В интерфейсе тот же знак рисуется векторно (`desktop/shared/ui/brandmark.py`,
+`core-swift/.../BrandmarkShape`, `res/drawable/ic_launcher_foreground.xml`) — это
+не иконка, а элемент экрана: он перекрашивается по состоянию и тянется на любой
+размер, поэтому картинкой его заменять нечем.
 
 Геометрия во всех местах одна и та же, поэтому знак нигде не разъезжается.
 

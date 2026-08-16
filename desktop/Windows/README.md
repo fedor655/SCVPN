@@ -59,7 +59,8 @@ python -m venv .venv
 | `native/apps.py`            | список запущенных `.exe` для раздельного туннелирования |
 | `../shared/ui/`             | интерфейс: окно, виджеты, знак, тема |
 | `setup/brand.py`            | фирменный знак (общий с Android и macOS) |
-| `setup/make_icon.py`        | генерация `scvpn.ico` |
+| `setup/scvpn.ico`           | готовая иконка (16-256 px в одном файле), лежит в git |
+| `setup/make_icon.py`        | разовая перерисовка `scvpn.ico`, в сборке не участвует |
 
 ## Режимы
 
@@ -80,7 +81,7 @@ test.bat мой_скрипт.py    # запустить свой тестовы�
 ## Сборка установщика
 
 ```powershell
-build.bat            # 1) соберёт SCVPN.exe в dist\SCVPN\ (PyInstaller + иконка)
+build.bat            # 1) соберёт SCVPN.exe в dist\SCVPN\ (PyInstaller, иконка готовая)
 build_installer.bat  # 2) соберёт установщик в dist_installer\ (нужен Inno Setup 6)
 ```
 

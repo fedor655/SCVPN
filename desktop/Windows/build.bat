@@ -3,17 +3,16 @@ rem ====================================================================
 rem  Сборка SCVPN.exe через PyInstaller (папка dist\SCVPN).
 rem  Бинарники ядра (xray/sing-box/wintun/гео) НЕ упаковываются сюда —
 rem  их добавляет установщик из папки bin\ (так их проще обновлять).
+rem  Иконка не генерируется: setup\scvpn.ico нарисован один раз и лежит в git.
 rem ====================================================================
 chcp 65001 >nul
 cd /d "%~dp0"
 set PY=.venv\Scripts\python.exe
 
 if not exist "%PY%" ( echo [!] Нет .venv & pause & exit /b 1 )
+if not exist "setup\scvpn.ico" ( echo [!] Нет setup\scvpn.ico & pause & exit /b 1 )
 
-echo === 1/2  Генерирую иконку ===
-"%PY%" setup\make_icon.py || ( echo [!] Иконка не собралась & pause & exit /b 1 )
-
-echo === 2/2  PyInstaller ===
+echo === PyInstaller ===
 "%PY%" -m PyInstaller --noconfirm --clean --windowed --name SCVPN ^
   --icon setup\scvpn.ico ^
   --add-data "setup\scvpn.ico;." ^
