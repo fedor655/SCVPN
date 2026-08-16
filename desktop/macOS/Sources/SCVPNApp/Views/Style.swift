@@ -33,13 +33,25 @@ enum Style {
 
     // MARK: Кнопка питания и статус
 
-    static let powerSide: CGFloat = 132
+    /// Кнопка — единственный объёмный элемент окна, поэтому она крупная.
+    static let powerSide: CGFloat = 156
     /// Секунд на оборот бегущей дуги.
     static let powerSpin: Double = 1.4
     /// Доля окружности, которую занимает дуга.
     static let powerArc: Double = 100.0 / 360.0
     /// Насколько притушено кольцо-подложка под бегущей дугой.
     static let powerTrackOpacity: Double = 0.22
+
+    /// Внутренняя кромка шайбы: отступ от кольца состояния в долях стороны.
+    static let powerEdgeInset: CGFloat = 0.11
+    /// Секунд на полный вдох-выдох кольца в простое.
+    static let powerBreath: Double = 3.6
+    /// До какой яркости кольцо притухает на выдохе.
+    static let powerBreathLow: Double = 0.5
+    /// Частота перерисовки «дыхания». Двадцать четыре кадра хватает для
+    /// медленного затухания, а окно висит открытым часами — гонять ради него
+    /// полный refresh rate незачем.
+    static let powerBreathFPS: Double = 24
 
     static let powerBlockPadding: CGFloat = 24
     static let statusTop: CGFloat = 18

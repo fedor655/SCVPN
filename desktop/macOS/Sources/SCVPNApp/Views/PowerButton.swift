@@ -6,12 +6,20 @@ import SwiftUI
 /// Состояние показывается **формой кольца**, а не только цветом: подключено —
 /// толстое сплошное, ошибка — пунктир, простой — тонкое приглушённое. В
 /// чёрно-белой теме иначе никак, и это осознанное решение доступности.
+///
+/// Кнопка — единственная вещь в окне, у которой есть объём: заливка идёт
+/// радиальным переходом, будто свет падает сверху, и внутри кольца проходит
+/// кромка шайбы. Всё остальное на экране плоское, поэтому взгляд идёт сюда
+/// первым.
 struct PowerButton: View {
     var state: ConnectionState
     var side: CGFloat = Style.powerSide
     var action: () -> Void
 
     @State private var hovering = false
+    /// Точка отсчёта «дыхания». Фиксируется на создании вида: иначе расписание
+    /// пересоздавалось бы на каждой перерисовке и фаза прыгала.
+    @State private var since = Date()
 
     var body: some View {
         let ring = state.ring
@@ -20,11 +28,23 @@ struct PowerButton: View {
 
         Button(action: action) {
             ZStack {
-                // Заливка чуть светлее при наведении — единственная реакция
-                // на мышь.
+                // Свет сверху: центр перехода смещён вверх, к краям шайба
+                // уходит в фон. При наведении вся заливка светлеет на ступень.
                 Circle()
-                    .fill(hovering ? Color.scvpnSurfaceHi : Color.scvpnSurface)
+                    .fill(RadialGradient(
+                        colors: hovering
+                            ? [Color.scvpnStroke, Color.scvpnSurface]
+                            : [Color.scvpnSurfaceHi, Color.scvpnSurface],
+                        center: UnitPoint(x: 0.5, y: 0.34),
+                        startRadius: 0,
+                        endRadius: side * 0.62))
                     .padding(inset)
+
+                // Кромка шайбы. Тонкая и заметно меньше кольца состояния —
+                // спутать их нельзя, а плоский круг она превращает в предмет.
+                Circle()
+                    .stroke(Color.scvpnStroke, lineWidth: Style.hairline)
+                    .padding(inset + side * Style.powerEdgeInset)
 
                 if state == .connecting {
                     // Тусклое кольцо целиком плюс яркая дуга, бегущая по нему.
@@ -32,6 +52,8 @@ struct PowerButton: View {
                         .stroke(color.opacity(Style.powerTrackOpacity), lineWidth: ring.width)
                         .padding(inset)
                     spinningArc(color: color, width: ring.width, inset: inset)
+                } else if state == .idle {
+                    breathingRing(color: color, width: ring.width, inset: inset)
                 } else {
                     Circle()
                         .stroke(color, style: StrokeStyle(
@@ -55,6 +77,30 @@ struct PowerButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+
+    /// Кольцо, которое медленно дышит, пока ничего не происходит.
+    ///
+    /// Нужно затем, что в простое окно выглядело замёрзшим: ни одного
+    /// движущегося пикселя, и непонятно, живо ли приложение вообще. Дыхание
+    /// меняет только яркость и только в простое — форма кольца, по которой
+    /// состояния и различаются, остаётся прежней.
+    ///
+    /// Расписание задано частотой, а не `.animation`: окно висит открытым
+    /// часами, и гонять полный refresh rate ради медленного затухания
+    /// незачем.
+    private func breathingRing(color: Color, width: Double, inset: Double) -> some View {
+        TimelineView(.periodic(from: since, by: 1 / Style.powerBreathFPS)) { timeline in
+            let t = timeline.date.timeIntervalSince(since)
+                .truncatingRemainder(dividingBy: Style.powerBreath) / Style.powerBreath
+            // Синус даёт плавный разворот на обоих концах: без него вдох и
+            // выдох стыкуются рывком.
+            let wave = (1 - cos(2 * .pi * t)) / 2
+            let low = Style.powerBreathLow
+            Circle()
+                .stroke(color.opacity(low + (1 - low) * wave), lineWidth: width)
+                .padding(inset)
+        }
     }
 
     /// Бегущая дуга.
