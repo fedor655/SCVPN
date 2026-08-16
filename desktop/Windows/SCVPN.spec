@@ -3,7 +3,8 @@
 
 a = Analysis(
     ['run.py'],
-    pathex=['..'],
+    # Все модули лежат рядом с run.py: общего кода с другими платформами нет.
+    pathex=['.'],
     binaries=[],
     datas=[('setup\\scvpn.ico', '.')],
     hiddenimports=[],

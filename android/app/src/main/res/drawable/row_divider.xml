@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Волосяная линия между строками списка.
+
+  Слева отступает на поле окна: линия начинается там же, где маркер выбора, и
+  не упирается в край экрана. Разделителем ListView она рисуется только МЕЖДУ
+  строками — под последней линии нет, там и так край списка.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="@dimen/field">
+    <shape android:shape="rectangle">
+        <solid android:color="@color/stroke" />
+    </shape>
+</inset>

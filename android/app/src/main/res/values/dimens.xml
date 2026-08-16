@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Метрики и шрифтовая шкала SCVPN — одно место на весь Android.
+  Здешний аналог `desktop/macOS/.../Views/Style.swift`: числа переносятся из
+  него один к одному, pt → dp.
+
+  Цвета сюда не переезжают: они живут в `colors.xml` и посимвольно сверяются
+  тестом macOS (`ThemeTests`) с `SCVPNCore.Palette`. Второй список цветов
+  разошёлся бы с другими платформами молча.
+
+  Разрядка (letterSpacing) здесь не объявляется: на Android она задаётся в em,
+  то есть зависит от размера шрифта, и потому живёт рядом со стилем текста в
+  `type.xml`.
+-->
+<resources>
+
+    <!-- ── Шапка ─────────────────────────────────────────────────────
+      Вертикаль повторяет macOS: 12 сверху + ряд + 10 снизу = 50.
+      Кнопка шире не 28, а 28×44: по горизонтали просвет между значками
+      получается тот же, что на macOS, а по вертикали палец получает
+      нормальную мишень. Центр ряда при этом остаётся на 26 от верха — там
+      же, где на macOS.
+    -->
+    <dimen name="header_height">50dp</dimen>
+    <dimen name="header_pad_top">4dp</dimen>
+    <dimen name="header_pad_bottom">2dp</dimen>
+    <dimen name="header_icon">14dp</dimen>
+    <dimen name="header_button_width">28dp</dimen>
+    <dimen name="header_button_height">44dp</dimen>
+    <!-- (28 − 14) / 2: поле, которое ужимает значок в кнопке до 14. -->
+    <dimen name="header_icon_pad">7dp</dimen>
+
+    <!-- Волосяная линия: разделители шапки, строк списка и лога. -->
+    <dimen name="hairline">1dp</dimen>
+
+    <!-- Поле окна. Тот же отступ у края шапки, строк списка и полосы лога. -->
+    <dimen name="field">16dp</dimen>
+
+    <!-- ── Кнопка питания ────────────────────────────────────────────
+      Единственный объёмный элемент экрана, поэтому крупная. Толщины колец
+      и пунктир задаёт ядро (`ConnectionState.ring`), здесь только их
+      численные значения — менять их нельзя, иначе состояния перестанут
+      читаться одинаково на всех платформах.
+    -->
+    <dimen name="power_side">156dp</dimen>
+    <dimen name="power_ring_thin">3dp</dimen>
+    <dimen name="power_ring_thick">5dp</dimen>
+    <!-- Доли стороны (знак «S», кромка шайбы, радиус и центр перехода) лежат
+         в самой `PowerButtonView`: это отношения, а не размеры, и в dimens их
+         не выразить. -->
+
+    <!-- ── Блок статуса ──────────────────────────────────────────────-->
+    <dimen name="power_block_pad">14dp</dimen>
+    <dimen name="status_top">12dp</dimen>
+    <dimen name="substatus_top">4dp</dimen>
+    <dimen name="substatus_pad">20dp</dimen>
+    <!-- Между строкой подробностей и подписью режима. -->
+    <dimen name="substatus_gap">4dp</dimen>
+    <!-- Высота фиксирована: блок переключается с одной строки на две, и без
+         фиксации список серверов подпрыгивал бы при каждой смене состояния. -->
+    <dimen name="substatus_height">34dp</dimen>
+
+    <!-- ── Заголовок раздела ─────────────────────────────────────────
+      Встаёт ровно над именами серверов: 16 (поле) + 2 (маркер) + 12 (отступ
+      до текста). Колонка текста — самая заметная вертикаль в списке.
+    -->
+    <dimen name="section_pad">30dp</dimen>
+    <dimen name="section_bottom">8dp</dimen>
+
+    <!-- ── Список серверов ───────────────────────────────────────────-->
+    <dimen name="row_height">52dp</dimen>
+    <!-- Ширина маркера выбранной строки. -->
+    <dimen name="row_marker">2dp</dimen>
+    <!-- Насколько маркер короче строки сверху и снизу. -->
+    <dimen name="row_marker_inset">13dp</dimen>
+    <!-- От маркера до текста. -->
+    <dimen name="row_text_leading">12dp</dimen>
+    <!-- Между именем сервера и строкой с адресом. -->
+    <dimen name="row_text_spacing">3dp</dimen>
+    <!-- Между текстом и пингом. -->
+    <dimen name="row_gap">8dp</dimen>
+    <!-- Ширина колонки пинга. Постоянная: иначе правый край значений гуляет
+         от строки к строке и колонки не получается вовсе. Считана по самой
+         длинной подписи — «нет ответа». -->
+    <dimen name="ping_column">72dp</dimen>
+    <dimen name="list_bottom">10dp</dimen>
+
+    <!-- ── Пустой список ─────────────────────────────────────────────-->
+    <dimen name="empty_gap">8dp</dimen>
+    <dimen name="empty_pad">24dp</dimen>
+
+    <!-- ── Лог ───────────────────────────────────────────────────────-->
+    <dimen name="log_strip">26dp</dimen>
+    <dimen name="log_height">130dp</dimen>
+    <dimen name="log_pad">8dp</dimen>
+    <dimen name="log_chevron">9dp</dimen>
+
+    <!-- ── Окна поверх главного ──────────────────────────────────────
+      Поля у всех диалогов одни: разные заметны, когда окна открывают подряд.
+    -->
+    <dimen name="sheet_pad_h">18dp</dimen>
+    <dimen name="sheet_pad_v">16dp</dimen>
+    <dimen name="sheet_gap">10dp</dimen>
+    <!-- Скругление вложенных панелей: поля ввода, списки, карточки подписок.
+         Больше одного значения не заводить. -->
+    <dimen name="box_corner">8dp</dimen>
+
+    <!-- ── Шрифтовая шкала ───────────────────────────────────────────
+      Шкала намеренно разорвана: 26 на состояние подключения и 10–13 на всё
+      остальное. Промежуточных размеров нет — каждый лишний шаг снова
+      размывает разницу.
+    -->
+    <dimen name="text_status">26sp</dimen>
+    <dimen name="text_substatus">12sp</dimen>
+    <dimen name="text_row_title">13sp</dimen>
+    <dimen name="text_row_detail">11sp</dimen>
+    <dimen name="text_section">10sp</dimen>
+    <dimen name="text_wordmark">12sp</dimen>
+    <dimen name="text_log">10sp</dimen>
+</resources>

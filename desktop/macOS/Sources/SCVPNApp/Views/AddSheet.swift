@@ -17,7 +17,7 @@ struct AddSheet: View {
     @State private var problem: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Style.sheetGap) {
             Text("""
                 Вставь ссылку сервера (vless:// / vmess:// / trojan:// / ss://)
                 или URL подписки — либо отсканируй QR-код.
@@ -31,8 +31,9 @@ struct AddSheet: View {
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .frame(height: 78)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.scvpnBG))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.scvpnStroke, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: Style.boxCorner).fill(Color.scvpnBG))
+                .overlay(RoundedRectangle(cornerRadius: Style.boxCorner)
+                .stroke(Color.scvpnStroke, lineWidth: Style.stroke))
 
             if let problem {
                 Text(problem)
@@ -50,8 +51,8 @@ struct AddSheet: View {
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
             }
         }
-        .padding(EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18))
-        .frame(width: 440)
+        .padding(Style.sheetPadding)
+        .frame(width: Style.sheetWidth)
         .background(Color.scvpnSurface)
         .sheet(isPresented: $scanning) {
             QRScanSheet { code in
@@ -99,7 +100,7 @@ struct QRScanSheet: View {
             QRScannerView(onFound: onFound)
                 .frame(width: 480, height: 380)
                 .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: Style.boxCorner))
             Text("Наведи камеру на QR-код")
                 .font(.scvpnUI(11))
                 .foregroundStyle(Color.scvpnDim)

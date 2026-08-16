@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Яркость значка в шапке.
+
+  Подложки под значками нет и не будет: в окне ровно один объёмный элемент —
+  кнопка питания, и четыре прямоугольника в шапке спорили бы с ней за
+  внимание. Поэтому нажатие показывается тем же способом, что наведение на
+  десктопе: светлеет сам значок.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true" android:color="@color/text" />
+    <item android:state_hovered="true" android:color="@color/text" />
+    <item android:state_focused="true" android:color="@color/text" />
+    <item android:color="@color/text_dim" />
+</selector>

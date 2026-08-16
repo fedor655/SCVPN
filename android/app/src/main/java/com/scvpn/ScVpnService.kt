@@ -83,6 +83,7 @@ class ScVpnService : VpnService() {
                 packageName,
             )
             Log.i(TAG, "туннель охватывает: $split")
+            CoreLog.add("туннель охватывает: $split")
             val pfd = builder.establish() ?: throw IllegalStateException("establish() вернул null")
             tun = pfd
 
@@ -104,8 +105,10 @@ class ScVpnService : VpnService() {
             notify(buildNotification(server.title, connected = true))
             VpnBus.publish(this, VpnState.CONNECTED, server.title, since)
             Log.i(TAG, "VPN запущен: ${server.title}")
+            CoreLog.add("VPN запущен: ${server.title}")
         } catch (e: Exception) {
             Log.e(TAG, "Ошибка запуска VPN", e)
+            CoreLog.add("ошибка запуска: ${e.message}")
             cleanup()
             fail(e.message ?: "не удалось подключиться")
         }
@@ -115,6 +118,7 @@ class ScVpnService : VpnService() {
         worker?.interrupt()
         worker = null
         cleanup()
+        CoreLog.add("VPN остановлен")
         VpnBus.publish(this, VpnState.IDLE)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -137,6 +141,7 @@ class ScVpnService : VpnService() {
 
     override fun onRevoke() {
         Log.w(TAG, "VPN отозван системой")
+        CoreLog.add("VPN отозван системой")
         stopVpn()
     }
 

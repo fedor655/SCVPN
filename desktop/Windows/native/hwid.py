@@ -20,7 +20,7 @@ import hashlib
 import platform
 import uuid
 
-from shared.storage import load_settings, save_settings
+from storage import load_settings, save_settings
 
 # Соль, чтобы наружу уходил не сам MachineGuid, а необратимая производная.
 _SALT = "scvpn-hwid-v1"

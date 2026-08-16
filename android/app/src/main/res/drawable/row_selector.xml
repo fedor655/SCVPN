@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Подсветка строки списка под нажатием.
+
+  Ставится выделителем самого ListView, а не фоном строки: тогда она идёт от
+  края до края экрана, а не по «карточке». Нажимается вся полоса, и это должно
+  быть видно. Ни скруглений, ни рамки — строки плоские.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true" android:drawable="@color/surface" />
+    <item android:drawable="@android:color/transparent" />
+</selector>

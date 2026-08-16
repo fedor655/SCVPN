@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Один экран, три блока: шапка, кнопка подключения, список серверов.
-  Всё редкое (добавить, обновить, пинг) спрятано в иконки шапки, чтобы в
-  спокойном состоянии на экране были только статус и список.
+  Один экран, четыре блока: шапка, кнопка подключения со статусом, список
+  серверов, полоса лога. Всё редкое (добавить, обновить, пинг) спрятано в
+  значки шапки, чтобы в спокойном состоянии на экране были только статус и
+  список.
+
+  Все числа — из `values/dimens.xml`: это здешний аналог `Style.swift`, по
+  которому собран интерфейс macOS. Литералов в разметке быть не должно, иначе
+  платформы разъезжаются молча.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -12,164 +17,276 @@
     android:background="@color/bg"
     android:fitsSystemWindows="true">
 
-    <!-- ── шапка ─────────────────────────────────────────────── -->
+    <!-- ── шапка ─────────────────────────────────────────────────────
+      Слева знак SCVPN, справа группа значков вплотную. Подложек у значков
+      нет: объёмный элемент на экране ровно один — кнопка питания, и четыре
+      прямоугольника здесь спорили бы с ней за внимание. Под нажатием
+      светлеет сам значок (см. `color/header_icon.xml`).
+    -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="@dimen/header_height"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="20dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="14dp"
-        android:paddingBottom="6dp">
-
-        <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:src="@drawable/ic_scvpn_mark"
-            android:contentDescription="@string/app_name"
-            app:tint="@color/text" />
+        android:paddingStart="@dimen/field"
+        android:paddingEnd="@dimen/field"
+        android:paddingTop="@dimen/header_pad_top"
+        android:paddingBottom="@dimen/header_pad_bottom">
 
         <TextView
+            style="@style/Text.Wordmark"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="10dp"
-            android:text="@string/app_name"
-            android:textColor="@color/text"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.14" />
+            android:text="@string/app_name" />
 
         <ImageButton
             android:id="@+id/btn_ping"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="@dimen/header_button_width"
+            android:layout_height="@dimen/header_button_height"
+            android:background="@null"
+            android:padding="@dimen/header_icon_pad"
+            android:scaleType="fitCenter"
             android:src="@drawable/ic_pulse"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/action_ping"
-            android:padding="10dp" />
-
-        <ImageButton
-            android:id="@+id/btn_refresh"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_refresh"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/action_refresh"
-            android:padding="10dp" />
+            app:tint="@color/header_icon"
+            android:contentDescription="@string/action_ping" />
 
         <ImageButton
             android:id="@+id/btn_add"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="@dimen/header_button_width"
+            android:layout_height="@dimen/header_button_height"
+            android:background="@null"
+            android:padding="@dimen/header_icon_pad"
+            android:scaleType="fitCenter"
             android:src="@drawable/ic_add"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/action_add"
-            android:padding="10dp" />
+            app:tint="@color/header_icon"
+            android:contentDescription="@string/action_add" />
+
+        <ImageButton
+            android:id="@+id/btn_refresh"
+            android:layout_width="@dimen/header_button_width"
+            android:layout_height="@dimen/header_button_height"
+            android:background="@null"
+            android:padding="@dimen/header_icon_pad"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_refresh"
+            app:tint="@color/header_icon"
+            android:contentDescription="@string/action_refresh" />
 
         <ImageButton
             android:id="@+id/btn_more"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="@dimen/header_button_width"
+            android:layout_height="@dimen/header_button_height"
+            android:background="@null"
+            android:padding="@dimen/header_icon_pad"
+            android:scaleType="fitCenter"
             android:src="@drawable/ic_more"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/action_more"
-            android:padding="12dp" />
+            app:tint="@color/header_icon"
+            android:contentDescription="@string/action_more" />
     </LinearLayout>
 
-    <!-- ── кнопка подключения ────────────────────────────────── -->
+    <!-- Без этой линии шапка сливается с содержимым: непонятно, где кончаются
+         значки и начинается приложение. -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/hairline"
+        android:background="@color/stroke" />
+
+    <!-- ── кнопка подключения и статус ───────────────────────────────-->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:paddingTop="26dp"
-        android:paddingBottom="24dp">
+        android:paddingTop="@dimen/power_block_pad"
+        android:paddingBottom="@dimen/power_block_pad">
 
-        <FrameLayout
+        <com.scvpn.PowerButtonView
             android:id="@+id/power"
-            android:layout_width="148dp"
-            android:layout_height="148dp"
-            android:background="@drawable/bg_power"
-            android:clickable="true"
-            android:focusable="true">
-
-            <ImageView
-                android:id="@+id/power_icon"
-                android:layout_width="66dp"
-                android:layout_height="66dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_scvpn_mark"
-                android:contentDescription="@string/state_idle" />
-        </FrameLayout>
+            android:layout_width="@dimen/power_side"
+            android:layout_height="@dimen/power_side"
+            android:contentDescription="@string/state_idle" />
 
         <TextView
             android:id="@+id/status"
+            style="@style/Text.Status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:text="@string/state_idle"
-            android:textColor="@color/text"
-            android:textSize="19sp"
-            android:textStyle="bold" />
+            android:layout_marginTop="@dimen/status_top"
+            android:text="@string/state_idle" />
 
-        <TextView
-            android:id="@+id/subtitle"
+        <!--
+          Подробности под состоянием. Высота фиксирована: блок переключается с
+          одной строки на две (при подключении добавляется подпись режима), и
+          без фиксации список серверов подпрыгивал бы при каждой смене
+          состояния.
+        -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:paddingStart="32dp"
-            android:paddingEnd="32dp"
-            android:gravity="center"
-            android:maxLines="1"
-            android:ellipsize="middle"
-            android:textColor="@color/text_dim"
-            android:textSize="13sp" />
+            android:layout_height="@dimen/substatus_height"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:layout_marginTop="@dimen/substatus_top"
+            android:paddingStart="@dimen/substatus_pad"
+            android:paddingEnd="@dimen/substatus_pad">
+
+            <TextView
+                android:id="@+id/subtitle"
+                style="@style/Text.Substatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:maxLines="1"
+                android:ellipsize="middle" />
+
+            <!-- Режим показывается только при живом подключении: в простое он
+                 ни о чём не сообщает. -->
+            <TextView
+                android:id="@+id/mode"
+                style="@style/Text.Section"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/substatus_gap"
+                android:textColor="@color/muted"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- ── список серверов ───────────────────────────────────── -->
+    <!-- Заголовок встаёт ровно над именами серверов, а не над краем строки:
+         колонка текста — самая заметная вертикаль в списке. -->
     <TextView
+        style="@style/Text.Section"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingStart="22dp"
-        android:paddingEnd="22dp"
-        android:paddingBottom="8dp"
-        android:text="@string/servers"
-        android:textColor="@color/text_dim"
-        android:textSize="12sp"
-        android:letterSpacing="0.1"
-        android:textAllCaps="true" />
+        android:paddingStart="@dimen/section_pad"
+        android:paddingEnd="@dimen/section_pad"
+        android:paddingBottom="@dimen/section_bottom"
+        android:text="@string/servers" />
 
+    <!-- ── список серверов ───────────────────────────────────────────-->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
 
+        <!--
+          Полей у списка нет: они ушли внутрь строки, чтобы подсветка под
+          нажатием шла от края до края экрана — нажимается вся полоса, а не
+          «карточка». Просвета между строками тоже нет: их разделяет линия, и
+          рисует её сама строка (см. `item_server.xml`).
+        -->
         <ListView
             android:id="@+id/list"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingBottom="16dp"
+            android:paddingBottom="@dimen/list_bottom"
             android:clipToPadding="false"
             android:divider="@null"
             android:dividerHeight="0dp"
+            android:listSelector="@drawable/row_selector"
             android:scrollbars="none" />
 
-        <TextView
+        <!--
+          Пустой список: два сообщения разного веса — что произошло и что с
+          этим делать. Одна серая фраза посреди пустоты читается как «не
+          загрузилось».
+        -->
+        <LinearLayout
             android:id="@+id/empty"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:gravity="center"
-            android:paddingStart="40dp"
-            android:paddingEnd="40dp"
-            android:text="@string/no_servers"
-            android:textColor="@color/text_dim"
-            android:textSize="14sp"
-            android:lineSpacingExtra="4dp"
-            android:visibility="gone" />
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:padding="@dimen/empty_pad"
+            android:visibility="gone">
+
+            <TextView
+                style="@style/Text.RowTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_dim"
+                android:text="@string/empty_title" />
+
+            <TextView
+                style="@style/Text.Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/empty_gap"
+                android:gravity="center"
+                android:textColor="@color/muted"
+                android:text="@string/empty_hint" />
+        </LinearLayout>
     </FrameLayout>
+
+    <!-- ── лог ядра ──────────────────────────────────────────────────
+      Не коробка на весь низ, а полоса с последней строкой: лог читают ради
+      последнего сообщения, а не ради истории. Щелчок разворачивает.
+    -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/hairline"
+        android:background="@color/stroke" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/surface">
+
+        <LinearLayout
+            android:id="@+id/log_strip"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/log_strip"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/field"
+            android:paddingEnd="@dimen/field"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@+id/log_chevron"
+                android:layout_width="@dimen/log_chevron"
+                android:layout_height="@dimen/log_chevron"
+                android:src="@drawable/ic_chevron"
+                app:tint="@color/muted"
+                android:contentDescription="@null" />
+
+            <!--
+              Строка обрезается С НАЧАЛА: у сообщения ядра важен хвост, а не
+              отметка времени в начале. `singleLine` обязателен — без него
+              Android не умеет обрезать слева.
+            -->
+            <TextView
+                android:id="@+id/log_line"
+                style="@style/Text.Log"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/row_gap"
+                android:singleLine="true"
+                android:ellipsize="start"
+                android:text="@string/log_empty" />
+        </LinearLayout>
+
+        <ScrollView
+            android:id="@+id/log_body"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/log_height"
+            android:paddingStart="@dimen/field"
+            android:paddingEnd="@dimen/field"
+            android:paddingBottom="@dimen/log_pad"
+            android:clipToPadding="false"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/log_text"
+                style="@style/Text.Log"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textIsSelectable="true" />
+        </ScrollView>
+    </LinearLayout>
 </LinearLayout>

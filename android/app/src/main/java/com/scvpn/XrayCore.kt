@@ -31,7 +31,9 @@ object XrayCore {
             override fun startup(): Long = 0
             override fun shutdown(): Long = 0
             override fun onEmitStatus(l: Long, s: String?): Long {
-                Log.i(TAG, "xray: $s"); return 0
+                // То же сообщение вдобавок кладётся в CoreLog: без него
+                // сказанное ядром видно только через adb logcat.
+                Log.i(TAG, "xray: $s"); CoreLog.add("xray: $s"); return 0
             }
         })
         return try {
@@ -40,6 +42,7 @@ object XrayCore {
             c.isRunning
         } catch (e: Exception) {
             Log.e(TAG, "startLoop failed", e)
+            CoreLog.add("ядро не запустилось: ${e.message}")
             false
         }
     }

@@ -13,10 +13,10 @@ struct HeaderView<Menu: View>: View {
     @ViewBuilder var menu: () -> Menu
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Style.headerSpacing) {
             Text("SCVPN")
                 .font(.wordmark)
-                .tracking(3)
+                .tracking(Style.wordmarkTracking)
                 .foregroundStyle(Color.scvpnText)
             Spacer(minLength: 0)
             HeaderButton(systemName: "waveform.path", help: "Измерить пинг серверов",
@@ -28,12 +28,17 @@ struct HeaderView<Menu: View>: View {
             HeaderMenuButton(menu: menu)
         }
         .padding(EdgeInsets(top: HeaderMetrics.top, leading: HeaderMetrics.left,
-                            bottom: 10, trailing: 12))
+                            bottom: Style.headerBottom, trailing: Style.headerTrailing))
         .frame(height: HeaderMetrics.height)
     }
 }
 
-/// Плоская кнопка шапки: без фона и рамки, подсветка только при наведении.
+/// Плоская кнопка шапки: ни фона, ни рамки — при наведении светлеет сам знак.
+///
+/// Подложка под курсором была раньше и ушла намеренно. В окне ровно один
+/// объёмный элемент — кнопка питания; всё остальное плоское, иначе четыре
+/// прямоугольника в шапке спорят с ней за внимание. Область нажатия при этом
+/// осталась прежней, 28×28: она задаётся `frame`, а не фоном.
 struct HeaderButton: View {
     var systemName: String
     var help: String
@@ -44,13 +49,12 @@ struct HeaderButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 15))
+                .font(.system(size: Style.headerIcon))
                 .foregroundStyle(hovering ? Color.scvpnText : Color.scvpnDim)
                 .frame(width: HeaderMetrics.buttonSide, height: HeaderMetrics.buttonSide)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(hovering ? Color.scvpnSurfaceHi : Color.clear)
-                )
+                // Без явной формы нажимается только сам глиф, а не квадрат
+                // вокруг него — попасть в тонкую стрелку мышью тяжело.
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
@@ -69,13 +73,10 @@ struct HeaderMenuButton<Menu: View>: View {
             menu()
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 15))
+                .font(.system(size: Style.headerIcon))
                 .foregroundStyle(hovering ? Color.scvpnText : Color.scvpnDim)
                 .frame(width: HeaderMetrics.buttonSide, height: HeaderMetrics.buttonSide)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(hovering ? Color.scvpnSurfaceHi : Color.clear)
-                )
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)

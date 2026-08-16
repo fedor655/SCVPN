@@ -3,11 +3,11 @@
 Запуск:  .venv\\Scripts\\python.exe run.py
 """
 import sys
-from pathlib import Path
 
-# Общий код лежит на уровень выше, в desktop/shared. Каталог самого скрипта
-# (desktop/Windows) Python добавляет в sys.path сам — оттуда берётся native.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Каталог самого скрипта Python добавляет в sys.path сам — оттуда берутся и
+# native, и shared. Прежде shared лежал уровнем выше и делился с Qt-версией
+# для macOS; её больше нет, и общего кода между платформами тоже: на macOS
+# приложение нативное, на Swift.
 
 # Консоль Windows бывает в cp1251 — переключаем потоки на UTF-8, чтобы русский
 # текст и любые символы в логах не роняли программу. В режиме без консоли
@@ -19,7 +19,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from native import paths  # noqa: E402
-from shared.ui.main_window import run_app  # noqa: E402
+from ui.main_window import run_app  # noqa: E402
 
 
 def main() -> int:

@@ -1,47 +1,93 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  Строка списка серверов.
+
+  Карточки с рамкой не осталось: строки плоские и разделены волосяной линией.
+  Так список весит меньше кнопки питания — единственного объёмного элемента
+  экрана, — а раньше десяток одинаково обведённых карточек забирал внимание на
+  себя.
+
+  Выбор показывается маркером слева и полной яркостью имени, а не обводкой:
+  разница между рамкой в 1 и 1.5 пикселя того же белого на чёрном почти не
+  читается. Адрес под именем яркость не теряет — иначе он уходит под порог
+  читаемости.
+
+  **Линия принадлежит строке, а не списку.** Разделитель ListView выглядит так
+  же, но рисуется и под последней строкой (`footerDividersEnabled` его не
+  снимает — проверено на эмуляторе), а под последней строкой линии быть не
+  должно: там и так край списка. Заодно линия лежит внутри 52, а не добавляет
+  53-й пиксель к шагу строк.
+
+  Фона у строки нет намеренно: подсветка под нажатием — это выделитель списка,
+  и она идёт от края до края экрана, а не по «карточке».
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:layout_marginBottom="8dp"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
-    android:background="@drawable/bg_item"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingTop="12dp"
-    android:paddingBottom="12dp">
+    android:layout_height="@dimen/row_height">
 
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/field"
+        android:paddingEnd="@dimen/field">
 
-        <TextView
-            android:id="@+id/name"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="@color/text"
-            android:textSize="15sp" />
+        <!-- Маркер выбранной строки. Прячется в INVISIBLE, а не в GONE: иначе
+             текст съезжал бы на 2 пикселя при каждой смене выбора. -->
+        <View
+            android:id="@+id/marker"
+            android:layout_width="@dimen/row_marker"
+            android:layout_height="match_parent"
+            android:layout_marginTop="@dimen/row_marker_inset"
+            android:layout_marginBottom="@dimen/row_marker_inset"
+            android:background="@drawable/row_marker"
+            android:visibility="invisible" />
 
-        <TextView
-            android:id="@+id/sub"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="@color/text_dim"
-            android:textSize="12sp" />
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/row_text_leading"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/name"
+                style="@style/Text.RowTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/sub"
+                style="@style/Text.RowDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/row_text_spacing"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <!-- Колонка пинга: постоянная ширина, значение по правому краю. Иначе
+             правый край значений гуляет от строки к строке и колонки не
+             получается вовсе. -->
+        <TextView
+            android:id="@+id/ping"
+            style="@style/Text.RowPing"
+            android:layout_width="@dimen/ping_column"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/row_gap"
+            android:gravity="end"
+            android:maxLines="1" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/ping"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:textSize="12sp"
-        android:textColor="@color/text_dim" />
-</LinearLayout>
+    <!-- Линия отступает слева на поле окна: начинается там же, где маркер. -->
+    <View
+        android:id="@+id/divider"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/hairline"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="@dimen/field"
+        android:background="@color/stroke" />
+</FrameLayout>

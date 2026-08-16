@@ -43,24 +43,22 @@ python -m venv .venv
 
 | Файл | За что отвечает |
 |------|-----------------|
-| `../shared/subscription.py` | парсинг ссылок (vless/vmess/trojan/ss) и подписок, загрузка по URL |
-| `../shared/subinfo.py`      | служебные сведения о подписке из HTTP-заголовков (лимит трафика, срок, автообновление) |
-| `../shared/models.py`       | модель сервера → outbound-секция конфига Xray |
-| `../shared/xray_config.py`  | сборка полного конфига Xray (inbounds/outbounds/routing/dns) |
-| `../shared/core_runner.py`  | запуск/остановка `xray.exe` |
+| `shared/subscription.py` | парсинг ссылок (vless/vmess/trojan/ss) и подписок, загрузка по URL |
+| `shared/subinfo.py`      | служебные сведения о подписке из HTTP-заголовков (лимит трафика, срок, автообновление) |
+| `shared/models.py`       | модель сервера → outbound-секция конфига Xray |
+| `shared/xray_config.py`  | сборка полного конфига Xray (inbounds/outbounds/routing/dns) |
+| `shared/core_runner.py`  | запуск/остановка `xray.exe` |
 | `native/sysproxy.py`        | системный прокси Windows (реестр) |
 | `native/hwid.py`            | идентификатор устройства из реестра Windows |
-| `../shared/ping.py`         | TCP-пинг серверов |
-| `../shared/storage.py`      | хранение профилей и настроек (JSON в `data/`) |
+| `shared/ping.py`         | TCP-замер, запасной путь без ядра |
+| `shared/storage.py`      | хранение профилей и настроек (JSON в `data/`) |
 | `native/downloader.py`      | разовое скачивание Xray-core и sing-box+wintun |
-| `../shared/connect.py`      | автоподбор рабочего TLS-отпечатка |
+| `shared/connect.py`      | автоподбор рабочего TLS-отпечатка |
 | `native/tun.py`             | TUN-режим (sing-box поднимает адаптер), права админа |
 | `native/paths.py`           | все пути приложения в одном месте |
 | `native/apps.py`            | список запущенных `.exe` для раздельного туннелирования |
-| `../shared/ui/`             | интерфейс: окно, виджеты, знак, тема |
-| `setup/brand.py`            | фирменный знак (общий с Android и macOS) |
+| `ui/`                       | интерфейс: окно, виджеты, знак, тема |
 | `setup/scvpn.ico`           | готовая иконка (16-256 px в одном файле), лежит в git |
-| `setup/make_icon.py`        | разовая перерисовка `scvpn.ico`, в сборке не участвует |
 
 ## Режимы
 

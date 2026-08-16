@@ -104,12 +104,6 @@ keytool -genkeypair -v -keystore scvpn-release.jks -alias scvpn `
 Основная — векторная адаптивная: `res/mipmap-anydpi-v26/ic_launcher.xml`
 (фон `@color/ic_launcher_background` + `res/drawable/ic_launcher_foreground.xml`).
 PNG в `res/mipmap-*/` нужны только для Android 7 (API 24-25). Они лежат в git
-готовыми (mdpi 48 … xxxhdpi 192), Gradle их не генерирует. Перерисовать —
-только если поменялась геометрия знака:
-
-```powershell
-pip install Pillow
-python make_launcher_icons.py
-```
-
-Скрипт сам найдёт общий с десктопом `brand.py` в `../desktop/Windows/setup/`.
+готовыми (mdpi 48 … xxxhdpi 192), Gradle их не генерирует и скрипта, который
+их рисует, в проекте нет — знак перерисовывают руками, когда меняется
+геометрия.
