@@ -62,6 +62,15 @@ final class AppModel: ObservableObject {
     /// или штатная остановка.
     private var wantConnected = false
     private var connectedSince: Date?
+    /// Имя сервера, с которым ядро **действительно** подняли.
+    ///
+    /// Не `selectedServer`: выбор в списке меняется одним щелчком и живой
+    /// туннель не трогает. Показывать выбранный значило бы называть не тот
+    /// сервер, через который прямо сейчас идёт трафик, — а новый список, где
+    /// выбор виден маркером и полной яркостью имени, делает эту ложь только
+    /// заметнее. То же решение и по той же причине принято на Android
+    /// (`VpnBus.serverTitle`) и в Qt-версии.
+    @Published private(set) var activeServerTitle = ""
     private var activeSocksPort = 0
     private var activeHTTPPort = 0
     private var clock: AnyCancellable?
@@ -204,6 +213,7 @@ final class AppModel: ObservableObject {
                                                    socksPort + 1))
         activeSocksPort = socksPort
         activeHTTPPort = httpPort
+        activeServerTitle = srv.title
 
         do {
             let cfg = try buildXrayConfig(server: srv, socksPort: socksPort, httpPort: httpPort,
@@ -291,6 +301,7 @@ final class AppModel: ObservableObject {
             return
         }
         connectedSince = nil
+        activeServerTitle = ""
         clock = nil
         uptime = 0
         // Ядро упало само, а мы думали, что подключены — прибираем за ним.

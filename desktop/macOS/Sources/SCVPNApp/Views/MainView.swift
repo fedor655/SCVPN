@@ -108,11 +108,18 @@ struct MainView: View {
         .frame(height: Style.substatusHeight, alignment: .top)
     }
 
-    /// Что происходит прямо сейчас: при живом подключении — сколько оно
-    /// держится, в остальных случаях — куда собирались подключаться.
+    /// Что происходит прямо сейчас: при живом подключении — какой сервер держит
+    /// трафик и сколько уже держит, в остальных случаях — куда собирались
+    /// подключаться.
     private var detailLine: String {
         switch model.state {
-        case .connected: return formatUptime(model.uptime)
+        case .connected:
+            // Имя берётся у модели, а не из списка: выбор мог смениться, а
+            // туннель остался на прежнем сервере. Разделитель тот же, что на
+            // Android и в Qt-версии, — строка обязана читаться одинаково.
+            let uptime = formatUptime(model.uptime)
+            let name = model.activeServerTitle
+            return name.isEmpty ? uptime : "\(name)  ·  \(uptime)"
         case .tunStuck:  return "Трафик всё ещё идёт через туннель"
         default:         return model.selectedServer?.title ?? ""
         }

@@ -116,6 +116,11 @@ class MainWindow(QMainWindow):
         self._want_connected = False
         self._state = "idle"
         self._connected_since: float | None = None
+        # Имя сервера, с которым ядро действительно подняли. Не тот, что
+        # выбран в списке: выбор меняется одним щелчком и живой туннель не
+        # трогает, а новый список показывает выбор маркером и яркостью —
+        # назвать здесь выбранный значило бы соврать заметнее прежнего.
+        self._connected_title = ""
         self._active_http_port = int(self.settings.get("http_port", 10809))
         self._active_socks_port = int(self.settings.get("socks_port", 10808))
 
@@ -644,6 +649,7 @@ class MainWindow(QMainWindow):
         http_port = find_free_port(max(int(self.settings.get("http_port", 10809)), socks_port + 1))
         self._active_socks_port = socks_port
         self._active_http_port = http_port
+        self._connected_title = srv.title
 
         cfg = build_config(
             srv,
@@ -712,6 +718,7 @@ class MainWindow(QMainWindow):
             return
 
         self._connected_since = None
+        self._connected_title = ""
         self._clock.stop()
         # если ядро упало само, а мы думали что подключены — приберём всё
         if self._want_connected:
@@ -769,14 +776,18 @@ class MainWindow(QMainWindow):
         self.mode_label.setText(self._mode_caption())
 
     def _detail_line(self) -> str:
-        """Что происходит прямо сейчас: при живом подключении — сколько оно
-        держится, в остальных случаях — куда собирались подключаться."""
+        """Что происходит прямо сейчас: при живом подключении — какой сервер
+        держит трафик и сколько уже держит, в остальных случаях — куда
+        собирались подключаться."""
         if self._state == "connected" and self._connected_since:
             secs = int(time.monotonic() - self._connected_since)
-            return (
+            uptime = (
                 f"{secs // 3600}:{secs // 60 % 60:02d}:{secs % 60:02d}"
                 if secs >= 3600 else f"{secs // 60:02d}:{secs % 60:02d}"
             )
+            # Разделитель тот же, что на macOS и Android: строка обязана
+            # читаться одинаково на всех платформах.
+            return uptime if not self._connected_title else f"{self._connected_title}  ·  {uptime}"
         if self._state == "tun_stuck":
             return "Трафик всё ещё идёт через туннель"
         server = self._current_server()
