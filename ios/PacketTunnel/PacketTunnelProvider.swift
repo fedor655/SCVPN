@@ -18,35 +18,42 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let config = try TunnelConfig(providerConfiguration: raw)
         log.append("[*] Подключаюсь к «\(config.serverName)»")
 
-        // 1) ядро
-        try XrayBridge.start(configJSON: config.xrayConfigJSON)
-        var ok = false
-        defer { if !ok { XrayBridge.stop() } }
+        // Порядок и откат живут в TunnelBringUp: их проверяют на подделках, а
+        // здесь остаются только настоящие ядро, система и мост.
+        try await sequence(for: config).run()
 
-        // 2) сетевые настройки — и дождаться подтверждения системы
-        try await setTunnelNetworkSettings(Self.settings(config))
-
-        // 3) мост TUN ↔ SOCKS
-        do {
-            try TunnelBridge.start(socksPort: config.socksPort, mtu: config.mtu,
-                                   tunAddress: config.tunAddress, packetFlow: packetFlow)
-        } catch {
-            // Настройки снимаем явно: иначе система подержит маршруты на
-            // мёртвом туннеле до собственного таймаута.
-            try? await setTunnelNetworkSettings(nil)
-            throw error
-        }
-
-        ok = true
         startedAt = ProcessInfo.processInfo.systemUptime
         log.append("[+] Туннель поднят")
     }
 
     override func stopTunnel(with reason: NEProviderStopReason) async {
         log.append("[*] Останавливаюсь: причина \(reason.rawValue)")
-        TunnelBridge.stop()          // обратный порядок
-        XrayBridge.stop()
+        await sequence(for: nil).stop()
         startedAt = nil
+    }
+
+    /// Шаги подъёма для этого конфига. `nil` — только для остановки.
+    private func sequence(for config: TunnelConfig?) -> TunnelBringUp {
+        TunnelBringUp(
+            startCore: {
+                guard let config else { return }
+                try XrayBridge.start(configJSON: config.xrayConfigJSON)
+            },
+            applySettings: { [weak self] in
+                guard let self, let config else { return }
+                try await self.setTunnelNetworkSettings(Self.settings(config))
+            },
+            startBridge: { [weak self] in
+                guard let self, let config else { return }
+                try TunnelBridge.start(socksPort: config.socksPort, mtu: config.mtu,
+                                       tunAddress: config.tunAddress, packetFlow: self.packetFlow)
+            },
+            stopCore: { XrayBridge.stop() },
+            clearSettings: { [weak self] in
+                try? await self?.setTunnelNetworkSettings(nil)
+            },
+            stopBridge: { TunnelBridge.stop() }
+        )
     }
 
     override func handleAppMessage(_ messageData: Data) async -> Data? {
