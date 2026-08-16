@@ -8,6 +8,11 @@ import SwiftUI
 struct SubscriptionSheet: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    /// Какая подписка раскрыта. Ссылку и QR показываем по требованию: экран не
+    /// должен быть простынёй, если подписок несколько.
+    @State private var shown: String?
+    /// Какую ссылку отправляем — открывает системный лист «Поделиться».
+    @State private var sharing: String?
 
     var body: some View {
         NavigationStack {
@@ -16,17 +21,12 @@ struct SubscriptionSheet: View {
                     Text("Подписок нет")
                         .font(.scvpnUI(13))
                         .foregroundStyle(Color.scvpnDim)
+                        .listRowBackground(Color.scvpnSurface)
                 }
-                ForEach(Array(model.subscriptions.enumerated()), id: \.element.url) { _, sub in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(sub.name)
-                            .font(.scvpnUI(15))
-                            .foregroundStyle(Color.scvpnText)
-                        Text("серверов \(sub.servers.count) · обновлено \(sub.updated)")
-                            .font(.scvpnUI(12))
-                            .foregroundStyle(Color.scvpnDim)
+                ForEach(model.subscriptions, id: \.url) { sub in
+                    Section {
+                        card(sub)
                     }
-                    .listRowBackground(Color.scvpnSurface)
                 }
                 .onDelete { model.removeSubscription(at: $0) }
             }
@@ -41,7 +41,78 @@ struct SubscriptionSheet: View {
                         .disabled(model.subscriptions.isEmpty)
                 }
             }
+            .sheet(item: Binding(get: { sharing.map(ShareItem.init) },
+                                 set: { sharing = $0?.text })) { item in
+                ShareText(text: item.text, title: "Ссылка подписки SCVPN")
+            }
         }
+    }
+
+    /// Карточка одной подписки: то же, что показывает Android.
+    @ViewBuilder
+    private func card(_ sub: SCVPNCore.Subscription) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(sub.name.isEmpty ? sub.url : sub.name)
+                .font(.scvpnUI(15, weight: .bold))
+                .foregroundStyle(Color.scvpnText)
+
+            line("Серверов", "\(sub.servers.count)")
+            line("Трафик", traffic(sub.info))
+            line("Действует до", expiry(sub.info))
+            if sub.info.updateInterval > 0 {
+                line("Автообновление", humanInterval(sub.info.updateInterval))
+            }
+            if !sub.updated.isEmpty { line("Обновлено", sub.updated) }
+            if !sub.info.announce.isEmpty {
+                Text(sub.info.announce)
+                    .font(.scvpnUI(12))
+                    .foregroundStyle(Color.scvpnDim)
+            }
+
+            HStack(spacing: 16) {
+                Button("Копировать") { UIPasteboard.general.string = sub.url }
+                Button("Поделиться") { sharing = sub.url }
+                Button(shown == sub.url ? "Скрыть QR" : "QR") {
+                    shown = shown == sub.url ? nil : sub.url
+                }
+            }
+            .font(.scvpnUI(13))
+            .padding(.top, 2)
+
+            if shown == sub.url {
+                // Ссылка подписки — это доступ к аккаунту целиком, поэтому она
+                // и QR показываются только по нажатию, а не сами собой.
+                QRCodeImage(text: sub.url)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 4)
+                Text(sub.url)
+                    .font(.scvpnMono(10))
+                    .foregroundStyle(Color.scvpnDim)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 4)
+        .listRowBackground(Color.scvpnSurface)
+    }
+
+    private func line(_ name: String, _ value: String) -> some View {
+        HStack {
+            Text(name)
+            Spacer()
+            Text(value)
+        }
+        .font(.scvpnUI(12))
+        .foregroundStyle(Color.scvpnDim)
+    }
+
+    private func traffic(_ info: SubscriptionInfo) -> String {
+        info.unlimited ? "\(humanBytes(info.used)) (без лимита)"
+                       : "\(humanBytes(info.used)) из \(humanBytes(info.total))"
+    }
+
+    private func expiry(_ info: SubscriptionInfo) -> String {
+        guard let days = info.daysLeft else { return "бессрочно" }
+        return days < 0 ? "истекла" : "\(days) дн."
     }
 }
 
@@ -79,4 +150,10 @@ struct LogSheet: View {
             }
         }
     }
+}
+
+/// Обёртка, чтобы строку можно было отдать `sheet(item:)`.
+private struct ShareItem: Identifiable {
+    let text: String
+    var id: String { text }
 }

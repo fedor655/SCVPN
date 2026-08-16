@@ -9,7 +9,7 @@
 | **Windows** | `desktop/Windows/` — Python + PySide6, ядро `xray.exe` рядом |
 | **macOS** | `desktop/macOS/` — нативный Swift, TUN через привилегированный демон (Apple Silicon) |
 | **Android** | `android/` — Kotlin, то же ядро внутри процесса (`libv2ray.aar`) |
-| **iOS** | пока нет, в планах |
+| **iOS** | `ios/` — SwiftUI, ядро внутри расширения туннеля (`NEPacketTunnelProvider`) |
 
 ## Что приложение отправляет в сеть (и больше ничего)
 
@@ -52,13 +52,18 @@
 действительно отличаются. Набор имён в обеих папках одинаков, поэтому общий код
 не догадывается, на чём работает.
 
-| Слой | Десктоп | Android |
-|---|---|---|
-| Разбор ссылок и подписок | `shared/subscription.py` | `SubscriptionParser.kt` |
-| Идентификатор устройства | `native/hwid.py` | `Hwid.kt` |
-| Модель сервера | `shared/models.py` | `Model.kt` |
-| Сборка конфига Xray | `shared/xray_config.py` | `XrayConfig.kt` |
-| Хранение профилей | `shared/storage.py` (JSON в `data/`) | `Prefs.kt` (SharedPreferences) |
+| Слой | Windows | macOS и iOS | Android |
+|---|---|---|---|
+| Разбор ссылок и подписок | `shared/subscription.py` | `core-swift/…/Parsing/` | `SubscriptionParser.kt` |
+| Идентификатор устройства | `native/hwid.py` | `core-swift/…/HWID.swift` | `Hwid.kt` |
+| Модель сервера | `shared/models.py` | `core-swift/…/Models/Server.swift` | `Model.kt` |
+| Сборка конфига Xray | `shared/xray_config.py` | `core-swift/…/XrayConfig/` | `XrayConfig.kt` |
+| Хранение профилей | `shared/storage.py` (JSON в `data/`) | `core-swift/…/Storage/` (тот же JSON) | `Prefs.kt` (SharedPreferences) |
+
+macOS и iOS делят один пакет `core-swift/` — там же лежат общие проверки.
+Профили переносятся между всеми четырьмя версиями файлом `profiles.json`: на
+десктопе он лежит в папке данных, на телефонах есть «Сохранить в файл» и
+«Загрузить из файла».
 
 Разбор ссылок покрывает `vless://`, `vmess://`, `trojan://`, `ss://` и подписки
 (обычный список или base64). Модель `Server` — плоский набор полей ссылки;
