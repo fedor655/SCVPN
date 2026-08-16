@@ -30,7 +30,7 @@ struct ServerRow: View {
             Spacer(minLength: Style.rowGap)
             if !label.text.isEmpty {
                 Text(label.text)
-                    .font(.rowDetail)
+                    .font(.rowPing)
                     .foregroundStyle(Color(hex: label.color))
             }
         }

@@ -61,6 +61,7 @@ struct MainView: View {
             PowerButton(state: model.state, action: model.toggle)
             Text(model.state.title)
                 .font(.statusBig)
+                .tracking(Style.statusTracking)
                 .foregroundStyle(Color.scvpnText)
                 .padding(.top, Style.statusTop)
             Text(substatus)

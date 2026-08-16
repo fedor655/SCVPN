@@ -44,10 +44,19 @@ enum Style {
 
     static let sectionPadding: CGFloat = 22
     static let sectionBottom: CGFloat = 8
-    /// Разрядка у заголовков разделов и подписей вроде «СЕРВЕРЫ».
-    static let sectionTracking: CGFloat = 1.5
-    /// Разрядка надписи SCVPN в шапке.
-    static let wordmarkTracking: CGFloat = 3
+
+    // MARK: Разрядка
+    //
+    // Разрядка тем шире, чем мельче и «служебнее» надпись: у знака и у
+    // заголовков разделов она растягивает строку в полоску, а у крупного
+    // статуса, наоборот, стягивает — иначе 26 pt рассыпаются на буквы.
+
+    /// Заголовки разделов и подписи вроде «СЕРВЕРЫ».
+    static let sectionTracking: CGFloat = 2
+    /// Надпись SCVPN в шапке.
+    static let wordmarkTracking: CGFloat = 4
+    /// Крупная надпись состояния.
+    static let statusTracking: CGFloat = -0.4
 
     // MARK: Список серверов
 
@@ -81,6 +90,17 @@ enum Style {
 ///
 /// Знак и цвета живут в `SCVPNCore/UI/`: они одинаковы на macOS и iOS, а
 /// размеры и Menlo — про десктопное окно.
+///
+/// **Шкала строится на одном крупном размере.** Раньше всё лежало в узкой
+/// вилке 10–20 pt, и главная надпись окна — состояние подключения — весила
+/// почти столько же, сколько имя сервера в списке: глазу было не за что
+/// зацепиться. Теперь состояние забирает 26 pt, а всё служебное уходит вниз,
+/// в 10–13 pt. Промежуточных размеров нет намеренно: каждый лишний шаг шкалы
+/// снова размывает разницу.
+///
+/// **Цифры везде табличные.** Аптайм тикает раз в секунду, пинг меняется на
+/// каждом замере, и пропорциональные цифры дёргали разметку на каждом
+/// обновлении: строка «00:11:59 · весь трафик» шире, чем «00:12:00».
 extension Font {
     /// Системный шрифт интерфейса: на macOS это SF.
     static func scvpnUI(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
@@ -93,12 +113,27 @@ extension Font {
     }
 
     /// Надпись SCVPN в шапке: разрядка задаётся отдельно, через `.tracking`.
-    static var wordmark: Font { .system(size: 14, weight: .bold) }
-    static var statusBig: Font { .system(size: 20, weight: .bold) }
-    static var substatus: Font { .system(size: 12) }
+    ///
+    /// Мельче прежнего: со своей разрядкой знак читается как метка окна, а не
+    /// как заголовок, и перестаёт спорить со строкой состояния.
+    static var wordmark: Font { .system(size: 12, weight: .bold) }
+
+    /// Состояние подключения — единственная крупная надпись в окне.
+    static var statusBig: Font { .system(size: 26, weight: .semibold) }
+
+    /// Строка под состоянием: аптайм и режим, поэтому цифры табличные.
+    static var substatus: Font { .system(size: 12).monospacedDigit() }
+
     static var section: Font { .system(size: 10, weight: .bold) }
-    /// Имя сервера в списке.
-    static var rowTitle: Font { .system(size: 13) }
-    /// Адрес под именем и значение пинга.
+
+    /// Имя сервера в списке. Полужирности хватает, чтобы имя отделилось от
+    /// адреса под ним без увеличения размера.
+    static var rowTitle: Font { .system(size: 13, weight: .medium) }
+
+    /// Адрес под именем сервера.
     static var rowDetail: Font { .system(size: 11) }
+
+    /// Значение пинга: те же 11 pt, но цифры табличные — колонка не пляшет
+    /// при перезамере.
+    static var rowPing: Font { .system(size: 11).monospacedDigit() }
 }
