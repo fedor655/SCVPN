@@ -91,13 +91,6 @@ STATE_TEXTS = {
     "tun_stuck": "Туннель не снят",
 }
 
-# Шапка macOS: слева место кнопкам окна, светофор опускаем в центр ряда и
-# отодвигаем от края (см. native.titlebar.sink). Вертикаль ряда общая с
-# Windows и живёт в theme: сдвинешь её — кнопки окна разъедутся с надписью.
-MAC_HEADER_LEFT = 88
-MAC_HEADER_H = theme.HEADER_TOP + theme.HEADER_BTN + theme.HEADER_BOTTOM
-MAC_LIGHTS_LEFT = 18
-
 TUN_STUCK_TEXT = (
     "sing-box пережил остановку: TUN-адаптер поднят, весь трафик по-прежнему\n"
     "идёт через него, а туннель уже никем не обслуживается.\n\n"
@@ -116,18 +109,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"SCVPN {__version__}")
         self.resize(420, 700)
         self.setMinimumSize(360, 540)
-        if sys.platform == "darwin":
-            # Контент уезжает под заголовок, сама полоса пропадает — светофор
-            # остаётся плавать поверх шапки, слева от логотипа. Нужен Qt 6.9+,
-            # и флаги ставим на нативное окно: QWidget их до создания теряет.
-            self.setWindowTitle("")
-            self.setAttribute(Qt.WA_ContentsMarginsRespectsSafeArea, False)
-            self.winId()
-            handle = self.windowHandle()
-            handle.setFlags(
-                handle.flags() | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
-            )
-
         self.profiles: Profiles = load_profiles()
         self.settings: dict = load_settings()
         self.row_servers: list[Server] = []
@@ -178,9 +159,9 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         root.addLayout(self._build_header())
-        # Полосы заголовка у окна на macOS нет, а на Windows она чужая и
-        # светлее: без этой линии непонятно, где кончается системная рамка и
-        # начинается приложение.
+        # Полоса заголовка Windows чужая и светлее содержимого: без этой
+        # линии непонятно, где кончается системная рамка и начинается
+        # приложение.
         root.addWidget(hairline(central))
 
         root.addLayout(self._build_power_block())
@@ -254,56 +235,13 @@ class MainWindow(QMainWindow):
         lay.addStretch(1)
         return box
 
-    def mousePressEvent(self, event) -> None:
-        # Полосы заголовка на macOS больше нет, тащить окно не за что —
-        # отдаём под перетаскивание всю шапку.
-        if sys.platform == "darwin" and event.position().y() < MAC_HEADER_H:
-            self.windowHandle().startSystemMove()
-            return
-        super().mousePressEvent(event)
-
-    def _sink_traffic_lights(self) -> None:
-        # AppKit возвращает кнопки на штатную высоту при каждой перекладке
-        # заголовка, поэтому опускаем их снова после показа и после resize.
-        # resize прилетает и из __init__, когда UI ещё не собран, — там нечего
-        # двигать и некуда писать ошибку.
-        if sys.platform != "darwin" or not self.isVisible():
-            return
-        from native.titlebar import sink
-
-        try:
-            sink(int(self.winId()), theme.HEADER_TOP + theme.HEADER_BTN / 2, MAC_LIGHTS_LEFT)
-        except Exception as exc:          # чужая внутренняя кухня AppKit
-            self._append_log(f"[!] Не удалось опустить кнопки окна: {exc}")
-
-    def _schedule_sink(self) -> None:
-        # Двигаем не сразу: AppKit доперекладывает заголовок после события и
-        # вернул бы кнопки на место. Второй заход — ради выхода из полного
-        # экрана, там перекладка приезжает уже после анимации.
-        QTimer.singleShot(0, self._sink_traffic_lights)
-        QTimer.singleShot(400, self._sink_traffic_lights)
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        self._schedule_sink()
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._schedule_sink()
-
-    def changeEvent(self, event) -> None:
-        super().changeEvent(event)
-        self._schedule_sink()
-
     def _build_header(self) -> QHBoxLayout:
-        mac = sys.platform == "darwin"
         header = QHBoxLayout()
-        # На macOS шапка — это и есть полоса заголовка: слева место кнопкам
-        # окна. Правый край группы кнопок совпадает с полем окна — это и есть
-        # общая сетка. Просвета между кнопками нет: подложек у них больше нет,
-        # и только вплотную они читаются как одна группа.
+        # Правый край группы кнопок совпадает с полем окна — это и есть общая
+        # сетка. Просвета между кнопками нет: подложек у них больше нет, и
+        # только вплотную они читаются как одна группа.
         header.setContentsMargins(
-            MAC_HEADER_LEFT if mac else theme.LIST_PADDING,
+            theme.LIST_PADDING,
             theme.HEADER_TOP,
             theme.HEADER_TRAILING,
             theme.HEADER_BOTTOM,
@@ -311,18 +249,16 @@ class MainWindow(QMainWindow):
         header.setSpacing(theme.HEADER_SPACING)
         btn = QSize(theme.HEADER_BTN, theme.HEADER_BTN)
 
-        # Значок рядом с кнопками окна тесно — на macOS оставляем одну надпись.
-        if not mac:
-            badge = QLabel()
-            badge.setPixmap(mark_pixmap(20, QColor(theme.TEXT)))
-            header.addWidget(badge)
+        badge = QLabel()
+        badge.setPixmap(mark_pixmap(20, QColor(theme.TEXT)))
+        header.addWidget(badge)
 
         title = QLabel("SCVPN")
         title.setObjectName("wordmark")
         # Разрядка задаётся шрифтом: letter-spacing таблица стилей Qt молча
         # выбрасывает, и знак все эти годы стоял без неё.
         title.setFont(theme.font_wordmark())
-        title.setContentsMargins(0 if mac else theme.HEADER_BADGE_GAP, 0, 0, 0)
+        title.setContentsMargins(theme.HEADER_BADGE_GAP, 0, 0, 0)
         header.addWidget(title, 1)
 
         def tool(text: str, tip: str, slot) -> QToolButton:
@@ -445,17 +381,6 @@ class MainWindow(QMainWindow):
             "tls_fingerprint", "auto",
         )
 
-        if sys.platform == "darwin":
-            # Сетевой стек TUN — тот самый винт, который приходится крутить,
-            # когда туннель ведёт себя странно на конкретной сети.
-            self._radio_group(
-                menu.addMenu("Сетевой стек TUN"),
-                [("gvisor — самый предсказуемый", "gvisor"),
-                 ("system — быстрее", "system"),
-                 ("mixed — TCP системный, UDP gvisor", "mixed")],
-                "tun_stack", "gvisor",
-            )
-
         menu.addSeparator()
 
         self.sysproxy_action = self._check_item(
@@ -474,8 +399,6 @@ class MainWindow(QMainWindow):
         # местом — обещание действия, которое ничего не сделает.
         if tun_present():
             menu.addAction("Удалить компоненты TUN…", self._remove_tun)
-        if sys.platform == "darwin":
-            menu.addAction("Удалить системный компонент…", self._remove_helper)
 
         menu.addSeparator()
         log_action = menu.addAction("Показывать лог ядра")
@@ -660,26 +583,12 @@ class MainWindow(QMainWindow):
     def _tun_preflight(self) -> bool:
         """Всё ли готово для TUN. False — идти дальше нельзя, пользователю сказано.
 
-        Порядок шагов разный на разных платформах, и это не вкусовщина.
-
-        На Windows компоненты TUN — два файла рядом с приложением (sing-box и
-        wintun.dll), которые кладёт установщик, а права — независимый от них
-        UAC. Проверять файлы первыми правильно: иначе пользователь крутил бы
-        круг UAC только затем, чтобы следом прочитать «нет компонентов».
-
-        На macOS независимости нет. sing-box обязан лежать в root-овой папке
-        (иначе его подменил бы любой процесс и получил root), кладёт его туда
-        сам привилегированный демон, а ставит демона ровно эта ветка прав.
-        То есть права — не «ещё одно требование рядом с компонентами», а их
-        предусловие. Windows-порядок здесь давал неснимаемый круг: «нет
-        компонентов» → меню «Скачать компоненты TUN» → «сначала установи
-        системный компонент (включи TUN-режим)» → обратно в «нет
-        компонентов», и ни один из двух входов в TUN не проходим на чистой
-        машине. Поэтому на darwin сперва права (они же — установка демона),
-        и только потом перепроверка компонентов.
+        Порядок шагов не вкусовщина. Компоненты TUN — два файла рядом с
+        приложением (sing-box и wintun.dll), которые кладёт установщик, а
+        права — независимый от них UAC. Проверять файлы первыми правильно:
+        иначе пользователь крутил бы круг UAC только затем, чтобы следом
+        прочитать «нет компонентов».
         """
-        if sys.platform == "darwin":
-            return self._ensure_privilege() and self._ensure_tun_components()
         return self._ensure_tun_components() and self._ensure_privilege()
 
     def _ensure_tun_components(self) -> bool:
@@ -1092,17 +1001,9 @@ class MainWindow(QMainWindow):
         self._run_download(download_core, "Ядро Xray-core {tag} установлено.", "ядро")
 
     def _download_tun(self) -> None:
-        # На macOS качать некуда, пока нет демона: sing-box обязан лежать в
-        # root-овой папке, и кладёт его туда он сам (native.tun.install_singbox
-        # без установленного демона так и отвечает — «сначала установи
-        # системный компонент»). Ставим демона прямо здесь, иначе этот вход в
-        # TUN отправлял бы пользователя ровно туда, откуда он сюда пришёл.
-        if sys.platform == "darwin" and not self._ensure_privilege():
-            return
-        # wintun — драйвер виртуального адаптера, он есть только на Windows;
-        # на macOS роль адаптера играет штатный utun, качать нечего.
-        what = "sing-box" if sys.platform == "darwin" else "sing-box + wintun"
-        self._append_log(f"[*] Скачиваю {what} (для TUN-режима)…")
+        # wintun — драйвер виртуального адаптера: без него sing-box не поднимет
+        # интерфейс, поэтому качаются оба файла разом.
+        self._append_log("[*] Скачиваю sing-box + wintun (для TUN-режима)…")
         self._run_download(download_tun, "TUN-компоненты установлены (sing-box {tag}).", "TUN")
 
     def _remove_tun(self) -> None:
@@ -1187,25 +1088,6 @@ class MainWindow(QMainWindow):
             return
         dlg.setMaximum(total // 1024)
         dlg.setValue(got // 1024)
-
-    def _remove_helper(self) -> None:
-        """Снять привилегированный демон TUN (только macOS)."""
-        r = QMessageBox.question(
-            self, "Удалить системный компонент",
-            "TUN-режим перестанет работать, пока компонент не установят заново.\n"
-            "Удалить? Понадобится пароль администратора.",
-        )
-        if r != QMessageBox.Yes:
-            return
-        self.disconnect_vpn()
-        from helper.install import uninstall
-
-        try:
-            uninstall()
-        except RuntimeError as e:
-            QMessageBox.warning(self, "Не вышло", str(e))
-            return
-        self._append_log("[*] Системный компонент удалён.")
 
     # ------------------------------------------------------------------
     # Прочее

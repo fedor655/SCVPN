@@ -10,11 +10,10 @@
 """
 from __future__ import annotations
 
-import sys
 
 # Системный шрифт интерфейса: на macOS это SF, на Windows — Segoe UI.
-UI_FONT = '-apple-system, "SF Pro Text"' if sys.platform == "darwin" else '"Segoe UI"'
-MONO_FONT = "Menlo" if sys.platform == "darwin" else "Consolas"
+UI_FONT = '"Segoe UI"'
+MONO_FONT = "Consolas"
 
 BG = "#000000"
 SURFACE = "#0D0D0D"
@@ -40,8 +39,9 @@ ACCENT = "#FFFFFF"
 # и второй список цветов разошёлся бы с Android незаметно.
 
 # --- Шапка ---
-# Вертикаль шапки менять нельзя: по этим же числам на macOS опускается
-# светофор (native.titlebar.sink), и сдвиг разведёт кнопки окна с надписью.
+# Числа те же, что в macOS-версии (SCVPNApp/Views/Style.swift): интерфейс
+# обязан выглядеть одинаково, а сверять его нечем — приложения написаны на
+# разных языках и живут в разных папках. Меняешь здесь — меняй и там.
 HEADER_TOP = 12
 HEADER_BOTTOM = 10
 HEADER_BTN = 28
@@ -329,7 +329,7 @@ QPushButton:default {{ border-color: {ACCENT}; }}
 
 # Семейство для QFont. На macOS оставляем системное (пустой список): туда
 # подставится SF, как и в QSS.
-UI_FAMILIES: list[str] = [] if sys.platform == "darwin" else ["Segoe UI"]
+UI_FAMILIES: list[str] = ["Segoe UI"]
 
 
 def _tabular(font) -> None:
@@ -478,58 +478,10 @@ def _icon_style():
     return _MessageIconStyle()
 
 
-def _titlebar_filter():
-    """Фильтр, гасящий фон полосы заголовка у диалогов (только macOS).
 
-    Главное окно делает это у себя в __init__ теми же двумя флагами, а
-    диалоги создаёт Qt — до их окон дотянуться можно только по событию показа.
-    Флага мало одного: NoTitleBarBackgroundHint убирает фон полосы, а
-    ExpandedClientAreaHint заводит под неё содержимое окна, и только вместе
-    они дают полосу цвета самого диалога, а не дыру и не системный серый.
-    Раз содержимое уезжает под полосу, ему добавляется верхний отступ — иначе
-    первая строка текста оказалась бы под светофором.
-    """
-    from PySide6.QtCore import QEvent, QObject, Qt
-    from PySide6.QtWidgets import QDialog
-
-    class _TitleBar(QObject):
-        def eventFilter(self, obj, event) -> bool:  # noqa: N802
-            if event.type() == QEvent.Show and isinstance(obj, QDialog):
-                obj.winId()                      # без этого окна ещё нет
-                handle = obj.windowHandle()
-                if handle is not None and not obj.property("_scvpn_chrome"):
-                    obj.setProperty("_scvpn_chrome", True)
-                    handle.setFlags(
-                        handle.flags()
-                        | Qt.ExpandedClientAreaHint
-                        | Qt.NoTitleBarBackgroundHint
-                    )
-                    layout = obj.layout()
-                    if layout is not None:
-                        m = layout.contentsMargins()
-                        layout.setContentsMargins(
-                            m.left(), m.top() + TITLEBAR_H, m.right(), m.bottom()
-                        )
-            return False
-
-    return _TitleBar()
-
-
-# Фильтр живёт здесь, а не родителем у QApplication: приложение приходит в
-# apply() каким угодно (в проверках — заглушкой), а фильтр без ссылки на себя
-# соберётся сборщиком мусора сразу после apply(), и диалоги останутся с
-# системной серой полосой.
-_filters: list = []
-
-
-# Высота системной полосы заголовка, на которую опускается содержимое диалога.
-TITLEBAR_H = 28
 
 
 def apply(app) -> None:
     """Одна точка входа: палитра, значки диалогов, полоса заголовка."""
     app.setStyle(_icon_style())
     app.setStyleSheet(QSS)
-    if sys.platform == "darwin":
-        _filters.append(_titlebar_filter())
-        app.installEventFilter(_filters[-1])

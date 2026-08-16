@@ -15,11 +15,9 @@ import json
 import subprocess
 import sys
 import time
-from pathlib import Path
 
-# Общий код лежит на уровень выше, в desktop/shared. Каталог самого скрипта
-# (desktop/Windows) Python добавляет в sys.path сам — оттуда берётся native.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Каталог самого скрипта Python добавляет в sys.path сам — оттуда берутся и
+# native, и shared.
 
 OK = "[ OK ]"
 FAIL = "[FAIL]"

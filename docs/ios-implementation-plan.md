@@ -46,7 +46,7 @@ CoreImage, CryptoKit, Security (Keychain). Внешние зависимости
 | Каталог | Что это |
 |---|---|
 | `desktop/macOS/` | Swift-версия, основная. Была `desktop/MacOS-Swift/` |
-| `desktop/macOS-python/` | прежняя реализация на Python. Была `desktop/MacOS/` |
+| ~~`desktop/macOS-python/`~~ | прежняя реализация на Python. Была `desktop/MacOS/`, удалена вместе с Qt-версией для macOS |
 | `desktop/shared/` | общий Python-код с Windows-версией |
 
 macOS-версия на Swift **закончена**: приложение, демон, интерфейс, README на
