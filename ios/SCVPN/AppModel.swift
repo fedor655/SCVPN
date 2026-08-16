@@ -90,6 +90,19 @@ final class AppModel: ObservableObject {
     func select(_ server: Server) {
         selectedKey = server.key()
         set("selected_key", .string(selectedKey))
+        // Туннель уже поднят на прежнем сервере, и сам он не переедет: конфиг
+        // уехал в расширение при подключении. Без этой строки экран показывал
+        // бы один сервер, а трафик шёл через другой.
+        if state == .connected { notice("Сервер сменится при следующем подключении") }
+    }
+
+    /// Короткое сообщение под статусом. Гаснет само.
+    private func notice(_ text: String) {
+        busy = text
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            if self?.busy == text { self?.busy = nil }
+        }
     }
 
     func set(_ key: String, _ value: JSONValue) {
@@ -109,6 +122,11 @@ final class AppModel: ObservableObject {
     // ------------------------------------------------------------------
 
     func toggle() {
+        // Пока идёт наша подготовка (подбор отпечатка, сборка конфига),
+        // нажатие игнорируется: отменить её нечем, а отключение по дороге
+        // приводило бы к «выключил, а оно подключилось». Так же ведёт себя
+        // macOS-версия. Когда состояние пришло от системы — отключаем честно.
+        guard !preparing else { return }
         switch state {
         case .connected, .connecting: Task { await disconnect() }
         default: Task { await connect() }

@@ -104,6 +104,11 @@ final class AppModel: ObservableObject {
     func select(_ server: Server) {
         selectedKey = server.key()
         set("selected_key", .string(selectedKey))
+        // Ядро уже запущено с прежним конфигом и само не переедет — без этой
+        // строки экран показывал бы один сервер, а трафик шёл через другой.
+        if state == .connected {
+            append("[i] Сервер сменится при следующем подключении")
+        }
     }
 
     func set(_ key: String, _ value: JSONValue) {

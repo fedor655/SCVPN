@@ -471,8 +471,14 @@ class MainWindow(QMainWindow):
     def _on_selection_changed(self) -> None:
         s = self._current_server()
         if s:
+            was = self.settings.get("selected_key", "")
             self._set_setting("selected_key", s.key())
             self._update_substatus()
+            # Ядро уже запущено с прежним конфигом и само не переедет: без
+            # этой строки список показывал бы один сервер, а трафик шёл через
+            # другой. Android говорит то же самое.
+            if was != s.key() and self._state == "connected":
+                self._append_log("[i] Сервер сменится при следующем подключении")
 
     def _list_context_menu(self, pos) -> None:
         item = self.list.itemAt(pos)
