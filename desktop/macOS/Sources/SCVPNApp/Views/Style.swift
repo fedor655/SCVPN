@@ -13,14 +13,23 @@ import SwiftUI
 enum Style {
 
     // MARK: Шапка
+    //
+    // Вертикаль шапки менять нельзя: `HeaderMetrics` задаёт её и ядру, и
+    // AppKit — по тем же числам опускается светофор. Сдвинь высоту или
+    // верхний отступ здесь, и кнопки окна разъедутся с надписью.
 
     /// Размер значка в кнопке шапки.
-    static let headerIcon: CGFloat = 15
-    static let headerButtonCorner: CGFloat = 8
-    /// Просвет между кнопками справа.
-    static let headerSpacing: CGFloat = 2
-    static let headerTrailing: CGFloat = 12
+    static let headerIcon: CGFloat = 14
+    /// Просвет между кнопками: ноль. Подложек у них больше нет, и только
+    /// вплотную они читаются как одна группа, а не как четыре знака подряд.
+    static let headerSpacing: CGFloat = 0
+    /// Правый край группы кнопок. Совпадает с краем карточек списка — это и
+    /// есть общая сетка окна.
+    static let headerTrailing: CGFloat = 16
     static let headerBottom: CGFloat = 10
+
+    /// Толщина разделительных линий.
+    static let hairline: CGFloat = 1
 
     // MARK: Кнопка питания и статус
 

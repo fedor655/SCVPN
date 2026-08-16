@@ -13,6 +13,13 @@ struct MainView: View {
                 MainMenu(model: model)
             }
 
+            // Полосы заголовка у окна нет, и без этой линии шапка сливалась с
+            // содержимым: непонятно, где кончаются кнопки окна и начинается
+            // приложение.
+            Rectangle()
+                .fill(Color.scvpnStroke)
+                .frame(height: Style.hairline)
+
             powerBlock
 
             Text("СЕРВЕРЫ")

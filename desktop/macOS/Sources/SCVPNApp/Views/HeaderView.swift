@@ -33,7 +33,12 @@ struct HeaderView<Menu: View>: View {
     }
 }
 
-/// Плоская кнопка шапки: без фона и рамки, подсветка только при наведении.
+/// Плоская кнопка шапки: ни фона, ни рамки — при наведении светлеет сам знак.
+///
+/// Подложка под курсором была раньше и ушла намеренно. В окне ровно один
+/// объёмный элемент — кнопка питания; всё остальное плоское, иначе четыре
+/// прямоугольника в шапке спорят с ней за внимание. Область нажатия при этом
+/// осталась прежней, 28×28: она задаётся `frame`, а не фоном.
 struct HeaderButton: View {
     var systemName: String
     var help: String
@@ -47,10 +52,9 @@ struct HeaderButton: View {
                 .font(.system(size: Style.headerIcon))
                 .foregroundStyle(hovering ? Color.scvpnText : Color.scvpnDim)
                 .frame(width: HeaderMetrics.buttonSide, height: HeaderMetrics.buttonSide)
-                .background(
-                    RoundedRectangle(cornerRadius: Style.headerButtonCorner)
-                        .fill(hovering ? Color.scvpnSurfaceHi : Color.clear)
-                )
+                // Без явной формы нажимается только сам глиф, а не квадрат
+                // вокруг него — попасть в тонкую стрелку мышью тяжело.
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
@@ -72,10 +76,7 @@ struct HeaderMenuButton<Menu: View>: View {
                 .font(.system(size: Style.headerIcon))
                 .foregroundStyle(hovering ? Color.scvpnText : Color.scvpnDim)
                 .frame(width: HeaderMetrics.buttonSide, height: HeaderMetrics.buttonSide)
-                .background(
-                    RoundedRectangle(cornerRadius: Style.headerButtonCorner)
-                        .fill(hovering ? Color.scvpnSurfaceHi : Color.clear)
-                )
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
