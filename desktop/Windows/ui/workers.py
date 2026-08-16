@@ -12,8 +12,8 @@ from typing import Callable
 from PySide6.QtCore import QThread, Signal
 
 from native import paths
-from shared.connect import ping_delay
-from shared.ping import tcp_ping
+from connect import ping_delay
+from ping import tcp_ping
 
 
 class Worker(QThread):

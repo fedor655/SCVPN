@@ -29,11 +29,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from shared import __version__
-from shared.connect import find_working_fingerprint
-from shared.core_runner import XrayRunner, find_free_port
-from shared.models import Server
-from shared.storage import (
+from app_info import __version__
+from connect import find_working_fingerprint
+from core_runner import XrayRunner, find_free_port
+from models import Server
+from storage import (
     Profiles,
     Subscription,
     load_profiles,
@@ -42,8 +42,8 @@ from shared.storage import (
     save_profiles,
     save_settings,
 )
-from shared.subscription import SubscriptionError, fetch_subscription_full, parse_link
-from shared.xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
+from subscription import SubscriptionError, fetch_subscription_full, parse_link
+from xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
 from native import sysproxy
 from native.downloader import (
     core_present,

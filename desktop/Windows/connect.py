@@ -16,9 +16,9 @@ from typing import Callable, Optional
 
 import requests
 
-from .core_runner import XrayRunner, find_free_port
-from .models import Server
-from .xray_config import build_config
+from core_runner import XrayRunner, find_free_port
+from models import Server
+from xray_config import build_config
 
 PROBE_URL = "https://api.ipify.org"
 # Куда ходит замер пинга. Не PROBE_URL: 204-й ответ пустой, и в измеренное

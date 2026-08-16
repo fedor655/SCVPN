@@ -47,7 +47,7 @@ CoreImage, CryptoKit, Security (Keychain). Внешние зависимости
 |---|---|
 | `desktop/macOS/` | Swift-версия, основная. Была `desktop/MacOS-Swift/` |
 | ~~`desktop/macOS-python/`~~ | прежняя реализация на Python. Была `desktop/MacOS/`, удалена вместе с Qt-версией для macOS |
-| `desktop/shared/` | общий Python-код с Windows-версией |
+| ~~`desktop/shared/`~~ | был общий Python-код; развёрнут внутрь `desktop/Windows/` |
 
 macOS-версия на Swift **закончена**: приложение, демон, интерфейс, README на
 месте. Проверки:
@@ -204,7 +204,7 @@ rules.append(["type": "field", "outboundTag": "direct", "domain": ["geosite:priv
 расширению нужны разбор `providerConfiguration` и типы протокола сообщений, а
 дублирование этих типов — ровно тот способ, которым расходятся реализации
 (`desktop/macOS/README.md`, раздел «Общий код с Windows»: правка логики уже
-делается дважды — в `desktop/shared/` и в `SCVPNCore`).
+делается дважды — в `desktop/Windows/` и в `SCVPNCore`).
 
 Компромисс: общие типы туннеля живут в `SCVPNCore` в файлах под `#if os(iOS)`,
 Swift-линкер выбрасывает неиспользуемый код, а платформенно-тяжёлое (`Process`,

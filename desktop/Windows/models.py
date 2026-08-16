@@ -165,6 +165,3 @@ class Server:
         """Грубый ключ для отсева дубликатов при обновлении подписки."""
         return f"{self.protocol}://{self.uuid or self.password}@{self.address}:{self.port}/{self.network}/{self.security}"
 
-
-def new_uuid() -> str:
-    return str(_uuid.uuid4())

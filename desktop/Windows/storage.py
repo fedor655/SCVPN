@@ -11,8 +11,8 @@ from datetime import datetime
 from typing import Any
 
 from native import paths
-from .models import Server
-from .subinfo import SubscriptionInfo
+from models import Server
+from subinfo import SubscriptionInfo
 
 
 # ----------------------------------------------------------------------

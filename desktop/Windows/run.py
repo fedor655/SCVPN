@@ -19,7 +19,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from native import paths  # noqa: E402
-from shared.ui.main_window import run_app  # noqa: E402
+from ui.main_window import run_app  # noqa: E402
 
 
 def main() -> int:

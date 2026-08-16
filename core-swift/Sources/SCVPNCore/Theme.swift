@@ -45,7 +45,7 @@ public enum HeaderMetrics {
 
 /// Фирменный знак «S».
 ///
-/// Геометрия один в один как в `setup/brand.py` и `shared/ui/brandmark.py`: две
+/// Геометрия одна на все платформы (Qt рисует её в `Windows/ui/brandmark.py`): две
 /// касающиеся окружности, осевая обводится штрихом с круглыми концами, каждая
 /// чаша раскрыта на 255°.
 public enum Brandmark {

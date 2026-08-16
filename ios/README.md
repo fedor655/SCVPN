@@ -142,6 +142,6 @@ export SCVPN_BUNDLE_ID=com.example.scvpn
 
 `core-swift/Sources/SCVPNCore/` — один пакет на macOS и iOS. Платформенное
 разделено `#if os(macOS)` / `#if os(iOS)`, а не двумя деревьями файлов: копии
-расходятся молча. Правка логики в `desktop/shared/` (Python, Windows) по-прежнему
+расходятся молча. Правка логики в `desktop/Windows/` (Python) по-прежнему
 требует парной правки здесь — см. `desktop/macOS/README.md`, раздел «Общий код
 с Windows».

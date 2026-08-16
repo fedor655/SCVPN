@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 
 from native.apps import MANUAL_HINT, normalize, running_apps
 from native.tun import SPLIT_EXCLUDE, SPLIT_INCLUDE, SPLIT_OFF
-from shared.xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL
+from xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL
 from . import theme
 
 

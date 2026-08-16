@@ -16,8 +16,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 
 from native.hwid import device_headers
-from .models import Server
-from .subinfo import SubscriptionInfo
+from models import Server
+from subinfo import SubscriptionInfo
 
 # Многие панели (3x-ui, Marzban, Remnawave) отдают список ссылок в base64,
 # ориентируясь на User-Agent известного клиента. Используем распространённый,
@@ -28,12 +28,6 @@ DEFAULT_USER_AGENT = "v2rayNG/1.9.5"
 
 class SubscriptionError(Exception):
     """Подписка ответила, но серверов не отдала — и объяснила почему."""
-
-
-def fetch_subscription(url: str, user_agent: str = DEFAULT_USER_AGENT, timeout: int = 30) -> list["Server"]:
-    """Скачать подписку по URL и вернуть список серверов."""
-    servers, _info = fetch_subscription_full(url, user_agent, timeout)
-    return servers
 
 
 def fetch_subscription_full(

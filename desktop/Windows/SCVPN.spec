@@ -3,7 +3,7 @@
 
 a = Analysis(
     ['run.py'],
-    # shared лежит рядом, внутри Windows: общего кода с macOS больше нет.
+    # Все модули лежат рядом с run.py: общего кода с другими платформами нет.
     pathex=['.'],
     binaries=[],
     datas=[('setup\\scvpn.ico', '.')],

@@ -21,7 +21,7 @@ import sys
 import threading
 from typing import Callable, Optional
 
-from shared.models import Server
+from models import Server
 
 from . import paths
 
@@ -362,11 +362,12 @@ class Tun:
     def stop(self) -> bool:
         """Снять sing-box. True — он снят; False — пережил остановку.
 
-        Контракт возврата общий с macOS (см. MacOS/native/tun.py): там правду
-        о снятии добывает ответ привилегированного демона, здесь — poll()
-        своего же процесса. Общий у них смысл: пока sing-box жив, TUN-адаптер
-        поднят и маршруты держатся, и интерфейс не имеет права показать
-        «Отключено» — shared/ui/main_window.py решает это по возврату.
+        Тот же контракт возврата у macOS-версии (`Tun.stop()` в
+        `desktop/macOS/`): там правду о снятии добывает ответ привилегированного
+        демона, здесь — poll() своего же процесса. Общий у них смысл: пока
+        sing-box жив, TUN-адаптер поднят и маршруты держатся, и интерфейс не
+        имеет права показать «Отключено» — `ui/main_window.py` решает это по
+        возврату.
         """
         if self._proc is None:
             return True

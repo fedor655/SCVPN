@@ -40,11 +40,11 @@ try:
     from native import paths
     from native.downloader import core_present, tun_present
     from native.tun import build_singbox_config, is_admin
-    from shared.connect import find_working_fingerprint
-    from shared.core_runner import XrayRunner, find_free_port
-    from shared.storage import load_profiles, load_settings
-    from shared.xray_config import build_config
-    import shared.ui.main_window  # noqa: F401
+    from connect import find_working_fingerprint
+    from core_runner import XrayRunner, find_free_port
+    from storage import load_profiles, load_settings
+    from xray_config import build_config
+    import ui.main_window  # noqa: F401
     mark("Импорт всех модулей", True)
 except Exception as e:  # noqa: BLE001
     mark("Импорт всех модулей", False, repr(e))

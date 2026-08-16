@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import Server
+from models import Server
 
 # Локальные порты по умолчанию (только на 127.0.0.1, наружу не торчат).
 DEFAULT_SOCKS_PORT = 10808
