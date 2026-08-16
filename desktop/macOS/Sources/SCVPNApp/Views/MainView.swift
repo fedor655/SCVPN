@@ -130,7 +130,8 @@ struct MainView: View {
                 ForEach(model.servers, id: \.key) { server in
                     ServerRow(server: server,
                               ping: model.ping(for: server),
-                              selected: server.key() == model.selectedKey)
+                              selected: server.key() == model.selectedKey,
+                              last: server.key() == model.servers.last?.key())
                         .contentShape(Rectangle())
                         .onTapGesture { model.select(server) }
                         // Двойной щелчок подключает — так же, как в Qt-версии.
@@ -140,7 +141,8 @@ struct MainView: View {
                         })
                 }
             }
-            .padding(.horizontal, Style.listPadding)
+            // Поля теперь внутри строки: подсветка под курсором должна идти
+            // от края до края окна.
             .padding(.bottom, Style.listBottom)
         }
     }

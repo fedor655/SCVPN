@@ -74,7 +74,9 @@ enum Style {
 
     // MARK: Заголовок раздела
 
-    static let sectionPadding: CGFloat = 22
+    /// Заголовок раздела встаёт ровно над именами серверов, а не над краем
+    /// строки: колонка текста — самая заметная вертикаль в списке.
+    static var sectionPadding: CGFloat { listPadding + rowMarker + rowTextLeading }
     static let sectionBottom: CGFloat = 8
 
     // MARK: Разрядка
@@ -92,22 +94,27 @@ enum Style {
 
     // MARK: Список серверов
 
-    static let listSpacing: CGFloat = 4
+    /// Просвета между строками нет: их разделяет линия, а не пустота.
+    static let listSpacing: CGFloat = 0
+    /// Поле слева и справа от содержимого строки. Подсветка под курсором при
+    /// этом идёт от края до края — нажимается вся полоса, а не карточка.
     static let listPadding: CGFloat = 16
     static let listBottom: CGFloat = 10
 
-    static let rowHeight: CGFloat = 58
-    static let rowCorner: CGFloat = 10
-    static let rowPaddingH: CGFloat = 14
-    static let rowPaddingV: CGFloat = 10
+    /// Без карточки и её внутренних полей строка стала ниже на 6.
+    static let rowHeight: CGFloat = 52
+    /// Ширина маркера выбранной строки.
+    static let rowMarker: CGFloat = 2
+    /// Насколько маркер короче строки сверху и снизу.
+    static let rowMarkerInset: CGFloat = 13
+    /// От маркера до текста.
+    static let rowTextLeading: CGFloat = 12
     /// Между именем сервера и строкой с адресом.
     static let rowTextSpacing: CGFloat = 3
     /// Между текстом и пингом.
     static let rowGap: CGFloat = 8
 
     static let stroke: CGFloat = 1
-    /// Обводка выбранной строки.
-    static let strokeSelected: CGFloat = 1.5
 
     // MARK: Лог
 
