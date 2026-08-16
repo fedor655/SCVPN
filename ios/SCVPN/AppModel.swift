@@ -277,9 +277,20 @@ final class AppModel: ObservableObject {
         do {
             let (fetched, info) = try await fetchSubscription(url: url)
             let title = info.title.isEmpty ? (URL(string: url)?.host ?? url) : info.title
-            let sub = SCVPNCore.Subscription(name: title, url: url, updated: nowISO(),
-                                             added: nowISO(), info: info, servers: fetched)
-            profiles.subscriptions.append(sub)
+
+            // Та же ссылка второй раз — это «обновить», а не «добавить ещё
+            // одну»: иначе в списке две одинаковые подписки, и серверы каждой
+            // живут своей жизнью. Дату добавления сохраняем от первой.
+            if let at = profiles.subscriptions.firstIndex(where: { $0.url == url }) {
+                profiles.subscriptions[at].servers = fetched
+                profiles.subscriptions[at].info = info
+                profiles.subscriptions[at].updated = nowISO()
+                profiles.subscriptions[at].name = title
+            } else {
+                profiles.subscriptions.append(
+                    SCVPNCore.Subscription(name: title, url: url, updated: nowISO(),
+                                           added: nowISO(), info: info, servers: fetched))
+            }
             persistProfiles()
             append("[*] Подписка добавлена: серверов \(fetched.count)")
             if selectedKey.isEmpty, let first = fetched.first { select(first) }

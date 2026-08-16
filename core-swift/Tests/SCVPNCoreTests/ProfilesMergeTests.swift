@@ -59,3 +59,26 @@ final class ProfilesMergeTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(Profiles.self, from: data), profiles)
     }
 }
+
+/// Повторное добавление той же подписки — это обновление, а не вторая копия.
+///
+/// Проверка живёт рядом со слиянием профилей: правило одно и то же — подписка
+/// опознаётся по ссылке.
+final class SubscriptionIdentityTests: XCTestCase {
+
+    func test_same_url_twice_is_one_subscription() {
+        var profiles = Profiles(subscriptions: [
+            Subscription(name: "Панель", url: "https://p/sub", servers: []),
+        ])
+        let incoming = Profiles(subscriptions: [
+            Subscription(name: "Панель", url: "https://p/sub",
+                         servers: [Server(proto: "vless", name: "A", address: "a", uuid: "u")]),
+        ])
+        let merged = mergeProfiles(profiles, incoming)
+        XCTAssertEqual(merged.subscriptions.count, 1)
+        XCTAssertEqual(merged.subscriptions[0].servers.count, 1)
+
+        profiles = merged
+        XCTAssertEqual(mergeProfiles(profiles, incoming).subscriptions.count, 1)
+    }
+}
