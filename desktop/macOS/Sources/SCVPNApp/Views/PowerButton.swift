@@ -78,13 +78,27 @@ struct PowerButton: View {
                     .id(state == .connected)
             }
             .frame(width: side, height: side)
-            // Кликается ровно круг, а не квадрат вокруг него: без inset
-            // чувствительная область выходила за кольцо на его толщину, и
-            // кнопка срабатывала мимо видимой границы.
-            .contentShape(Circle().inset(by: inset))
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        // Нажимается ровно круг, а не квадрат вокруг него.
+        .contentShape(Circle().inset(by: inset))
+        // Наведение считается вручную, по расстоянию до центра.
+        //
+        // `onHover` для этого не годится, и `contentShape` его не
+        // ограничивает: область слежения у него — прямоугольная рамка вида,
+        // то есть квадрат, описанный вокруг кнопки. Курсор в углу этого
+        // квадрата — за 100 pt от кольца — зажигал заливку. Проверено
+        // замером пикселя: с `onHover` угол давал ту же яркость, что и центр.
+        .onContinuousHover { phase in
+            guard case .active(let point) = phase else {
+                hovering = false
+                return
+            }
+            let radius = side / 2 - inset
+            let dx = point.x - side / 2
+            let dy = point.y - side / 2
+            hovering = dx * dx + dy * dy <= radius * radius
+        }
         // Именно `.animation(_:value:)`, а не `withAnimation` в модели:
         // состояние приходит из ядра, и оборачивать каждое его присваивание
         // значило бы размазать вид по логике подключения.

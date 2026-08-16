@@ -13,6 +13,8 @@ import SwiftUI
 /// `NSCameraUsageDescription`.
 @main
 struct SCVPNApplication: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -36,6 +38,23 @@ struct SCVPNApplication: App {
     }
 }
 
+/// Уборка при выходе из приложения.
+///
+/// SwiftUI сам по себе про завершение ничего не сообщает — сцена просто
+/// исчезает вместе с процессом. А завершиться приложение может при живом
+/// подключении: Cmd+Q, «Завершить» из Dock, перезагрузка. Системный прокси и
+/// TUN при этом остаются в системе, и снять их будет уже некому.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Модель ставит сюда себя в `RootView`: делегат создаёт AppKit, модель —
+    /// SwiftUI, и добраться друг до друга им иначе нечем. Слабая ссылка,
+    /// потому что владеет моделью `@StateObject`, а не делегат.
+    @MainActor static weak var model: AppModel?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { AppDelegate.model?.shutdown() }
+    }
+}
+
 /// Корневой вид: модель живёт здесь и переживает перерисовки.
 struct RootView: View {
     @StateObject private var model = AppModel()
@@ -44,5 +63,6 @@ struct RootView: View {
         MainView(model: model)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.scvpnBG)
+            .onAppear { AppDelegate.model = model }
     }
 }
