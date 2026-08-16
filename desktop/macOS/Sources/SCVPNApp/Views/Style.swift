@@ -60,13 +60,17 @@ enum Style {
     /// раздумывает, хотя ядро уже стартовало.
     static let stateChange: Animation = .easeInOut(duration: 0.25)
 
-    static let powerBlockPadding: CGFloat = 24
-    static let statusTop: CGFloat = 18
-    static let substatusTop: CGFloat = 5
+    /// Пустоты вокруг блока ужаты: кнопка выросла до 156, и прежние отступы
+    /// отдавали ей треть окна, оставляя списку четыре строки.
+    static let powerBlockPadding: CGFloat = 14
+    static let statusTop: CGFloat = 12
+    static let substatusTop: CGFloat = 4
     static let substatusPadding: CGFloat = 20
+    /// Между строкой подробностей и подписью режима.
+    static let substatusLineGap: CGFloat = 4
     /// Высота фиксирована: подстатус меняется с одной строки на две, и без
     /// фиксации список серверов подпрыгивал бы при каждом переключении.
-    static let substatusHeight: CGFloat = 32
+    static let substatusHeight: CGFloat = 34
 
     // MARK: Заголовок раздела
 

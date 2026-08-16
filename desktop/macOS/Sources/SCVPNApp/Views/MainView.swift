@@ -75,32 +75,53 @@ struct MainView: View {
                 // растворением: раньше «Подключено» возникало рывком, будто
                 // подменили не ту строку.
                 .contentTransition(.opacity)
-            Text(substatus)
-                .font(.substatus)
-                .foregroundStyle(Color.scvpnDim)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, Style.substatusPadding)
-                .padding(.top, Style.substatusTop)
-                .frame(height: Style.substatusHeight, alignment: .top)
-                .contentTransition(.opacity)
+            statusDetail
         }
         .padding(.vertical, Style.powerBlockPadding)
         .frame(maxWidth: .infinity)
         .animation(Style.stateChange, value: model.state)
     }
 
-    private var substatus: String {
-        switch model.state {
-        case .connected:
-            let mode = model.mode == .tun ? "весь трафик" : "системный прокси"
-            return "\(formatUptime(model.uptime)) · \(mode)"
-        case .connecting:
-            return model.selectedServer?.title ?? ""
-        case .tunStuck:
-            return "Трафик всё ещё идёт через туннель"
-        default:
-            return model.selectedServer?.title ?? ""
+    /// Подробности под состоянием: строка про «что сейчас» и подпись режима.
+    ///
+    /// Раньше это была одна строка вида «00:12:34 · системный прокси»: аптайм
+    /// и режим — разные по природе вещи, живое число и настройка, — а
+    /// разделяла их точка. Теперь режим стоит отдельной подписью и только при
+    /// живом подключении: в простое он ничего не сообщает, потому что ничего
+    /// ещё не выбрано.
+    private var statusDetail: some View {
+        VStack(spacing: Style.substatusLineGap) {
+            Text(detailLine)
+                .font(.substatus)
+                .foregroundStyle(Color.scvpnDim)
+                .multilineTextAlignment(.center)
+                .contentTransition(.opacity)
+            if let mode = modeCaption {
+                Text(mode)
+                    .font(.section)
+                    .tracking(Style.sectionTracking)
+                    .foregroundStyle(Color.scvpnMuted)
+                    .contentTransition(.opacity)
+            }
         }
+        .padding(.horizontal, Style.substatusPadding)
+        .padding(.top, Style.substatusTop)
+        .frame(height: Style.substatusHeight, alignment: .top)
+    }
+
+    /// Что происходит прямо сейчас: при живом подключении — сколько оно
+    /// держится, в остальных случаях — куда собирались подключаться.
+    private var detailLine: String {
+        switch model.state {
+        case .connected: return formatUptime(model.uptime)
+        case .tunStuck:  return "Трафик всё ещё идёт через туннель"
+        default:         return model.selectedServer?.title ?? ""
+        }
+    }
+
+    private var modeCaption: String? {
+        guard model.state == .connected else { return nil }
+        return model.mode == .tun ? "ВЕСЬ ТРАФИК" : "СИСТЕМНЫЙ ПРОКСИ"
     }
 
     private var serverList: some View {
