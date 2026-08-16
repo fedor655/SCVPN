@@ -78,6 +78,14 @@ targets:
         CFBundleDisplayName: SCVPN
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: "1"
+        # Без этого система считает приложение английским и подписывает свои
+        # кнопки по-английски: свайп по списку давал «Delete» рядом с русским
+        # текстом, а выбор файла — «Cancel».
+        # Русский — единственный язык бандла, как и у macOS- и Android-версий:
+        # тексты зашиты в код по-русски, и системные надписи не должны
+        # разъезжаться с ними на телефоне с другим языком.
+        CFBundleDevelopmentRegion: ru
+        CFBundleLocalizations: [ru]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
