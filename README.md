@@ -9,7 +9,7 @@
 | **Windows** | `desktop/Windows/` — Python + PySide6, ядро `xray.exe` рядом |
 | **macOS** | `desktop/macOS/` — нативный Swift, TUN через привилегированный демон (Apple Silicon) |
 | **Android** | `android/` — Kotlin, то же ядро внутри процесса (`libv2ray.aar`) |
-| **iOS** | `ios/` — SwiftUI, ядро внутри расширения туннеля (`NEPacketTunnelProvider`) |
+| **iOS** | `ios/` — SwiftUI, ядро внутри расширения туннеля (`NEPacketTunnelProvider`). **Поддержка прекращена**, см. ниже |
 
 ## Что приложение отправляет в сеть (и больше ничего)
 
@@ -199,6 +199,27 @@ build_apk.bat        # app\build\outputs\apk\debug\app-debug.apk
 Сторонние бинарники (`libv2ray.aar`, `libhev-socks5-tunnel.so`, `xray`/`xray.exe`,
 `sing-box`/`sing-box.exe`, `wintun.dll`) в репозиторий не кладутся — откуда их
 взять написано в README соответствующей папки.
+
+## iOS: поддержка прекращена
+
+Версия написана целиком и работает — серверы, подписки, пинг, автоподбор
+отпечатка, QR, перенос профилей, — кроме самого туннеля.
+
+Причина не в коде. Расширению нужен entitlement
+`com.apple.developer.networking.networkextension`, а его Apple выдаёт только
+участникам Developer Program ($99 в год). Бесплатный Apple ID отвечает прямо:
+«Personal development teams do not support the Network Extensions capability»,
+и профиль не подписывается. Держать платную подписку и продлевать её каждый
+год ради одной платформы мы не готовы, поэтому версия дальше не развивается.
+
+Код остаётся в репозитории: он собирается, проверки зелёные, приложение
+ставится на устройство (`ios/run-on-device.sh`) и работает без подключения.
+Если аккаунт появится, доводить нужно с того места, где остановились, —
+Фаза 0 плана: подпись с entitlement, замер памяти расширения, проверка
+туннеля на живом устройстве. Сама схема «ядро в процессе + мост + TUN»
+проверена живьём на Android и работает.
+
+Windows, macOS и Android поддерживаются как прежде.
 
 ## Фирменный знак
 
