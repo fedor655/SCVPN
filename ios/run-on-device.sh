@@ -11,16 +11,20 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-TEAM="${SCVPN_TEAM:-}"
+# Team берём из сертификата в связке, если не задан явно: он там записан в
+# скобках — «Apple Development: почта (XXXXXXXXXX)».
+TEAM="${SCVPN_TEAM:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | sed -n 's/.*(\([A-Z0-9]\{10\}\)).*/\1/p' | head -1)}"
 BUNDLE="${SCVPN_BUNDLE_ID:-}"
 WITH_TUNNEL=0
 [ "${1:-}" = "--tunnel" ] && WITH_TUNNEL=1
 
 [ -n "$TEAM" ] || {
-  echo "[!] Не задан SCVPN_TEAM — идентификатор команды разработчика."
-  echo "    Посмотреть: security find-identity -v -p codesigning"
-  echo "    Он в скобках: «Apple Development: почта (XXXXXXXXXX)»"
+  echo "[!] Не нашёл сертификат разработчика."
+  echo "    Открой Xcode → Settings → Accounts и войди под своим Apple ID."
   exit 1; }
+
+
 [ -n "$BUNDLE" ] || {
   echo "[!] Не задан SCVPN_BUNDLE_ID."
   echo "    Возьми свой, например: com.<фамилия>.scvpn"
@@ -58,9 +62,29 @@ xcodegen generate --spec "$SPEC" >/dev/null
 DEVICE="$(xcrun devicectl list devices 2>/dev/null | awk '/available/ {print $(NF-1); exit}')"
 [ -n "$DEVICE" ] || { echo "[!] iPhone не найден. Подключи кабелем и разреши доверие."; exit 1; }
 
-xcodebuild build -project SCVPN.xcodeproj -scheme SCVPN \
+# Вывод сохраняем: у двух самых частых отказов подписи причина не в коде, и
+# без объяснения человек ищет её не там.
+LOG="$DERIVED/last-build.log"
+mkdir -p "$DERIVED"
+if ! xcodebuild build -project SCVPN.xcodeproj -scheme SCVPN \
   -destination "generic/platform=iOS" -derivedDataPath "$DERIVED" \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates 2>&1 | tee "$LOG" | grep -E "error:|BUILD" ; then :; fi
+
+if grep -q "No Account for Team" "$LOG"; then
+  echo
+  echo "[!] Xcode не знает твоего Apple ID — выпустить подпись нечем."
+  echo "    Xcode → Settings (⌘,) → Accounts → «+» → Apple ID, затем повтори."
+  exit 1
+fi
+if grep -qi "personal development teams.*Network Extensions\|doesn.t support.*Network Extensions" "$LOG"; then
+  echo
+  echo "[!] Бесплатный Apple ID не даёт возможности поднимать VPN-туннель."
+  echo "    Поставь версию без расширения (всё, кроме подключения):"
+  echo "        ./run-on-device.sh"
+  echo "    Туннель заработает только с Apple Developer Program."
+  exit 1
+fi
+grep -q "BUILD SUCCEEDED" "$LOG" || { echo "[!] Сборка не прошла, подробности: $LOG"; exit 1; }
 
 APP="$DERIVED/Build/Products/Debug-iphoneos/SCVPN.app"
 xcrun devicectl device install app --device "$DEVICE" "$APP"
