@@ -367,6 +367,8 @@ class MainActivity : AppCompatActivity() {
             menu.add(0, 1, 0, getString(R.string.menu_subscription))
             menu.add(0, 2, 1, getString(R.string.menu_split))
             menu.add(0, 3, 2, getString(R.string.delete_subscription))
+            menu.add(0, 4, 3, getString(R.string.export_profiles))
+            menu.add(0, 5, 4, getString(R.string.import_profiles))
             setOnMenuItemClickListener {
                 when (it.itemId) {
                     1 -> showSubscriptionInfo()
