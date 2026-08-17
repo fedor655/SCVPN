@@ -120,6 +120,46 @@ func probeFingerprint(_ server: Server, fp: String, routeMode: RouteMode,
 /// порт: `findFreePort` закрывает сокет сразу после проверки, и вторая проба
 /// видит его свободным. Ядро второй пробы не поднимается, а сервер получает
 /// «нет ответа» — проверено живьём на списке из двенадцати серверов.
+/// Задержка до wireguard-сервера — замером внутри самого туннеля.
+///
+/// Работу делает сам `scvpn-awg` в режиме `-probe`: он поднимает туннель,
+/// делает через него запрос и печатает миллисекунды. Так замер один на все
+/// платформы, и здесь остаётся только запустить процесс и прочитать число.
+///
+/// Конфиг пишется во временный файл, а не в рабочий: замер идёт по всему
+/// списку серверов сразу, и общий путь означал бы, что пробы затирают конфиг
+/// друг другу — и заодно тот, по которому прямо сейчас поднят туннель.
+public func awgDelay(_ server: Server, timeout: TimeInterval = 20.0) -> Int? {
+    let exe = Paths.awgExe
+    guard FileManager.default.fileExists(atPath: exe.path) else { return nil }
+
+    let confPath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("scvpn-probe-\(UUID().uuidString).conf")
+    FileManager.default.createFile(atPath: confPath.path, contents: nil,
+                                   attributes: [.posixPermissions: 0o600])
+    guard (try? Data(wireGuardConfText(server).utf8).write(to: confPath)) != nil else { return nil }
+    defer { try? FileManager.default.removeItem(at: confPath) }
+
+    let proc = Process()
+    proc.executableURL = exe
+    proc.arguments = ["-config", confPath.path, "-probe", pingURL]
+    let out = Pipe()
+    proc.standardOutput = out
+    proc.standardError = FileHandle.nullDevice
+    guard (try? proc.run()) != nil else { return nil }
+
+    // Сторож: рукопожатие к мёртвому серверу не завершается само — процесс
+    // будет ждать своего таймаута, а список серверов встанет на нём.
+    let watchdog = DispatchWorkItem { if proc.isRunning { proc.terminate() } }
+    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    proc.waitUntilExit()
+    watchdog.cancel()
+
+    guard proc.terminationStatus == 0 else { return nil }
+    return Int(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+}
+
 public func xrayDelay(_ server: Server, routeMode: RouteMode = .global,
                       blockAds: Bool = false, timeout: TimeInterval = 6.0,
                       portBase: Int = 20000, url: String = probeURL) -> Int? {
@@ -166,6 +206,13 @@ public func xrayDelay(_ server: Server, routeMode: RouteMode = .global,
 public func pingDelay(_ server: Server, routeMode: RouteMode = .global,
                       blockAds: Bool = false, timeout: TimeInterval = 6.0,
                       portBase: Int = 20000) -> Int? {
+    // У wireguard задержку меряет сам туннель: Xray подняться не сможет —
+    // socks-выход смотрит в порт, которого без запущенного `scvpn-awg` нет.
+    // TCP-пингом Endpoint тоже не измерить, WireGuard живёт на UDP.
+    if server.isWireGuard {
+        return awgDelay(server, timeout: timeout)
+    }
+
     let candidates = Array(candidateFingerprints(server, override: "auto")
         .prefix(pingFingerprintTries))
     // Транспорт без TLS отпечатком не отличается — хватит одной пробы.

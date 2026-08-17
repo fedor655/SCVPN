@@ -77,6 +77,14 @@ struct ServerRow: View {
     /// Что видно под именем: протокол, адрес и транспорт — то, по чему
     /// пользователь отличает два сервера с одинаковым названием.
     private var subtitle: String {
+        // У wireguard поля security и network — заглушки со значениями по
+        // умолчанию, показывать их нечестно. Зато важно другое: с обфускацией
+        // это AmneziaWG, без неё обычный WireGuard, и сервер примет только
+        // своё. Разницу видно отсюда и больше ниоткуда.
+        if server.isWireGuard {
+            let kind = server.awg.isEmpty ? "wireguard" : "amneziawg"
+            return "\(kind) · \(server.address):\(server.port)"
+        }
         var parts = [server.proto, "\(server.address):\(server.port)"]
         if server.security != "none" { parts.append(server.security) }
         if server.network != "tcp" { parts.append(server.network) }

@@ -19,8 +19,16 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!--
+      extractNativeLibs: библиотеки распаковываются на диск при установке.
+      Начиная с Android 10 приложение может запускать программы только из
+      каталога нативных библиотек, а запускать их можно лишь распакованными —
+      без этого scvpn-awg (он же libscvpnawg.so) не стартует вовсе.
+      APK от этого чуть больше; другого способа выполнить свой бинарник нет.
+    -->
     <application
         android:allowBackup="true"
+        android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"

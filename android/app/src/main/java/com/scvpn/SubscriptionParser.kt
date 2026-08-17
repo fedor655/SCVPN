@@ -20,6 +20,23 @@ object SubscriptionParser {
 
     private const val USER_AGENT = "v2rayNG/1.9.5"
 
+    /**
+     * Параметры обфускации AmneziaWG в именах UAPI — те же, что понимает
+     * бинарник (см. `awg/conf.go`).
+     *
+     * Порядок фиксирован: из него собирается поле `awg`, и при разном порядке
+     * один и тот же сервер, добавленный дважды, выглядел бы разным.
+     */
+    private val AWG_PARAMS = listOf(
+        "jc", "jmin", "jmax",
+        "s1", "s2", "s3", "s4",
+        "h1", "h2", "h3", "h4",
+        "i1", "i2", "i3", "i4", "i5",
+    )
+
+    /** Порт wireguard по умолчанию — его же ставит wg-quick. */
+    private const val WG_PORT = 51820
+
     fun fetchSubscription(ctx: Context, url: String): List<Server> =
         fetchSubscriptionFull(ctx, url).first
 
@@ -110,9 +127,132 @@ object SubscriptionParser {
                 link.startsWith("vmess://") -> parseVmess(link)
                 link.startsWith("trojan://") -> parseTrojan(link)
                 link.startsWith("ss://") -> parseSs(link)
+                // Однострочная форма wireguard для подписок. Две схемы, потому
+                // что панели пишут то одну, то другую, а разбор у них один.
+                link.startsWith("wireguard://") || link.startsWith("awg://") -> parseWireguard(link)
                 else -> null
             }
         }.getOrNull()
+    }
+
+    /**
+     * Разбор многострочного `.conf` (wg-quick + расширения AmneziaWG).
+     *
+     * Это тот самый файл, что отдаёт панель, и ровно этот текст лежит в
+     * QR-коде. Поэтому он разбирается **до** разбиения на строки: построчный
+     * разбор увидел бы в нём мусор и вернул пустоту.
+     *
+     * Обязательные поля те же, что проверяет бинарник (`awg/conf.go`): без них
+     * сервер попал бы в список, а туннель потом молча не поднялся. `null`
+     * значит «это не .conf», и вызывающий пробует остальные виды ссылок.
+     */
+    fun parseWgConf(text: String): Server? {
+        if (!text.contains("[Interface]", ignoreCase = true)) return null
+
+        val s = Server(protocol = "wireguard", port = WG_PORT)
+        val obfuscation = mutableMapOf<String, String>()
+        var section = ""
+
+        for (raw in text.lines()) {
+            val line = raw.trim()
+            if (line.isEmpty()) continue
+            if (line.startsWith("#") || line.startsWith(";")) {
+                // Имя сервера панели кладут комментарием `# Name = ...` —
+                // больше его в файле взять неоткуда.
+                val comment = line.trimStart('#', ';').trim()
+                val eq = comment.indexOf('=')
+                if (eq > 0 && comment.substring(0, eq).trim().equals("name", ignoreCase = true)) {
+                    s.name = comment.substring(eq + 1).trim()
+                }
+                continue
+            }
+            if (line.startsWith("[") && line.endsWith("]")) {
+                section = line.substring(1, line.length - 1).trim().lowercase()
+                continue
+            }
+            val eq = line.indexOf('=')
+            if (eq < 0) continue
+            val key = line.substring(0, eq).trim().lowercase()
+            val value = line.substring(eq + 1).trim()
+            if (value.isEmpty()) continue
+
+            when (section) {
+                "interface" -> when (key) {
+                    "privatekey" -> s.privateKey = value
+                    "address" -> s.localAddress = joinList(value)
+                    "dns" -> s.wgDns = joinList(value)
+                    "mtu" -> s.mtu = value.toIntOrNull() ?: 0
+                    // ListenPort, Table, PreUp/PostUp и прочее к туннелю в
+                    // юзерспейсе отношения не имеют — файл от этого не «кривой».
+                    else -> if (key in AWG_PARAMS) obfuscation[key] = value
+                }
+                "peer" -> when (key) {
+                    "publickey" -> s.publicKey = value
+                    "presharedkey" -> s.presharedKey = value
+                    "endpoint" -> setEndpoint(s, value)
+                    "allowedips" -> s.allowedIPs = joinList(value)
+                    // «off» — это «не слать», то есть ноль.
+                    "persistentkeepalive" -> s.keepalive = value.toIntOrNull() ?: 0
+                }
+            }
+        }
+
+        s.awg = AWG_PARAMS.mapNotNull { p -> obfuscation[p]?.let { "$p=$it" } }.joinToString(",")
+
+        val complete = s.privateKey.isNotBlank() && s.publicKey.isNotBlank() &&
+            s.address.isNotBlank() && s.localAddress.isNotBlank()
+        return if (complete) s else null
+    }
+
+    private fun parseWireguard(link: String): Server {
+        val u = URI(link)
+        // Регистр имён параметров у панелей гуляет, а смысл один — приводим к
+        // нижнему, как это делает и разбор .conf.
+        val q = query(u).mapKeys { it.key.lowercase() }
+        return Server(protocol = "wireguard").apply {
+            privateKey = normalizeKey(u.userInfo ?: "")
+            address = u.host ?: ""
+            port = if (u.port > 0) u.port else WG_PORT
+            name = u.fragment?.let { dec(it) } ?: ""
+            publicKey = normalizeKey(q["publickey"] ?: "")
+            presharedKey = normalizeKey(q["presharedkey"] ?: "")
+            localAddress = joinList(q["address"] ?: "")
+            allowedIPs = joinList(q["allowedips"] ?: "")
+            wgDns = joinList(q["dns"] ?: "")
+            mtu = q["mtu"]?.toIntOrNull() ?: 0
+            keepalive = q["keepalive"]?.toIntOrNull() ?: 0
+            awg = AWG_PARAMS.mapNotNull { p ->
+                q[p]?.takeIf { it.isNotBlank() }?.let { "$p=$it" }
+            }.joinToString(",")
+        }
+    }
+
+    /** Endpoint пира: `host:port`, у IPv6 — `[адрес]:порт`. */
+    private fun setEndpoint(s: Server, value: String) {
+        val colon = value.lastIndexOf(':')
+        if (colon <= 0) return
+        // Скобки снимаем: в модели лежит голый адрес, обратно их добавляет
+        // сборка .conf (AwgProcess).
+        s.address = value.substring(0, colon).trim().trim('[', ']')
+        s.port = value.substring(colon + 1).trim().toIntOrNull() ?: WG_PORT
+    }
+
+    /** Список через запятую без лишних пробелов и пустых элементов. */
+    private fun joinList(value: String): String =
+        value.split(",").map { it.trim() }.filter { it.isNotEmpty() }.joinToString(",")
+
+    /**
+     * Ключ из ссылки в тот вид, которого ждёт бинарник, — обычный base64.
+     *
+     * `URLDecoder` здесь применять нельзя, а его следы приходится убирать:
+     * плюс он превращает в пробел, а в base64 плюс значащий. Дальше — url-safe
+     * алфавит обратно в обычный и паддинг, без которого декодер откажется
+     * читать ключ, а туннель не поднимется без внятной причины.
+     */
+    private fun normalizeKey(raw: String): String {
+        val s = raw.trim().replace(' ', '+').replace('-', '+').replace('_', '/')
+        if (s.isEmpty()) return ""
+        return s + "=".repeat((4 - s.length % 4) % 4)
     }
 
     // ---- base64 (url-safe и без паддинга тоже) ----

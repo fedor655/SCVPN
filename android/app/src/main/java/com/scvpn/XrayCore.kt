@@ -68,7 +68,12 @@ object XrayCore {
      * реально ответил, — тем же приёмом, что и десктопный `connect.py`.
      */
     fun pingServer(ctx: Context, server: Server): Long {
-        val needsFp = server.security == "reality" || server.security == "tls"
+        // У wireguard TLS нет вовсе: `security` у него заглушка `none`, и
+        // перебор отпечатков гонял бы один и тот же замер четыре раза впустую.
+        // Проверка по протоколу, а не по одному лишь `security`: заглушку в
+        // профиле могли переписать руками.
+        val needsFp = server.protocol != "wireguard" &&
+            (server.security == "reality" || server.security == "tls")
         val candidates = if (!needsFp || server.fingerprint.isNotBlank())
             listOf(server.fingerprint)
         else
@@ -76,7 +81,10 @@ object XrayCore {
 
         for (fp in candidates) {
             val probe = server.copy(fingerprint = fp)
-            val ms = measureDelay(ctx, XrayConfig.buildForPing(probe))
+            // Сборка конфига падает на незнакомом протоколе. Это ошибка записи,
+            // а не сети, и ронять из-за неё замер всего списка незачем.
+            val config = runCatching { XrayConfig.buildForPing(probe) }.getOrNull() ?: return -1
+            val ms = measureDelay(ctx, config)
             if (ms > 0) {
                 if (needsFp) server.fingerprint = sanitizeFingerprint(fp)
                 return ms

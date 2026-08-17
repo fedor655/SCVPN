@@ -70,7 +70,28 @@ class PingWorker(QThread):
             self.log.emit("[!] Ядра нет — меряю пинг по TCP, "
                           "это проверка порта, а не работоспособности сервера.")
         for s in self._servers:
-            ms = (ping_delay(s, route_mode=self._route_mode) if through_core
-                  else tcp_ping(s.address, s.port))
-            self.result.emit(s.key(), ms)
+            self.result.emit(s.key(), self._measure(s, through_core))
         self.done.emit()
+
+    def _measure(self, s, through_core: bool):
+        """Задержка одного сервера. None — измерить не вышло или нечем.
+
+        Исключения ловим здесь, а не вокруг цикла: любое из них, вылетев из
+        run(), убило бы поток вместе с сигналом done, и список остался бы с
+        половиной пустых строк и вечным «Пингую серверы…» в логе.
+        """
+        try:
+            if s.protocol == "wireguard":
+                # У WireGuard нет TCP-порта, к которому можно подключиться, —
+                # запасной путь для него не «хуже», а неверен. Меряем только
+                # через поднятый туннель, а без бинарника не меряем вовсе.
+                if not (through_core and paths.awg_exe().exists()):
+                    self.log.emit(f"[!] {s.title}: нет scvpn-awg — задержку WireGuard не измерить.")
+                    return None
+                return ping_delay(s, route_mode=self._route_mode)
+            if through_core:
+                return ping_delay(s, route_mode=self._route_mode)
+            return tcp_ping(s.address, s.port)
+        except Exception as e:  # noqa: BLE001
+            self.log.emit(f"[!] {s.title}: замер не вышел ({e})")
+            return None

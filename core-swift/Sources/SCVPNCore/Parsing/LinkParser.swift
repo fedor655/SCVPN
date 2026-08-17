@@ -11,6 +11,8 @@ public func parseLink(_ link: String) -> Server? {
     if link.hasPrefix("vmess://")  { return parseVmess(link) }
     if link.hasPrefix("trojan://") { return parseTrojan(link) }
     if link.hasPrefix("ss://")     { return parseShadowsocks(link) }
+    if link.hasPrefix("wireguard://") { return parseWireGuard(link, scheme: "wireguard://") }
+    if link.hasPrefix("awg://")       { return parseWireGuard(link, scheme: "awg://") }
     return nil
 }
 
@@ -227,6 +229,48 @@ private func parseShadowsocks(_ link: String) -> Server? {
     }
     if s.address.isEmpty || s.method.isEmpty { return nil }
     return s
+}
+
+/// Разбор `wireguard://` и `awg://` — однострочной формы для подписок.
+///
+/// Многострочный `.conf` разбирает `parseWireGuardConf`: сюда он не поместился
+/// бы, потому что подписка — это строго строка на сервер.
+///
+/// Схемы две и обе значат одно и то же. Панели зовут это по-разному, а
+/// отличается не протокол, а наличие параметров обфускации: с ними это
+/// AmneziaWG, без них — обычный WireGuard.
+private func parseWireGuard(_ link: String, scheme: String) -> Server? {
+    // wireguard://<приватный ключ base64>@host:port?publickey=…&address=…#имя
+    let p = splitLink(link, scheme: scheme)
+    if p.host.isEmpty || p.userInfo.isEmpty { return nil }
+
+    var s = Server(proto: "wireguard")
+    // Приватный ключ в userinfo часто приезжает в url-safe алфавите: '+' и '/'
+    // в этой позиции пришлось бы экранировать, и панели просто заменяют их.
+    s.privateKey = p.userInfo
+        .replacingOccurrences(of: "-", with: "+")
+        .replacingOccurrences(of: "_", with: "/")
+    s.address = p.host
+    s.port = p.port ?? 0
+    s.name = p.fragment
+    // Имена параметров у панелей разнятся; принимаем оба написания, потому что
+    // выбирать за пользователя, чья ссылка «правильная», мы не можем.
+    s.publicKey = p.query["publickey"] ?? p.query["public_key"] ?? p.query["pbk"] ?? ""
+    s.presharedKey = p.query["presharedkey"] ?? p.query["preshared_key"] ?? ""
+    s.localAddress = p.query["address"] ?? p.query["ip"] ?? ""
+    s.allowedIPs = p.query["allowedips"] ?? p.query["allowed_ips"] ?? ""
+    s.wgDNS = p.query["dns"] ?? ""
+    s.mtu = Int(p.query["mtu"] ?? "") ?? 0
+    s.keepalive = Int(p.query["keepalive"] ?? p.query["persistentkeepalive"] ?? "") ?? 0
+
+    var awg: [String: String] = [:]
+    for name in awgParamNames {
+        if let value = p.query[name], !value.isEmpty { awg[name] = value }
+    }
+    s.awg = joinAWG(awg)
+    s.extra = extra(p.query)
+
+    return validWireGuard(s)
 }
 
 /// Разобрать содержимое подписки в список серверов.

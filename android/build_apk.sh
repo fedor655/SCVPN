@@ -26,6 +26,8 @@ export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 [ -f app/libs/libv2ray.aar ] || { echo "[!] Нет app/libs/libv2ray.aar — см. README"; exit 1; }
 [ -f app/src/main/jniLibs/arm64-v8a/libhev-socks5-tunnel.so ] || {
   echo "[!] Нет libhev-socks5-tunnel.so — см. README"; exit 1; }
+[ -f app/src/main/jniLibs/arm64-v8a/libscvpnawg.so ] || {
+  echo "[!] Нет libscvpnawg.so — собери его из awg/, см. README"; exit 1; }
 
 gradle assembleDebug --no-daemon "$@"
 

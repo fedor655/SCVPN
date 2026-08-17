@@ -12,6 +12,12 @@ object XrayConfig {
 
     const val SOCKS_PORT = 10808
 
+    /**
+     * Порт локального SOCKS5, который поднимает `scvpn-awg` (см. AwgProcess).
+     * Стоит рядом с портом самого приложения — оба слушают только 127.0.0.1.
+     */
+    const val AWG_PORT = 10810
+
     // Режимы маршрутизации — те же, что на десктопе.
     const val ROUTE_GLOBAL = "global"
     const val ROUTE_BYPASS_RU = "bypass_ru"
@@ -31,6 +37,7 @@ object XrayConfig {
         socksPort: Int = SOCKS_PORT,
         logLevel: String = "warning",
         routeMode: String = ROUTE_GLOBAL,
+        awgPort: Int = AWG_PORT,
     ): String {
         val cfg = JSONObject()
         cfg.put("log", JSONObject().put("loglevel", logLevel))
@@ -50,7 +57,7 @@ object XrayConfig {
 
         // --- outbounds: proxy / direct / block ---
         val outbounds = JSONArray()
-        outbounds.put(buildOutbound(server))
+        outbounds.put(buildOutbound(server, awgPort))
         outbounds.put(JSONObject().put("tag", "direct").put("protocol", "freedom").put("settings", JSONObject()))
         outbounds.put(JSONObject().put("tag", "block").put("protocol", "blackhole").put("settings", JSONObject()))
         cfg.put("outbounds", outbounds)
@@ -90,14 +97,14 @@ object XrayConfig {
      * Мини-конфиг для замера задержки: только один outbound, без инбаундов.
      * Именно такой формат ждёт `Libv2ray.measureOutboundDelay`.
      */
-    fun buildForPing(server: Server): String {
+    fun buildForPing(server: Server, awgPort: Int = AWG_PORT): String {
         val cfg = JSONObject()
         cfg.put("log", JSONObject().put("loglevel", "none"))
-        cfg.put("outbounds", JSONArray().put(buildOutbound(server)))
+        cfg.put("outbounds", JSONArray().put(buildOutbound(server, awgPort)))
         return cfg.toString()
     }
 
-    private fun buildOutbound(s: Server): JSONObject {
+    private fun buildOutbound(s: Server, awgPort: Int): JSONObject {
         val out = JSONObject().put("tag", "proxy").put("protocol", s.protocol)
 
         when (s.protocol) {
@@ -123,6 +130,23 @@ object XrayConfig {
                     .put("method", s.method).put("password", s.password)
                 out.put("settings", JSONObject().put("servers", JSONArray().put(srv)))
             }
+            "wireguard" -> {
+                // Сам AmneziaWG держит отдельный процесс scvpn-awg, а Xray
+                // ходит в него как в обычный внешний socks-прокси. Поэтому
+                // здесь не wireguard-outbound Xray, а socks на localhost: так
+                // маршрутизация, DNS и мост в TUN остаются те же самые.
+                val srv = JSONObject().put("address", "127.0.0.1").put("port", awgPort)
+                out.put("protocol", "socks")
+                out.put("settings", JSONObject().put("servers", JSONArray().put(srv)))
+                // streamSettings этому выходу не нужен: транспорт до сервера
+                // описывает .conf туннеля, а до 127.0.0.1 нечего настраивать.
+                // Прицепленный сюда `security: none` ядро сбил бы с толку.
+                return out
+            }
+            // Раньше неизвестный протокол молча давал outbound без settings:
+            // конфиг собирался, ядро запускалось и никуда не ходило. Пусть
+            // лучше подъём падает с именем протокола.
+            else -> throw IllegalArgumentException("Неизвестный протокол: ${s.protocol}")
         }
 
         out.put("streamSettings", buildStream(s))

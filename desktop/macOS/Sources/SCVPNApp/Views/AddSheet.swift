@@ -19,8 +19,9 @@ struct AddSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Style.sheetGap) {
             Text("""
-                Вставь ссылку сервера (vless:// / vmess:// / trojan:// / ss://)
-                или URL подписки — либо отсканируй QR-код.
+                Вставь ссылку сервера (vless:// / vmess:// / trojan:// / ss:// /
+                wireguard://), конфиг AmneziaWG целиком или URL подписки —
+                либо отсканируй QR-код.
                 """)
                 .font(.scvpnUI(12))
                 .foregroundStyle(Color.scvpnDim)
@@ -68,6 +69,19 @@ struct AddSheet: View {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         problem = nil
 
+        // Конфиг AmneziaWG проверяем первым: он многострочный, и разбору ссылок
+        // с ним делать нечего. Он же приезжает из QR — там лежит ровно этот
+        // текст, а не ссылка.
+        if looksLikeWireGuardConf(value) {
+            guard let server = parseWireGuardConf(value) else {
+                problem = "Это конфиг WireGuard, но в нём не хватает "
+                    + "обязательного: PrivateKey, PublicKey, Address или Endpoint."
+                return
+            }
+            model.addServer(server)
+            dismiss()
+            return
+        }
         if let server = parseLink(value) {
             model.addServer(server)
             dismiss()

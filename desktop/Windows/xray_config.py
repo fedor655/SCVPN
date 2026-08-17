@@ -15,11 +15,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from models import Server
+from models import DEFAULT_AWG_PORT, Server
 
 # Локальные порты по умолчанию (только на 127.0.0.1, наружу не торчат).
 DEFAULT_SOCKS_PORT = 10808
 DEFAULT_HTTP_PORT = 10809
+# Третий такой же порт — SOCKS5 бинарника scvpn-awg — объявлен в models.py:
+# там он служит значением по умолчанию для to_outbound(). См. DEFAULT_AWG_PORT.
 
 # Режимы маршрутизации.
 ROUTE_GLOBAL = "global"        # весь трафик через VPN (кроме локалки)
@@ -31,6 +33,7 @@ def build_config(
     *,
     socks_port: int = DEFAULT_SOCKS_PORT,
     http_port: int = DEFAULT_HTTP_PORT,
+    awg_port: int = DEFAULT_AWG_PORT,
     route_mode: str = ROUTE_GLOBAL,
     block_ads: bool = False,
     log_path: str | None = None,
@@ -40,7 +43,9 @@ def build_config(
         "log": {"loglevel": log_level},
         "inbounds": _inbounds(socks_port, http_port),
         "outbounds": [
-            server.to_outbound("proxy"),
+            # awg_port нужен только серверам wireguard: для них outbound —
+            # это socks в уже поднятый scvpn-awg (см. Server.to_outbound).
+            server.to_outbound("proxy", awg_port),
             {"tag": "direct", "protocol": "freedom", "settings": {}},
             {"tag": "block", "protocol": "blackhole", "settings": {}},
         ],

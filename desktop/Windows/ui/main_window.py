@@ -30,9 +30,10 @@ from PySide6.QtWidgets import (
 )
 
 from app_info import __version__
+from awg_runner import AwgRunner
 from connect import find_working_fingerprint
 from core_runner import XrayRunner, find_free_port
-from models import Server
+from models import DEFAULT_AWG_PORT, Server
 from storage import (
     Profiles,
     Subscription,
@@ -42,7 +43,12 @@ from storage import (
     save_profiles,
     save_settings,
 )
-from subscription import SubscriptionError, fetch_subscription_full, parse_link
+from subscription import (
+    SubscriptionError,
+    fetch_subscription_full,
+    parse_link,
+    parse_wg_conf,
+)
 from xray_config import ROUTE_BYPASS_RU, ROUTE_GLOBAL, build_config
 from native import sysproxy
 from native.downloader import (
@@ -103,6 +109,7 @@ class MainWindow(QMainWindow):
     log_signal = Signal(str)
     state_signal = Signal(bool)
     tun_state_signal = Signal(bool)
+    awg_state_signal = Signal(bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -132,9 +139,16 @@ class MainWindow(QMainWindow):
             on_log=self.log_signal.emit,
             on_state=self.tun_state_signal.emit,
         )
+        # Туннель WireGuard держит отдельный процесс, и Xray ходит в него как
+        # в обычный локальный SOCKS. Запускается он только для wireguard-серверов.
+        self.awg = AwgRunner(
+            on_log=self.log_signal.emit,
+            on_state=self.awg_state_signal.emit,
+        )
         self.log_signal.connect(self._append_log)
         self.state_signal.connect(self._on_state)
         self.tun_state_signal.connect(self._on_tun_state)
+        self.awg_state_signal.connect(self._on_awg_state)
 
         # Тикает раз в секунду, пока подключены, — считает время сессии.
         self._clock = QTimer(self)
@@ -487,6 +501,14 @@ class MainWindow(QMainWindow):
     def _proto_label(s: Server) -> str:
         """Что видно под именем: протокол, адрес и транспорт — то, по чему
         пользователь отличает два сервера с одинаковым названием."""
+        if s.protocol == "wireguard":
+            # security и network у WireGuard — заглушки полей модели (none/tcp),
+            # и показывать их значило бы соврать дважды. Взамен — то, что у него
+            # действительно есть: обфускация AmneziaWG или её отсутствие.
+            parts = ["wireguard", f"{s.address}:{s.port}"]
+            if s.awg:
+                parts.append("обфускация")
+            return " · ".join(parts)
         parts = [s.protocol, f"{s.address}:{s.port}"]
         if s.security not in ("", "none"):
             parts.append(s.security)
@@ -549,7 +571,10 @@ class MainWindow(QMainWindow):
         self._append_log(f"[*] Подключаюсь к: {server.title}")
 
         override = self.settings.get("tls_fingerprint", "auto")
-        needs_fp = server.security in ("reality", "tls")
+        # Протокол проверяем явно, хотя у wireguard security и так "none":
+        # подбор отпечатка стоит запуска ядра на каждого кандидата, а
+        # притворяться браузером у WireGuard нечему — TLS у него нет вовсе.
+        needs_fp = server.protocol != "wireguard" and server.security in ("reality", "tls")
 
         if not needs_fp or override != "auto":
             # конкретный отпечаток или транспорт без TLS — стартуем сразу
@@ -647,25 +672,39 @@ class MainWindow(QMainWindow):
         # Свободные порты, чтобы не конфликтовать с другими клиентами (Happ и т.п.).
         socks_port = find_free_port(int(self.settings.get("socks_port", 10808)))
         http_port = find_free_port(max(int(self.settings.get("http_port", 10809)), socks_port + 1))
+        awg_port = find_free_port(max(DEFAULT_AWG_PORT, http_port + 1))
         self._active_socks_port = socks_port
         self._active_http_port = http_port
         self._connected_title = srv.title
 
-        cfg = build_config(
-            srv,
-            socks_port=socks_port,
-            http_port=http_port,
-            route_mode=route_mode,
-            block_ads=bool(self.settings.get("block_ads", False)),
-            log_level="warning",
-        )
-        self._append_log(f"[*] Порты SOCKS={socks_port}, HTTP={http_port}, отпечаток={srv.fingerprint}")
+        detail = (f", AmneziaWG={awg_port}" if srv.protocol == "wireguard"
+                  else f", отпечаток={srv.fingerprint}")
+        self._append_log(f"[*] Порты SOCKS={socks_port}, HTTP={http_port}{detail}")
+
+        # build_config стоит внутри try не для красоты: на неизвестном протоколе
+        # он бросает ValueError, и, стоя выше, тот вылетал прямо из обработчика
+        # нажатия — окно оставалось в «Подключение…» без единого слова о причине.
         try:
+            cfg = build_config(
+                srv,
+                socks_port=socks_port,
+                http_port=http_port,
+                awg_port=awg_port,
+                route_mode=route_mode,
+                block_ads=bool(self.settings.get("block_ads", False)),
+                log_level="warning",
+            )
+            # Порядок обязателен: Xray подключается к порту AmneziaWG сразу, и
+            # поднимать его надо первым. start() возвращается только после
+            # готовности туннеля.
+            if srv.protocol == "wireguard":
+                self.awg.start(srv, awg_port)
             self.runner.start(cfg)
         except Exception as e:  # noqa: BLE001
             self._want_connected = False
+            self.awg.stop()
             self._render_state("error")
-            QMessageBox.critical(self, "Ошибка запуска ядра", str(e))
+            QMessageBox.critical(self, "Ошибка запуска", str(e))
             return
 
         if mode == "tun":
@@ -693,6 +732,9 @@ class MainWindow(QMainWindow):
             sysproxy.disable()
             self._append_log("[*] Системный прокси выключён")
         self.runner.stop()
+        # Туннель AmneziaWG гасим последним: поднимали его первым, и до
+        # остановки Xray в него ещё уходит трафик.
+        self.awg.stop()
         # После runner.stop(): она синхронно приводит к _on_state(False), а та
         # рисует "idle" — то самое «Отключено», которое здесь было бы ложью.
         if not tun_down:
@@ -724,6 +766,7 @@ class MainWindow(QMainWindow):
         if self._want_connected:
             self._want_connected = False
             tun_down = self.tun.stop()
+            self.awg.stop()
             if sysproxy.is_enabled():
                 sysproxy.disable()
             self._append_log("[!] Соединение разорвано (ядро остановилось).")
@@ -757,10 +800,21 @@ class MainWindow(QMainWindow):
             # закрыть соединение с демоном (Tun уже знает, что не жив)
             tun_down = self.tun.stop()
             self.runner.stop()
+            self.awg.stop()
             if sysproxy.is_enabled():
                 sysproxy.disable()
             if not tun_down:
                 self._report_tun_stuck()
+
+    def _on_awg_state(self, running: bool) -> None:
+        if running or not self._want_connected:
+            return
+        # Туннель WireGuard умер, а Xray жив и продолжает слать трафик в порт,
+        # который больше никто не слушает. Снаружи это выглядит как
+        # «подключено, но ничего не грузится» — худшее из состояний, потому
+        # что в нём человек ищет причину не там. Рвём всё сами.
+        self._append_log("[!] Туннель AmneziaWG остановился — отключаюсь.")
+        self.disconnect_vpn()
 
     # ------------------------------------------------------------------
     # Статус
@@ -816,7 +870,17 @@ class MainWindow(QMainWindow):
         if not text:
             return
 
-        s = parse_link(text)
+        # Конфиг WireGuard пробуем первым: он многострочный, и разбор по ссылкам
+        # его не увидит. Ровно этот текст лежит и в QR-кодах панелей Amnezia.
+        try:
+            s = parse_wg_conf(text)
+        except ValueError as e:
+            # Блок [Interface] в тексте есть, но неполный. Сказать «не
+            # распознано» было бы неправдой: распознали, не хватает конкретного.
+            QMessageBox.warning(self, "Конфиг WireGuard неполный", str(e))
+            return
+        if s is None:
+            s = parse_link(text)
         if s is not None:
             self.profiles.servers.append(s)
             save_profiles(self.profiles)
@@ -1123,6 +1187,7 @@ class MainWindow(QMainWindow):
             if sysproxy.is_enabled():
                 sysproxy.disable()
             self.runner.stop()
+            self.awg.stop()
             # Именно на закрытии молчать нельзя больше всего: приложения через
             # секунду не будет, а поднятый utun с мёртвым туннелем останется —
             # без этого сообщения пользователь узнает о нём по пропавшей сети.

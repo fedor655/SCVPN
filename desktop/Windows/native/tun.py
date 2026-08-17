@@ -143,6 +143,7 @@ SPLIT_INCLUDE = "include"   # только выбранные через VPN
 CORES = {
     "singbox.pid": ("sing-box", "TUN-адаптер"),
     "xray.pid": ("xray", "соединение с сервером"),
+    "awg.pid": ("scvpn-awg", "туннель AmneziaWG"),
 }
 
 
@@ -246,7 +247,15 @@ def build_singbox_config(
     # зацикливался: Xray решает пустить российский сайт напрямую, его прямое
     # соединение снова попадает в TUN, оттуда обратно в Xray — и так по кругу.
     # Раньше это обходили запретом «Авто» в TUN-режиме, теперь запрет не нужен.
-    rules.append({"process_path": [str(paths.xray_exe())], "outbound": "direct"})
+    #
+    # Рядом с ним обязан стоять scvpn-awg: у него свой UDP-сокет до сервера
+    # WireGuard, и он не проходит через Xray. Попади этот сокет в туннель — тот
+    # самый круг, только замкнутый на себя: пакеты туннеля идут в туннель.
+    # Правило одно на оба пути, потому что причина у них одна.
+    rules.append({
+        "process_path": [str(paths.xray_exe()), str(paths.awg_exe())],
+        "outbound": "direct",
+    })
 
     if apps and split_mode == SPLIT_EXCLUDE:
         # Выбранные — мимо VPN, всё остальное (final) — в туннель.

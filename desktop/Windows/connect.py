@@ -16,6 +16,7 @@ from typing import Callable, Optional
 
 import requests
 
+from awg_runner import AwgRunner
 from core_runner import XrayRunner, find_free_port
 from models import Server
 from xray_config import build_config
@@ -33,6 +34,11 @@ FALLBACK_FPS = ["firefox", "chrome", "safari", "edge", "ios", "randomized"]
 
 def candidate_fingerprints(server: Server, override: str) -> list[str]:
     """Список отпечатков для проверки в порядке предпочтения."""
+    if server.protocol == "wireguard":
+        # У WireGuard нет TLS-рукопожатия — подбирать нечего. Один пустой
+        # кандидат, а не пустой список: и подбор, и замер пинга по длине
+        # списка понимают «перебирать не надо», и делают ровно одну пробу.
+        return [""]
     if override and override not in ("auto", ""):
         return [override]  # пользователь выбрал конкретный — без подбора
     cands: list[str] = []
@@ -90,6 +96,10 @@ def xray_delay(server: Server, route_mode: str = "global", block_ads: bool = Fal
     делается настоящий запрос — с рукопожатием протокола, TLS и всем, из-за
     чего сервер и может не работать.
 
+    Для wireguard тем же способом поднимается и туннель: TCP-коннектом его не
+    померить вовсе — он живёт на UDP, — а через туннель число означает ровно
+    то же, что и у остальных протоколов.
+
     Плата известна: на каждый сервер уходит запуск xray и примерно полторы
     секунды на подъём портов.
     """
@@ -98,11 +108,15 @@ def xray_delay(server: Server, route_mode: str = "global", block_ads: bool = Fal
     # закрывает сокет сразу после проверки.
     sp = find_free_port(port_base)
     hp = find_free_port(max(port_base + 1, sp + 1))
-    cfg = build_config(server, socks_port=sp, http_port=hp, route_mode=route_mode,
-                       block_ads=block_ads, log_level="error")
+    ap = find_free_port(hp + 1)
     runner = XrayRunner(on_log=lambda x: None, on_state=lambda x: None)
-    runner.start(cfg)
+    awg = AwgRunner(on_log=lambda x: None)
     try:
+        cfg = build_config(server, socks_port=sp, http_port=hp, awg_port=ap,
+                           route_mode=route_mode, block_ads=block_ads, log_level="error")
+        if server.protocol == "wireguard":
+            awg.start(server, ap)  # вернётся, только когда туннель готов
+        runner.start(cfg)
         time.sleep(1.3)  # дать ядру поднять порты
         proxies = {"http": f"http://127.0.0.1:{hp}", "https": f"http://127.0.0.1:{hp}"}
         # Время считаем вокруг запроса, а не вокруг всей пробы: подъём ядра —
@@ -113,9 +127,13 @@ def xray_delay(server: Server, route_mode: str = "global", block_ads: bool = Fal
             return None
         return int((time.monotonic() - started) * 1000)
     except Exception:
+        # Сюда же попадают «нет бинарника» и «туннель не поднялся». Это замер:
+        # его дело — вернуть число или его отсутствие, а не решать за список
+        # серверов, что делать дальше.
         return None
     finally:
         runner.stop()
+        awg.stop()
         time.sleep(0.3)
 
 

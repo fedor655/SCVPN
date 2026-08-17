@@ -1,9 +1,14 @@
 """Парсер ссылок и подписок.
 
 Поддерживает ссылки:
-  vless://, vmess://, trojan://, ss:// (shadowsocks)
+  vless://, vmess://, trojan://, ss:// (shadowsocks),
+  wireguard:// и awg:// (WireGuard / AmneziaWG)
 и подписки — это URL, который возвращает либо текст со списком таких ссылок
 (по одной на строку), либо тот же текст в base64.
+
+Отдельно от ссылок разбирается многострочный .conf формата wg-quick —
+parse_wg_conf(). Это тот же текст, который лежит в QR-коде у панелей Amnezia,
+и разбирать его надо до разбиения на строки.
 
 Никакой обфускации: каждая функция делает ровно то, что написано в её имени.
 """
@@ -24,6 +29,20 @@ from subinfo import SubscriptionInfo
 # чтобы подписка отдавала именно список vless://-ссылок, а не clash-конфиг.
 # Значение можно поменять в настройках — никакого скрытого смысла тут нет.
 DEFAULT_USER_AGENT = "v2rayNG/1.9.5"
+
+# Параметры обфускации AmneziaWG в именах UAPI и в том же порядке, что в
+# awg/conf.go, — там же объяснено, почему список берётся как есть, а не
+# разбирается поимённо. Порядок фиксирован, чтобы один и тот же конфиг всегда
+# давал одну и ту же строку Server.awg, какой бы стороной он ни пришёл.
+AWG_PARAMS = (
+    "jc", "jmin", "jmax",
+    "s1", "s2", "s3", "s4",
+    "h1", "h2", "h3", "h4",
+    "i1", "i2", "i3", "i4", "i5",
+)
+
+# Порт WireGuard по умолчанию — если в ссылке или Endpoint его не указали.
+DEFAULT_WG_PORT = 51820
 
 
 class SubscriptionError(Exception):
@@ -115,6 +134,34 @@ def _b64decode_text(data: str) -> str:
     return _b64decode(data).decode("utf-8", errors="replace")
 
 
+def _b64_std(data: str) -> str:
+    """Ключ WireGuard в обычный base64 — тот, что ждёт scvpn-awg.
+
+    В ссылке алфавит url-safe, в .conf обычный; на диске по контракту лежит
+    обычный. Заодно это единственная проверка ключа на нашей стороне: обрезанный
+    ключ UAPI принял бы молча, и туннель просто не поднялся бы без объяснений.
+    """
+    if not data:
+        return ""
+    raw = _b64decode(data)
+    if len(raw) != 32:
+        raise ValueError(f"ключ длиной {len(raw)} байт вместо 32")
+    return base64.b64encode(raw).decode("ascii")
+
+
+def _int(value: str) -> int:
+    """Число из конфига; 0 — если там мусор или пусто (0 значит «по умолчанию»)."""
+    try:
+        return int(value.strip())
+    except ValueError:
+        return 0
+
+
+def _csv(value: str) -> str:
+    """Список через запятую без пробелов: "a/32, b/128" -> "a/32,b/128"."""
+    return ",".join(p.strip() for p in value.split(",") if p.strip())
+
+
 # ----------------------------------------------------------------------
 # Парсинг отдельных ссылок
 # ----------------------------------------------------------------------
@@ -132,6 +179,8 @@ def parse_link(link: str) -> Server | None:
             return _parse_trojan(link)
         if link.startswith("ss://"):
             return _parse_ss(link)
+        if link.startswith(("wireguard://", "awg://")):
+            return _parse_wireguard(link)
     except Exception as e:  # noqa: BLE001 — не роняем парсинг всей подписки из-за одной кривой ссылки
         print(f"[subscription] не смог разобрать ссылку: {e}: {link[:60]}...")
     return None
@@ -239,6 +288,130 @@ def _parse_ss(link: str) -> Server:
     s.address = host
     s.port = int(port or 8388)
     return s
+
+
+def _parse_wireguard(link: str) -> Server:
+    # wireguard://<base64 privkey>@host:port?publickey=..&address=..&jc=..#имя
+    #
+    # Однострочная форма нужна только подпискам: панель отдаёт список ссылок по
+    # одной на строку, и многострочный .conf туда не помещается.
+    u = urlparse(link)
+    # Ключи параметров приводим к нижнему регистру: панели пишут и publickey,
+    # и publicKey, а значение от этого не меняется.
+    qs = {k.lower(): v for k, v in parse_qs(u.query).items()}
+    s = Server(protocol="wireguard")
+    s.private_key = _b64_std(unquote(u.username or ""))
+    s.public_key = _b64_std(_get1(qs, "publickey"))
+    s.preshared_key = _b64_std(_get1(qs, "presharedkey"))
+    s.address = u.hostname or ""
+    s.port = u.port or DEFAULT_WG_PORT
+    s.name = unquote(u.fragment) if u.fragment else ""
+    s.local_address = _csv(_get1(qs, "address"))
+    s.allowed_ips = _csv(_get1(qs, "allowedips")) or "0.0.0.0/0,::/0"
+    s.wg_dns = _csv(_get1(qs, "dns"))
+    s.mtu = _int(_get1(qs, "mtu"))
+    s.keepalive = _int(_get1(qs, "keepalive"))
+    s.awg = ",".join(f"{n}={_get1(qs, n)}" for n in AWG_PARAMS if _get1(qs, n))
+    s.extra = {k: v[0] for k, v in qs.items()}
+    return s
+
+
+# ----------------------------------------------------------------------
+# Многострочный .conf (wg-quick + AmneziaWG)
+# ----------------------------------------------------------------------
+def parse_wg_conf(text: str) -> Server | None:
+    """Разобрать .conf в Server. None — это не .conf.
+
+    Два разных исхода нужны вызывающему. None значит «секции [Interface] тут
+    нет», и строку ещё имеет смысл попробовать как ссылку или URL подписки.
+    ValueError значит «это .conf, но в нём не хватает обязательного» — тогда
+    человеку надо сказать, чего именно, а не «не распознано».
+
+    Разбор повторяет awg/conf.go: тот же файл читает сам бинарник, здесь он
+    нужен только затем, чтобы разложить поля по профилю.
+    """
+    lines = text.splitlines()
+    if not any(l.strip().lower() == "[interface]" for l in lines):
+        return None
+
+    s = Server(protocol="wireguard", allowed_ips="")
+    awg: dict[str, str] = {}
+    section = ""
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith(("#", ";")):
+            # Имя панели кладут комментарием — больше нам из комментариев
+            # ничего не нужно.
+            name = _conf_name(line)
+            if name and not s.name:
+                s.name = name
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip().lower()
+            continue
+        raw_key, sep, raw_value = line.partition("=")
+        if not sep:
+            continue
+        key, value = raw_key.strip().lower(), raw_value.strip()
+        if not value:
+            continue
+        if section == "interface":
+            if key == "privatekey":
+                s.private_key = _b64_std(value)
+            elif key == "address":
+                s.local_address = _csv(value)
+            elif key == "dns":
+                s.wg_dns = _csv(value)
+            elif key == "mtu":
+                s.mtu = _int(value)
+            elif key in AWG_PARAMS:
+                awg[key] = value
+            # ListenPort, Table, PreUp/PostUp к юзерспейс-стеку отношения не
+            # имеют — молча пропускаем, файл от этого не «кривой».
+        elif section == "peer":
+            if key == "publickey":
+                s.public_key = _b64_std(value)
+            elif key == "presharedkey":
+                s.preshared_key = _b64_std(value)
+            elif key == "endpoint":
+                s.address, s.port = _endpoint(value)
+            elif key == "allowedips":
+                s.allowed_ips = _csv(value)
+            elif key == "persistentkeepalive" and value.lower() != "off":
+                s.keepalive = _int(value)
+
+    s.awg = ",".join(f"{n}={awg[n]}" for n in AWG_PARAMS if n in awg)
+    # Пустой AllowedIPs у wg-quick значит «ничего не маршрутизировать», но в
+    # клиентском конфиге это всегда опечатка: туннель поднимется и не пропустит
+    # ни байта. Ставим полный — так же поступает awg/conf.go.
+    if not s.allowed_ips:
+        s.allowed_ips = "0.0.0.0/0,::/0"
+
+    missing = [what for what, got in (
+        ("PrivateKey", s.private_key),
+        ("PublicKey в [Peer]", s.public_key),
+        ("Endpoint в [Peer]", s.address),
+        ("Address в [Interface]", s.local_address),
+    ) if not got]
+    if missing:
+        raise ValueError("В конфиге WireGuard нет: " + ", ".join(missing))
+    return s
+
+
+def _conf_name(line: str) -> str:
+    """Имя сервера из комментария вида `# Name = Амстердам`."""
+    key, sep, value = line.lstrip("#;").strip().partition("=")
+    return value.strip() if sep and key.strip().lower() == "name" else ""
+
+
+def _endpoint(value: str) -> tuple[str, int]:
+    """Endpoint пира в (хост, порт). IPv6 приходит в скобках — снимаем их."""
+    host, sep, port = value.rpartition(":")
+    if not sep:
+        return value.strip("[]"), DEFAULT_WG_PORT
+    return host.strip().strip("[]"), _int(port) or DEFAULT_WG_PORT
 
 
 # ----------------------------------------------------------------------

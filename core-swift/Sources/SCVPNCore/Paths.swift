@@ -41,6 +41,14 @@ public enum Paths {
     /// запуск обязан найти осиротевший xray и снять его.
     public static var xrayPIDFile: URL { dataDir.appendingPathComponent("xray.pid") }
 
+    /// Конфиг wireguard-сервера для процесса `scvpn-awg`.
+    ///
+    /// В нём лежит приватный ключ туннеля, поэтому файл пишется с правами
+    /// 0600, в отличие от конфига Xray: тот показывать не жалко.
+    public static var awgConfigFile: URL { dataDir.appendingPathComponent("awg_running.conf") }
+    /// PID `scvpn-awg` — по той же причине, что и у Xray.
+    public static var awgPIDFile: URL { dataDir.appendingPathComponent("awg.pid") }
+
     #if os(macOS)
     // ------------------------------------------------------------------
     // Хозяйство привилегированного демона
@@ -54,6 +62,8 @@ public enum Paths {
     public static let helperLabel = "com.scvpn.helper"
 
     public static var xrayExe: URL { binDir.appendingPathComponent("xray") }
+    /// AmneziaWG-туннель отдельным процессом рядом с ядром.
+    public static var awgExe: URL { binDir.appendingPathComponent("scvpn-awg") }
     /// sing-box используется только для TUN-режима и живёт в root-овой папке.
     public static var singboxExe: URL { helperBinDir.appendingPathComponent("sing-box") }
     public static var geoipDat: URL { binDir.appendingPathComponent("geoip.dat") }

@@ -51,10 +51,21 @@ LOG_DIR = DATA_DIR / "logs"
 PROFILES_FILE = DATA_DIR / "profiles.json"      # серверы + подписки
 SETTINGS_FILE = DATA_DIR / "settings.json"      # настройки приложения
 XRAY_CONFIG_FILE = DATA_DIR / "xray_running.json"  # активный конфиг ядра (для отладки)
+# Активный .conf AmneziaWG. Лежит там же, где конфиг Xray, и защищён так же —
+# то есть правами на саму папку: в собранном приложении это %LOCALAPPDATA%\SCVPN
+# внутри профиля пользователя, в разработке — data/ рядом с исходниками. Отдельной
+# защиты приватному ключу не выдумываем: рядом уже лежит xray_running.json с
+# uuid и паролем сервера, и он ничем не менее ценен.
+AWG_CONFIG_FILE = DATA_DIR / "awg_running.conf"
 
 
 def xray_exe() -> Path:
     return BIN_DIR / ("xray.exe" if os.name == "nt" else "xray")
+
+
+def awg_exe() -> Path:
+    """scvpn-awg — AmneziaWG в виде локального SOCKS5 (сборка из папки awg/)."""
+    return BIN_DIR / ("scvpn-awg.exe" if os.name == "nt" else "scvpn-awg")
 
 
 def singbox_exe() -> Path:

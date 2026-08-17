@@ -11,11 +11,17 @@ import uuid as _uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+# Локальный SOCKS5 бинарника scvpn-awg — через него ходит wireguard-outbound.
+# Порт объявлен здесь, а не рядом с 10808/10809 в xray_config, чтобы у
+# to_outbound() было значение по умолчанию без обратной зависимости модели от
+# сборки конфига.
+DEFAULT_AWG_PORT = 10810
+
 
 @dataclass
 class Server:
     # --- основное ---
-    protocol: str = "vless"        # vless | vmess | trojan | shadowsocks
+    protocol: str = "vless"        # vless | vmess | trojan | shadowsocks | wireguard
     name: str = ""                  # отображаемое имя (из #fragment)
     address: str = ""               # хост или IP
     port: int = 443
@@ -45,6 +51,24 @@ class Server:
     ws_host: str = ""               # Host-заголовок для ws
     grpc_service: str = ""          # serviceName для grpc
 
+    # --- WireGuard / AmneziaWG ---
+    # Имена полей заморожены контрактом и одинаковы на всех четырёх платформах:
+    # profiles.json переносят между ними как есть. Endpoint пира — это уже
+    # существующие address/port, а публичный ключ сервера — public_key: у
+    # Reality то же самое значение и тот же смысл.
+    private_key: str = ""           # приватный ключ клиента (base64)
+    preshared_key: str = ""         # PresharedKey (base64), пусто — если нет
+    local_address: str = ""         # Address интерфейса через запятую
+    allowed_ips: str = ""           # "0.0.0.0/0,::/0"; пусто — полный
+    wg_dns: str = ""                # DNS интерфейса через запятую
+    mtu: int = 0                    # 0 — взять 1420
+    keepalive: int = 0              # 0 — не слать
+    # Параметры обфускации одной строкой вида "jc=10,jmin=47" в именах UAPI.
+    # Одним полем намеренно: Amnezia добавляет их от версии к версии, и разбор
+    # поимённо означал бы правку четырёх платформ на каждый новый ключ. Пустое
+    # значение — обычный WireGuard без обфускации, это рабочий режим.
+    awg: str = ""
+
     # сырые параметры на всякий случай (для отладки)
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -55,7 +79,19 @@ class Server:
     # ------------------------------------------------------------------
     # Сборка outbound для Xray
     # ------------------------------------------------------------------
-    def to_outbound(self, tag: str = "proxy") -> dict[str, Any]:
+    def to_outbound(self, tag: str = "proxy", awg_port: int = DEFAULT_AWG_PORT) -> dict[str, Any]:
+        if self.protocol == "wireguard":
+            # WireGuard держит не Xray, а отдельный scvpn-awg, и отдаёт его
+            # локальным SOCKS5 — Xray просто ходит в этот порт. Так весь код
+            # маршрутизации, DNS, TUN и системного прокси остаётся общим.
+            # streamSettings здесь не нужен и вреден: до 127.0.0.1 нечего
+            # шифровать и не за кого себя выдавать.
+            return {
+                "tag": tag,
+                "protocol": "socks",
+                "settings": {"servers": [{"address": "127.0.0.1", "port": awg_port}]},
+            }
+
         out: dict[str, Any] = {"tag": tag, "protocol": self.protocol}
 
         if self.protocol == "vless":
@@ -162,6 +198,12 @@ class Server:
         return cls(**{k: v for k, v in d.items() if k in known})
 
     def key(self) -> str:
-        """Грубый ключ для отсева дубликатов при обновлении подписки."""
-        return f"{self.protocol}://{self.uuid or self.password}@{self.address}:{self.port}/{self.network}/{self.security}"
+        """Грубый ключ для отсева дубликатов при обновлении подписки.
+
+        public_key последним запасным — из-за WireGuard: у него нет ни uuid, ни
+        пароля, и два разных пира на одном host:port схлопывались бы в одну
+        строку списка. Формат строки при этом не меняется.
+        """
+        secret = self.uuid or self.password or self.public_key
+        return f"{self.protocol}://{secret}@{self.address}:{self.port}/{self.network}/{self.security}"
 

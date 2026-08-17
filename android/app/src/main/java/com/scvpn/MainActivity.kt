@@ -396,8 +396,12 @@ class MainActivity : AppCompatActivity() {
     private fun addSomething(raw: String) {
         val text = raw.trim()
         if (text.isEmpty()) return
+        // Многострочный .conf от AmneziaWG пробуем первым и целиком: остальные
+        // виды смотрят на начало строки и увидели бы в нём мусор. Тем же путём
+        // приходит QR — в нём лежит ровно этот текст.
+        val server = SubscriptionParser.parseWgConf(text) ?: SubscriptionParser.parseLink(text)
         when {
-            SubscriptionParser.parseLink(text) != null -> addLink(text)
+            server != null -> addServer(server)
             text.startsWith("http://") || text.startsWith("https://") -> addSubscription(text)
             else -> toast("Это не похоже ни на ссылку сервера, ни на URL подписки")
         }
@@ -417,9 +421,7 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun addLink(text: String) {
-        val s = SubscriptionParser.parseLink(text.trim())
-        if (s == null) { toast("Не распознал ссылку"); return }
+    private fun addServer(s: Server) {
         val merged = Subscriptions.addUnique(servers, s)
         if (merged == null) { toast("Такой сервер уже есть: ${s.title}"); return }
         servers = merged.toMutableList()
@@ -729,6 +731,12 @@ class MainActivity : AppCompatActivity() {
         val snapshot = servers.toList()
         Thread {
             for (s in snapshot) {
+                // Задержку wireguard-сервера здесь померить нечем: он живёт на
+                // UDP, а TCP-коннект к его порту ничего не значит. Настоящий
+                // замер идёт через поднятый туннель — но пинг как раз запрещён
+                // при подключении. Поэтому оставляем прочерк, а не пишем
+                // «нет ответа» про исправный сервер.
+                if (s.protocol == "wireguard") continue
                 val ms = XrayCore.pingServer(applicationContext, s)
                 ui.post {
                     pings[s.key()] = ms

@@ -3,6 +3,8 @@ import Foundation
 /// Локальные порты по умолчанию. Слушают только `127.0.0.1`, наружу не торчат.
 public let defaultSocksPort = 10808
 public let defaultHTTPPort = 10809
+/// Куда Xray ходит за трафиком wireguard-сервера: SOCKS процесса `scvpn-awg`.
+public let defaultAWGPort = 10810
 
 /// Режимы маршрутизации.
 public enum RouteMode: String, Sendable {
@@ -27,6 +29,7 @@ public func buildXrayConfig(
     server: Server,
     socksPort: Int = defaultSocksPort,
     httpPort: Int = defaultHTTPPort,
+    awgPort: Int = defaultAWGPort,
     routeMode: RouteMode = .global,
     blockAds: Bool = false,
     logPath: String? = nil,
@@ -49,7 +52,7 @@ public func buildXrayConfig(
         "log": log,
         "inbounds": inbounds(socksPort: socksPort, httpPort: httpPort),
         "outbounds": [
-            try server.toOutbound(tag: "proxy"),
+            try server.toOutbound(tag: "proxy", awgSocksPort: awgPort),
             ["tag": "direct", "protocol": "freedom", "settings": [:] as [String: Any]] as [String: Any],
             ["tag": "block", "protocol": "blackhole", "settings": [:] as [String: Any]] as [String: Any],
         ],
@@ -87,10 +90,10 @@ public let privateCIDRs = [
 /// Инбаундов нет: ядро поднимается внутри вызова `measureOutboundDelay`, ходит
 /// на `probeURL` и гаснет. Гео-ссылок нет тоже — замер не должен зависеть от
 /// наличия баз.
-public func buildProbeConfig(server: Server) throws -> String {
+public func buildProbeConfig(server: Server, awgPort: Int = defaultAWGPort) throws -> String {
     let cfg: [String: Any] = [
         "log": ["loglevel": "none"],
-        "outbounds": [try server.toOutbound(tag: "proxy")],
+        "outbounds": [try server.toOutbound(tag: "proxy", awgSocksPort: awgPort)],
     ]
     let data = try JSONSerialization.data(withJSONObject: cfg)
     return String(decoding: data, as: UTF8.self)

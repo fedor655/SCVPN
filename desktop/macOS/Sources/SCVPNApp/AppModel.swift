@@ -56,6 +56,8 @@ final class AppModel: ObservableObject {
 
     private var profiles = Profiles()
     private var runner: XrayRunner!
+    /// Туннель AmneziaWG отдельным процессом. Живёт только у wireguard-серверов.
+    private var awg: AWGRunner!
     private var tun: Tun!
     /// Пользователь просил подключение. Гасится при любом отказе и при
     /// сознательном отключении — по нему `onState(false)` понимает, падение это
@@ -73,6 +75,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeServerTitle = ""
     private var activeSocksPort = 0
     private var activeHTTPPort = 0
+    private var activeAWGPort = 0
     private var clock: AnyCancellable?
 
     init() {
@@ -86,6 +89,12 @@ final class AppModel: ObservableObject {
             onLog: { [weak self] line in Task { @MainActor in self?.append(line) } },
             onState: { [weak self] running in Task { @MainActor in self?.onCoreState(running) } }
         )
+        // Состояние awg отдельным колбэком не заводим: он умирает вместе с
+        // подключением, а падение самого туннеля Xray увидит как отвалившийся
+        // socks-выход и доложит через onCoreState.
+        awg = AWGRunner(
+            onLog: { [weak self] line in Task { @MainActor in self?.append(line) } }
+        )
         tun = Tun(
             onLog: { [weak self] line in Task { @MainActor in self?.append(line) } },
             onState: { [weak self] running in Task { @MainActor in self?.onTunState(running) } }
@@ -95,6 +104,9 @@ final class AppModel: ObservableObject {
         // про sing-box заботиться не нужно, его стережёт демон.
         if XrayRunner.cleanupStray() {
             append("[*] С прошлого запуска остался xray — убрал.")
+        }
+        if AWGRunner.cleanupStray() {
+            append("[*] С прошлого запуска остался туннель AmneziaWG — убрал.")
         }
     }
 
@@ -156,6 +168,16 @@ final class AppModel: ObservableObject {
             alert = .init(title: "Нет ядра", text: "Меню «⋯» → «Скачать ядро Xray».")
             return
         }
+        // Ядро Xray нужно и wireguard-серверу — оно остаётся впереди и держит
+        // маршрутизацию. А сам туннель поднимает отдельный бинарник, и без
+        // него подключение упало бы уже после «Подключение…».
+        if server.isWireGuard,
+           !FileManager.default.fileExists(atPath: Paths.awgExe.path) {
+            alert = .init(title: "Нет туннеля AmneziaWG",
+                          text: "Не найден \(Paths.awgExe.path).\n"
+                              + "Собери его: cd awg && ./build.sh")
+            return
+        }
         // Регистрация демона показывает системный диалог и ждёт согласия
         // пользователя — минуты, если он ушёл в System Settings. На главном
         // потоке это выглядит как зависшее приложение, поэтому TUN-ветка
@@ -211,17 +233,29 @@ final class AppModel: ObservableObject {
         let socksPort = findFreePort(preferred: settings["socks_port"]?.intValue ?? defaultSocksPort)
         let httpPort = findFreePort(preferred: max(settings["http_port"]?.intValue ?? defaultHTTPPort,
                                                    socksPort + 1))
+        let awgPort = srv.isWireGuard
+            ? findFreePort(preferred: max(defaultAWGPort, httpPort + 1))
+            : 0
         activeSocksPort = socksPort
         activeHTTPPort = httpPort
+        activeAWGPort = awgPort
         activeServerTitle = srv.title
 
         do {
+            // Туннель поднимается до ядра и ждёт готовности: Xray, стартовав
+            // раньше, упёрся бы в закрытый порт и молча не работал, а на
+            // экране было бы «Подключено».
+            if srv.isWireGuard {
+                append("[*] Поднимаю туннель AmneziaWG на 127.0.0.1:\(awgPort)…")
+                try awg.start(server: srv, socksPort: awgPort)
+            }
             let cfg = try buildXrayConfig(server: srv, socksPort: socksPort, httpPort: httpPort,
-                                          routeMode: routeMode,
+                                          awgPort: awgPort, routeMode: routeMode,
                                           blockAds: settings["block_ads"]?.boolValue ?? false)
             append("[*] Порты SOCKS=\(socksPort), HTTP=\(httpPort), отпечаток=\(srv.fingerprint)")
             try runner.start(cfg)
         } catch {
+            awg.stop()
             wantConnected = false
             state = .error
             alert = .init(title: "Ошибка запуска ядра", text: "\(error)")
@@ -265,6 +299,7 @@ final class AppModel: ObservableObject {
         _ = tun.stop()
         if SystemProxy.systemProxyIsOurs() { SystemProxy.disable() }
         runner.stop()
+        awg.stop()
     }
 
     func disconnect() {
@@ -276,6 +311,9 @@ final class AppModel: ObservableObject {
             append("[*] Системный прокси выключён")
         }
         runner.stop()
+        // Туннель гасим после ядра: наоборот Xray на мгновение остался бы с
+        // мёртвым выходом и записал бы в лог отказы, которых не было.
+        awg.stop()
         // После runner.stop() приходит onCoreState(false), а она рисует «idle»
         // — то самое «Отключено», которое здесь было бы ложью.
         if !tunDown { reportTunStuck() }

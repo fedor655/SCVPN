@@ -7,6 +7,7 @@ desktop/Windows/dist/
 desktop/Windows/dist_installer/
 desktop/macOS/.build/
 desktop/macOS/dist/
+awg/dist/
 
 # Профили, настройки и логи: там реальные подписки и ключи серверов.
 desktop/Windows/data/

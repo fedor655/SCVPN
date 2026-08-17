@@ -10,9 +10,9 @@ public struct Server: Codable, Equatable, Sendable {
     /// `protocol` — зарезервированное слово Swift, поэтому поле зовётся
     /// `proto`. На диске ключ остаётся `protocol`: смена ключа сломала бы
     /// чтение существующих `profiles.json`.
-    public var proto: String = "vless"      // vless | vmess | trojan | shadowsocks
+    public var proto: String = "vless"      // vless | vmess | trojan | shadowsocks | wireguard
     public var name: String = ""            // отображаемое имя (из #fragment)
-    public var address: String = ""         // хост или IP
+    public var address: String = ""         // хост или IP (у wireguard — Endpoint пира)
     public var port: Int = 443
 
     // --- учётные данные ---
@@ -40,6 +40,25 @@ public struct Server: Codable, Equatable, Sendable {
     public var wsHost: String = ""          // Host-заголовок для ws
     public var grpcService: String = ""     // serviceName для grpc
 
+    // --- wireguard / AmneziaWG ---
+    // Публичный ключ пира лежит в общем `publicKey`: у Reality то же значение
+    // значит то же самое — «публичный ключ сервера», и отдельное поле только
+    // размножило бы имена на диске.
+    public var privateKey: String = ""      // приватный ключ клиента, base64
+    public var presharedKey: String = ""    // PresharedKey, base64; пусто — нет
+    public var localAddress: String = ""    // адреса интерфейса: "10.66.66.4/32,fd42::4/128"
+    public var allowedIPs: String = ""      // "0.0.0.0/0,::/0"; пусто — полный
+    public var wgDNS: String = ""           // DNS интерфейса через запятую
+    public var mtu: Int = 0                 // 0 — взять 1420
+    public var keepalive: Int = 0           // 0 — не слать
+    /// Параметры обфускации AmneziaWG как `jc=10,jmin=47,…` в именах UAPI.
+    ///
+    /// Одной строкой намеренно: Amnezia добавляет параметры от версии к версии
+    /// (jc…h4 были в 1.5, i1…i5 приехали во 2.0), и открытый список избавляет
+    /// от правки четырёх платформ на каждый новый ключ. Пусто — это обычный
+    /// WireGuard без обфускации, рабочий режим, а не ошибка.
+    public var awg: String = ""
+
     /// Сырые параметры на всякий случай — и чтобы неизвестные ключи ссылки
     /// переживали круг чтение-запись.
     public var extra: [String: JSONValue] = [:]
@@ -56,6 +75,12 @@ public struct Server: Codable, Equatable, Sendable {
         case wsPath = "ws_path"
         case wsHost = "ws_host"
         case grpcService = "grpc_service"
+        case privateKey = "private_key"
+        case presharedKey = "preshared_key"
+        case localAddress = "local_address"
+        case allowedIPs = "allowed_ips"
+        case wgDNS = "wg_dns"
+        case mtu, keepalive, awg
         case extra
     }
 
@@ -66,6 +91,9 @@ public struct Server: Codable, Equatable, Sendable {
                 fingerprint: String = "", alpn: String = "", publicKey: String = "",
                 shortID: String = "", spiderX: String = "/", allowInsecure: Bool = false,
                 wsPath: String = "/", wsHost: String = "", grpcService: String = "",
+                privateKey: String = "", presharedKey: String = "",
+                localAddress: String = "", allowedIPs: String = "", wgDNS: String = "",
+                mtu: Int = 0, keepalive: Int = 0, awg: String = "",
                 extra: [String: JSONValue] = [:]) {
         self.proto = proto; self.name = name; self.address = address; self.port = port
         self.uuid = uuid; self.password = password; self.method = method
@@ -73,7 +101,11 @@ public struct Server: Codable, Equatable, Sendable {
         self.flow = flow; self.sni = sni; self.fingerprint = fingerprint; self.alpn = alpn
         self.publicKey = publicKey; self.shortID = shortID; self.spiderX = spiderX
         self.allowInsecure = allowInsecure; self.wsPath = wsPath; self.wsHost = wsHost
-        self.grpcService = grpcService; self.extra = extra
+        self.grpcService = grpcService
+        self.privateKey = privateKey; self.presharedKey = presharedKey
+        self.localAddress = localAddress; self.allowedIPs = allowedIPs
+        self.wgDNS = wgDNS; self.mtu = mtu; self.keepalive = keepalive; self.awg = awg
+        self.extra = extra
     }
 
     /// Отсутствующие ключи берут значение по умолчанию, а не роняют разбор:
@@ -107,8 +139,61 @@ public struct Server: Codable, Equatable, Sendable {
         self.wsPath = str(.wsPath, "/")
         self.wsHost = str(.wsHost, "")
         self.grpcService = str(.grpcService, "")
+        self.privateKey = str(.privateKey, "")
+        self.presharedKey = str(.presharedKey, "")
+        self.localAddress = str(.localAddress, "")
+        self.allowedIPs = str(.allowedIPs, "")
+        self.wgDNS = str(.wgDNS, "")
+        self.mtu = (try? c.decode(Int.self, forKey: .mtu)) ?? 0
+        self.keepalive = (try? c.decode(Int.self, forKey: .keepalive)) ?? 0
+        self.awg = str(.awg, "")
         self.extra = (try? c.decode([String: JSONValue].self, forKey: .extra)) ?? [:]
     }
+
+    /// Записываем поля wireguard только когда они заполнены.
+    ///
+    /// Синтезированный кодировщик писал бы восемь пустых ключей в каждую
+    /// строчку каждого профиля — и, что важнее, менял бы уже лежащий на диске
+    /// файл при первом же сохранении. Круг «прочитать-записать» обязан
+    /// оставлять чужой файл байт в байт, иначе профиль, принесённый с другой
+    /// платформы, тихо переписывается здешней версией формата.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(proto, forKey: .proto)
+        try c.encode(name, forKey: .name)
+        try c.encode(address, forKey: .address)
+        try c.encode(port, forKey: .port)
+        try c.encode(uuid, forKey: .uuid)
+        try c.encode(password, forKey: .password)
+        try c.encode(method, forKey: .method)
+        try c.encode(alterID, forKey: .alterID)
+        try c.encode(network, forKey: .network)
+        try c.encode(security, forKey: .security)
+        try c.encode(flow, forKey: .flow)
+        try c.encode(sni, forKey: .sni)
+        try c.encode(fingerprint, forKey: .fingerprint)
+        try c.encode(alpn, forKey: .alpn)
+        try c.encode(publicKey, forKey: .publicKey)
+        try c.encode(shortID, forKey: .shortID)
+        try c.encode(spiderX, forKey: .spiderX)
+        try c.encode(allowInsecure, forKey: .allowInsecure)
+        try c.encode(wsPath, forKey: .wsPath)
+        try c.encode(wsHost, forKey: .wsHost)
+        try c.encode(grpcService, forKey: .grpcService)
+        try c.encode(extra, forKey: .extra)
+
+        if !privateKey.isEmpty { try c.encode(privateKey, forKey: .privateKey) }
+        if !presharedKey.isEmpty { try c.encode(presharedKey, forKey: .presharedKey) }
+        if !localAddress.isEmpty { try c.encode(localAddress, forKey: .localAddress) }
+        if !allowedIPs.isEmpty { try c.encode(allowedIPs, forKey: .allowedIPs) }
+        if !wgDNS.isEmpty { try c.encode(wgDNS, forKey: .wgDNS) }
+        if mtu != 0 { try c.encode(mtu, forKey: .mtu) }
+        if keepalive != 0 { try c.encode(keepalive, forKey: .keepalive) }
+        if !awg.isEmpty { try c.encode(awg, forKey: .awg) }
+    }
+
+    /// Сервер, который поднимает не Xray, а отдельный процесс `scvpn-awg`.
+    public var isWireGuard: Bool { proto == "wireguard" }
 
     public var title: String {
         name.isEmpty ? "\(address):\(port)" : name
@@ -119,14 +204,33 @@ public struct Server: Codable, Equatable, Sendable {
     /// Формат заморожен: он лежит в `settings.json` как `selected_key`, и
     /// смена формата потеряла бы выбранный сервер у каждого пользователя.
     public func key() -> String {
-        let secret = uuid.isEmpty ? password : uuid
+        // Третьим идёт публичный ключ: у wireguard нет ни uuid, ни пароля, и
+        // без него два разных пира на одном host:port схлопнулись бы в один
+        // ключ — то есть в одну строку списка и один `selected_key`. Формат
+        // строки при этом не меняется, ключи vless и trojan прежние.
+        var secret = uuid.isEmpty ? password : uuid
+        if secret.isEmpty { secret = publicKey }
         return "\(proto)://\(secret)@\(address):\(port)/\(network)/\(security)"
     }
 
     // ------------------------------------------------------------------
     // Сборка outbound для Xray
     // ------------------------------------------------------------------
-    public func toOutbound(tag: String = "proxy") throws -> [String: Any] {
+    public func toOutbound(tag: String = "proxy",
+                           awgSocksPort: Int = defaultAWGPort) throws -> [String: Any] {
+        // wireguard уходит первым и с ранним return: сам туннель держит
+        // отдельный процесс `scvpn-awg`, а Xray только ходит в него как в
+        // обычный SOCKS. Отсюда и отсутствие streamSettings — их добавляет
+        // общий хвост метода, и для wireguard они не значат ничего.
+        if isWireGuard {
+            return [
+                "tag": tag,
+                "protocol": "socks",
+                "settings": ["servers": [["address": "127.0.0.1",
+                                          "port": awgSocksPort] as [String: Any]]],
+            ]
+        }
+
         var out: [String: Any] = ["tag": tag, "protocol": proto]
 
         switch proto {

@@ -40,6 +40,21 @@ class ScVpnService : VpnService() {
         // бы. Цена решения: до чисто-IPv6 хостов достучится лишь тот, у кого
         // сервер сам умеет исходящий IPv6 — зато утечки нет никогда.
         private const val TUN_ADDR6 = "fc00::26:26:26:1"
+
+        /**
+         * MTU туннеля.
+         *
+         * 1500 — обычный канал. Для vless и прочих это ни на что не влияет:
+         * TCP разбирает hev-мост, и размер пакета до сервера от этого числа не
+         * зависит. У wireguard зависит: UDP-датаграмма доезжает до стека
+         * внутри scvpn-awg целиком, а там канал уже 1420 байт — остальное
+         * съедает заголовок WireGuard. Всё, что крупнее, режется на фрагменты:
+         * лишний расход, а по дороге фрагменты ещё и теряют.
+         *
+         * Поэтому wireguard-серверу объявляем сразу MTU его собственного
+         * туннеля. Число одно на TUN и на hev — мост собирает пакеты по нему
+         * же, и разойтись им нельзя.
+         */
         private const val MTU = 1500
 
         @Volatile var isRunning = false
@@ -74,9 +89,10 @@ class ScVpnService : VpnService() {
     private fun startVpn(server: Server) {
         try {
             // 1) поднять TUN
+            val mtu = mtuFor(server)
             val builder = Builder()
                 .setSession("SCVPN")
-                .setMtu(MTU)
+                .setMtu(mtu)
                 .addAddress(TUN_ADDR, 30)
                 .addRoute("0.0.0.0", 0)
                 .addAddress(TUN_ADDR6, 126)
@@ -98,7 +114,16 @@ class ScVpnService : VpnService() {
             val pfd = builder.establish() ?: throw IllegalStateException("establish() вернул null")
             tun = pfd
 
-            // 2) запустить Xray (socks на 127.0.0.1:10808)
+            // 2) для wireguard — поднять scvpn-awg и дождаться его готовности.
+            // Строго до Xray: его socks-выход смотрит в этот порт, и запуск в
+            // обратном порядке дал бы окно, в котором трафик идти некуда.
+            if (server.protocol == "wireguard" &&
+                !AwgProcess.start(applicationContext, server, XrayConfig.AWG_PORT)
+            ) {
+                throw IllegalStateException("AmneziaWG не запустился")
+            }
+
+            // 3) запустить Xray (socks на 127.0.0.1:10808)
             val config = XrayConfig.build(
                 server, routeMode = Prefs.routeMode(applicationContext)
             )
@@ -106,8 +131,8 @@ class ScVpnService : VpnService() {
                 throw IllegalStateException("Xray не запустился")
             }
 
-            // 3) запустить hev-мост: TUN <-> socks
-            val yaml = buildHevConfig()
+            // 4) запустить hev-мост: TUN <-> socks
+            val yaml = buildHevConfig(mtu)
             val cfgFile = File(filesDir, "hev.yaml").apply { writeText(yaml) }
             TProxyService.TProxyStartService(cfgFile.absolutePath, pfd.fd)
 
@@ -139,6 +164,11 @@ class ScVpnService : VpnService() {
     private fun cleanup() {
         try { TProxyService.TProxyStopService() } catch (e: Exception) { Log.e(TAG, "hev stop", e) }
         XrayCore.stop()
+        // В обратном порядке: пока Xray жив, он держит соединения через
+        // scvpn-awg, и гасить туннель под ними незачем. Зовётся всегда, даже
+        // если сервер не wireguard, — процесс мог остаться от прошлого
+        // подключения, а второй запуск упёрся бы в занятый порт.
+        AwgProcess.stop()
         try { tun?.close() } catch (e: Exception) { Log.e(TAG, "tun close", e) }
         tun = null
         isRunning = false
@@ -164,9 +194,14 @@ class ScVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun buildHevConfig(): String = buildString {
+    /** См. комментарий к MTU: у wireguard канал уже, и врать об этом нельзя. */
+    private fun mtuFor(server: Server): Int =
+        if (server.protocol != "wireguard") MTU
+        else if (server.mtu > 0) server.mtu else AwgProcess.DEFAULT_MTU
+
+    private fun buildHevConfig(mtu: Int): String = buildString {
         appendLine("tunnel:")
-        appendLine("  mtu: $MTU")
+        appendLine("  mtu: $mtu")
         appendLine("  ipv4: $TUN_ADDR")
         // Кавычки обязательны: без них hev читает адрес не как строку.
         appendLine("  ipv6: '$TUN_ADDR6'")

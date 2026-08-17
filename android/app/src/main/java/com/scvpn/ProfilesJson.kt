@@ -40,6 +40,16 @@ object ProfilesJson {
         put("ws_path", s.wsPath)
         put("ws_host", s.wsHost)
         put("grpc_service", s.grpcService)
+        // wireguard/AmneziaWG. Публичный ключ пира уже уехал выше в
+        // `public_key` — у Reality это поле значит ровно то же самое.
+        put("private_key", s.privateKey)
+        put("preshared_key", s.presharedKey)
+        put("local_address", s.localAddress)
+        put("allowed_ips", s.allowedIPs)
+        put("wg_dns", s.wgDns)
+        put("mtu", s.mtu)
+        put("keepalive", s.keepalive)
+        put("awg", s.awg)
     }
 
     /** Сервер из десктопного вида. Неизвестные поля пропускаются. */
@@ -65,6 +75,14 @@ object ProfilesJson {
         wsHost = o.optString("ws_host"),
         grpcService = o.optString("grpc_service"),
         allowInsecure = o.optBoolean("allow_insecure", false),
+        privateKey = o.optString("private_key"),
+        presharedKey = o.optString("preshared_key"),
+        localAddress = o.optString("local_address"),
+        allowedIPs = o.optString("allowed_ips"),
+        wgDns = o.optString("wg_dns"),
+        mtu = o.optInt("mtu", 0),
+        keepalive = o.optInt("keepalive", 0),
+        awg = o.optString("awg"),
         sub = sub,
     )
 

@@ -51,6 +51,21 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // Распаковывать библиотеки на диск при установке. Без этого система
+            // читает их прямо из APK, а запустить оттуда ничего нельзя —
+            // scvpn-awg же именно запускается, как программа (см. AwgProcess).
+            // То же самое сказано в манифесте: Gradle перекрывает манифест,
+            // поэтому значение приходится держать в двух местах.
+            useLegacyPackaging = true
+            // Не отдавать бинарник в strip от NDK: это не библиотека, а
+            // готовая программа Go, и её таблицы символов нужны самой
+            // программе — обрезанная падает вместо запуска.
+            keepDebugSymbols += "**/libscvpnawg.so"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
