@@ -15,6 +15,7 @@ TUN требует прав администратора (создание ад�
 from __future__ import annotations
 
 import ctypes
+import ipaddress
 import socket
 import subprocess
 import sys
@@ -103,17 +104,30 @@ def relaunch_as_admin() -> bool:
 # Резолв IP сервера (для обходного маршрута)
 # ----------------------------------------------------------------------
 def resolve_ips(host: str) -> list[str]:
-    """Список IPv4-адресов хоста. Если host уже IP — вернуть его."""
+    """Список IP-адресов хоста, v4 и v6. Если host уже IP — вернуть его.
+
+    Обе версии, а не только IPv4: список уходит в route_exclude_address, то есть
+    в запасной пояс от петли «ядро -> TUN -> ядро». Сервер с IPv6-адресом при
+    IPv4-only резолве давал пустой список, и его трафик заворачивало в туннель.
+    """
     try:
-        socket.inet_aton(host)
-        return [host]  # уже IPv4
-    except OSError:
+        return [str(ipaddress.ip_address(host))]  # уже адрес
+    except ValueError:
         pass
     try:
-        infos = socket.getaddrinfo(host, None, socket.AF_INET)
-        return sorted({i[4][0] for i in infos})
+        infos = socket.getaddrinfo(host, None, socket.AF_UNSPEC)
     except Exception:  # noqa: BLE001
         return []
+    found = set()
+    for i in infos:
+        # У IPv6 getaddrinfo может отдать адрес с зоной («fe80::1%eth0»).
+        # В маршрут такое не годится, а ip_address на нём падает — поэтому
+        # зону срезаем, а остаток всё равно проверяем.
+        try:
+            found.add(str(ipaddress.ip_address(i[4][0].partition("%")[0])))
+        except ValueError:
+            continue
+    return sorted(found)
 
 
 # ----------------------------------------------------------------------
@@ -222,7 +236,8 @@ def build_singbox_config(
     в туннель, либо напрямую. Поэтому это работает только в TUN-режиме —
     системный прокси про приложения ничего не знает.
     """
-    excludes = [f"{ip}/32" for ip in exclude_ips]
+    # Маска по версии адреса: у IPv6 хост-префикс это /128, а не /32.
+    excludes = [f"{ip}/128" if ":" in ip else f"{ip}/32" for ip in exclude_ips]
     apps = [a.strip() for a in (split_apps or []) if a.strip()]
 
     rules: list[dict] = []

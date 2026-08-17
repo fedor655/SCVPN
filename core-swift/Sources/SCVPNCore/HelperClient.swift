@@ -210,12 +210,18 @@ func writeAllClient(_ fd: Int32, _ data: Data) -> Bool {
     }
 }
 
-/// Список IPv4-адресов хоста. Если host уже IP — вернуть его.
+/// Список IP-адресов хоста, v4 и v6. Если host уже IP — вернуть его.
+///
+/// Обе версии, а не только IPv4: результат уходит в `exclude_ips`, то есть в
+/// запасной пояс от петли «ядро -> TUN -> ядро». Сервер с IPv6-адресом при
+/// IPv4-only резолве давал пустой список, и его собственный трафик заворачивало
+/// в туннель.
 public func resolveIPs(_ host: String) -> [String] {
-    var v4 = in_addr()
-    if inet_pton(AF_INET, host, &v4) == 1 { return [host] }
+    // Литерал приводим к канону тем же путём, что и адреса от клиента, — то
+    // есть строгим inet_pton, а не разбором строки.
+    if let ip = normalizedIPAddress(host) { return [ip] }
 
-    var hints = addrinfo(ai_flags: 0, ai_family: AF_INET, ai_socktype: SOCK_STREAM,
+    var hints = addrinfo(ai_flags: 0, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM,
                          ai_protocol: 0, ai_addrlen: 0,
                          ai_canonname: nil, ai_addr: nil, ai_next: nil)
     var list: UnsafeMutablePointer<addrinfo>?
@@ -227,12 +233,25 @@ public func resolveIPs(_ host: String) -> [String] {
     while let candidate = info {
         defer { info = candidate.pointee.ai_next }
         guard let sa = candidate.pointee.ai_addr else { continue }
-        sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { sin in
-            var addr = sin.pointee.sin_addr
-            var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-            if inet_ntop(AF_INET, &addr, &buf, socklen_t(INET_ADDRSTRLEN)) != nil {
-                found.insert(String(cString: buf))
+        switch Int32(sa.pointee.sa_family) {
+        case AF_INET:
+            sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { sin in
+                var addr = sin.pointee.sin_addr
+                var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                if inet_ntop(AF_INET, &addr, &buf, socklen_t(INET_ADDRSTRLEN)) != nil {
+                    found.insert(String(cString: buf))
+                }
             }
+        case AF_INET6:
+            sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { sin6 in
+                var addr = sin6.pointee.sin6_addr
+                var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                if inet_ntop(AF_INET6, &addr, &buf, socklen_t(INET6_ADDRSTRLEN)) != nil {
+                    found.insert(String(cString: buf))
+                }
+            }
+        default:
+            continue
         }
     }
     return found.sorted()

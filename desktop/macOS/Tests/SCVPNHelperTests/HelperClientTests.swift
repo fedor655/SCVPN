@@ -228,7 +228,12 @@ final class HelperClientTests: XCTestCase {
 
     func test_resolve_ips_returns_a_literal_untouched() {
         XCTAssertEqual(resolveIPs("1.2.3.4"), ["1.2.3.4"])
+        XCTAssertEqual(resolveIPs("2001:db8::1"), ["2001:db8::1"])
         XCTAssertEqual(resolveIPs("не.существует.вообще.invalid"), [])
-        XCTAssertEqual(resolveIPs("localhost"), ["127.0.0.1"])
+        // Резолв берёт обе версии, а localhost в /etc/hosts обычно и v4, и v6 —
+        // поэтому жёсткого равенства тут быть не может.
+        let local = Set(resolveIPs("localhost"))
+        XCTAssertTrue(local.contains("127.0.0.1"), "не нашёл 127.0.0.1: \(local)")
+        XCTAssertTrue(local.isSubset(of: ["127.0.0.1", "::1"]), "лишние адреса: \(local)")
     }
 }
