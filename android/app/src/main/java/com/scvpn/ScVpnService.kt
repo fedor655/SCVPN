@@ -31,6 +31,15 @@ class ScVpnService : VpnService() {
         private const val CHANNEL = "scvpn_vpn"
         private const val NOTIF_ID = 1
         private const val TUN_ADDR = "26.26.26.1"
+        // Адрес IPv6 на том же интерфейсе. Без него маршрут ::/0 не поднять, а
+        // без маршрута ::/0 весь IPv6-трафик приложений уходит мимо туннеля
+        // напрямую — на сетях операторов с IPv6 это утечка настоящего адреса.
+        // Взят ULA (fc00::/7), как у v2rayNG: приложения при выборе адреса
+        // источника (RFC 6724) ставят такой IPv6 ниже IPv4, поэтому двустековые
+        // сайты идут по IPv4, а в туннель попадает только то, что иначе утекло
+        // бы. Цена решения: до чисто-IPv6 хостов достучится лишь тот, у кого
+        // сервер сам умеет исходящий IPv6 — зато утечки нет никогда.
+        private const val TUN_ADDR6 = "fc00::26:26:26:1"
         private const val MTU = 1500
 
         @Volatile var isRunning = false
@@ -70,6 +79,8 @@ class ScVpnService : VpnService() {
                 .setMtu(MTU)
                 .addAddress(TUN_ADDR, 30)
                 .addRoute("0.0.0.0", 0)
+                .addAddress(TUN_ADDR6, 126)
+                .addRoute("::", 0)
                 .addDnsServer("1.1.1.1")
                 .addDnsServer("8.8.8.8")
 
@@ -157,6 +168,8 @@ class ScVpnService : VpnService() {
         appendLine("tunnel:")
         appendLine("  mtu: $MTU")
         appendLine("  ipv4: $TUN_ADDR")
+        // Кавычки обязательны: без них hev читает адрес не как строку.
+        appendLine("  ipv6: '$TUN_ADDR6'")
         appendLine("socks5:")
         appendLine("  port: ${XrayConfig.SOCKS_PORT}")
         appendLine("  address: 127.0.0.1")
